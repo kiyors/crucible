@@ -41,9 +41,13 @@ in
 
     rust-analyzer = mkOption {
       type = types.nullOr types.package;
-      default = cfg.package.rust-analyzer or null;
-      defaultText = literalExpression "config.programs.nix-cargo.package.rust-analyzer";
-      description = "rust-analyzer to install; the default matches the toolchain's rustc.";
+      default = null;
+      example = literalExpression "pkgs.rust-analyzer";
+      description = ''
+        A rust-analyzer to install next to the toolchain. nix-cargo's toolchains
+        already include the one built for their rustc, so this is only for a
+        `package` that lacks it.
+      '';
     };
 
     extraPackages = mkOption {
