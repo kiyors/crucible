@@ -6,4 +6,6 @@ rec {
 
   # `crucible update | doctor | pin`
   cli = pkgs.callPackage ./cli/package.nix { inherit (rust.stable) rustPlatform; };
+  # `crucible doctor` alone, quicker to build for `nix run` on a cold cache.
+  cli-doctor = cli.override { net = false; };
 }

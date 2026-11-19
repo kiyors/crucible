@@ -19,7 +19,7 @@
       packages = forAllSystems (
         system:
         let
-          inherit (crucible.${system}) rust cli;
+          inherit (crucible.${system}) rust cli cli-doctor;
         in
         {
           default = rust.stable;
@@ -27,15 +27,18 @@
           rust-nightly = rust.nightly;
           inherit (rust) cargo;
           crucible = cli;
+          crucible-doctor = cli-doctor;
         }
       );
 
-      # `nix run github:kiyors/crucible` runs `doctor`.
+      # `nix run github:kiyors/crucible` runs `doctor`, from a build without
+      # the network commands: most people run it once, on a cold cache.
+      # `update` and `pin` stay one `#crucible` away.
       apps = forAllSystems (system: {
         default = {
           type = "app";
-          program = nixpkgs.lib.getExe crucible.${system}.cli;
-          meta.description = "Update crucible's pins, diagnose a toolchain setup, pin a channel";
+          program = nixpkgs.lib.getExe crucible.${system}.cli-doctor;
+          meta.description = "Diagnose a toolchain setup for huacnlee/cargo";
         };
       });
 

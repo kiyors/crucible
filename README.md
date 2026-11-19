@@ -22,16 +22,17 @@ releases support.
 
 ## Outputs
 
-| Output                                | What it is                                          |
-| ------------------------------------- | --------------------------------------------------- |
-| `packages.<system>.rust` (`default`)  | stable + patched cargo                              |
-| `packages.<system>.rust-nightly`      | complete nightly with Cranelift + patched cargo     |
-| `packages.<system>.cargo`             | the patched cargo alone                             |
-| `packages.<system>.crucible`          | the CLI (`update`, `doctor`, `pin`)                 |
-| `lib.<system>.rust.toolchain`         | a toolchain from a channel, components and targets  |
-| `lib.<system>.rust.fromToolchainFile` | a toolchain from a project's `rust-toolchain.toml`  |
-| `overlays.default`                    | `pkgs.crucible`: `.rust` (everything above), `.cli` |
-| `homeManagerModules.default`          | `programs.crucible.rust`                            |
+| Output                                | What it is                                         |
+| ------------------------------------- | -------------------------------------------------- |
+| `packages.<system>.rust` (`default`)  | stable + patched cargo                             |
+| `packages.<system>.rust-nightly`      | complete nightly with Cranelift + patched cargo    |
+| `packages.<system>.cargo`             | the patched cargo alone                            |
+| `packages.<system>.crucible`          | the CLI (`update`, `doctor`, `pin`)                |
+| `packages.<system>.crucible-doctor`   | the CLI with `doctor` alone (`apps.default`)       |
+| `lib.<system>.rust.toolchain`         | a toolchain from a channel, components and targets |
+| `lib.<system>.rust.fromToolchainFile` | a toolchain from a project's `rust-toolchain.toml` |
+| `overlays.default`                    | `pkgs.crucible`: `.rust`, `.cli`, `.cli-doctor`    |
+| `homeManagerModules.default`          | `programs.crucible.rust`                           |
 
 Every toolchain also carries:
 
@@ -262,7 +263,7 @@ pkgs = import nixpkgs {
   overlays = [ crucible.overlays.default ];
 };
 
-# pkgs.crucible.rust.{stable,nightly,cargo}, pkgs.crucible.cli,
+# pkgs.crucible.rust.{stable,nightly,cargo}, pkgs.crucible.cli, pkgs.crucible.cli-doctor,
 # pkgs.crucible.rust.toolchain { ... }, pkgs.crucible.rust.fromToolchainFile { ... }
 ```
 
@@ -271,9 +272,13 @@ pkgs = import nixpkgs {
 `crucible` is a small Rust program in `cli/`, built with this flake's own toolchain:
 
 ```sh
-nix run github:kiyors/crucible                   # doctor: is cargo the fork, and is anything working against it?
-nix run github:kiyors/crucible -- pin rust 1.99  # the rust-manifest input and sha256 for a channel
+nix run github:kiyors/crucible                             # doctor: is cargo the fork, and is anything working against it?
+nix run github:kiyors/crucible#crucible -- pin rust 1.99   # the rust-manifest input and sha256 for a channel
 ```
+
+The bare `nix run` builds a doctor-only binary (`packages.<system>.crucible-doctor`, cargo
+feature `net` off), which leaves out the HTTP and TLS stack that `update` and `pin` need and so
+builds faster. `#crucible` is the full CLI.
 
 `doctor` checks that the first `cargo` on PATH is the fork, and warns about other cargos and
 rustup proxies on PATH, `CARGO_INCREMENTAL=0`, `RUSTC_WRAPPER` caches, `CARGO_TARGET_DIR`, a

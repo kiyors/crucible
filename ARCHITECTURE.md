@@ -92,7 +92,9 @@ The pinned nightly is the newest one that ships every required component (Cranel
 A Rust crate (`publish = false`), built by `cli/package.nix` with crucible's own
 `rust.stable.rustPlatform`, so every CI run also proves that the toolchain packages a real crate.
 The CLI code lives in the library (`src/lib.rs`), so it can be tested without a network or a
-process. `main.rs` is only clap.
+process. `main.rs` is only clap. Everything but `doctor` sits behind the default `net` cargo
+feature; `cli-doctor` (`packages.crucible-doctor`, what `apps.default` runs) builds without it
+and skips compiling rustls and ring.
 
 - `update/`: `update [all|cargo|rust]`. It fetches and validates **every** pin before writing
   anything, then replaces each file atomically in a fixed order, under a

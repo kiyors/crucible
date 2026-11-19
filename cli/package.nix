@@ -4,13 +4,17 @@
 {
   lib,
   rustPlatform,
+  # false builds `doctor` alone (the `net` feature off), which is all a bare
+  # `nix run github:kiyors/crucible` runs, without rustls and ring to compile.
+  net ? true,
 }:
 let
   manifest = lib.importTOML ./Cargo.toml;
 in
 rustPlatform.buildRustPackage {
-  pname = manifest.package.name;
+  pname = manifest.package.name + lib.optionalString (!net) "-doctor";
   inherit (manifest.package) version;
+  buildNoDefaultFeatures = !net;
 
   src = lib.fileset.toSource {
     root = ./.;
