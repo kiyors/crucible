@@ -9,6 +9,7 @@
 #                  Nix sandbox does not have
 #   .rustPlatform  makeRustPlatform over .stock, for buildRustPackage
 #   .rust-analyzer the channel's rust-analyzer, built for its rustc, or null
+#                  (the channel has none, or it was excluded)
 #   .rustSrcPath   the value for RUST_SRC_PATH (null without rust-src), which
 #                  the toolchain's setup hook also exports in shells
 {
@@ -95,11 +96,19 @@ let
         as `manifest` (a `flake = false` input) or its `sha256` (nix-prefetch-url <url>).
       '');
 
+  # Components a toolchain cannot work without. cargo is not among them: the
+  # fork is always added, and `.stock` swaps in the channel's own.
+  required = [
+    "rustc"
+    "rust-std"
+  ];
+
   assemble =
     {
       manifest,
       components,
       targets,
+      exclude,
     }:
     # The components here run on the build machine, so a cross package set
     # (pkgsCross.*) would select binaries for the wrong one.
@@ -108,11 +117,17 @@ let
       use the native package set's toolchain with `targets = [ "${pkgs.stdenv.hostPlatform.rust.rustcTarget}" ]`.
     '';
     let
-      wanted = unique (filter (c: c != "cargo") components);
+      # Compared by the manifest's own names, so `exclude = [ "clippy" ]`
+      # also drops a "clippy-preview" that a profile listed.
+      excluded = map (rust.canonical manifest) exclude;
+      isExcluded = c: builtins.elem (rust.canonical manifest c) excluded;
+      wanted = unique (filter (c: c != "cargo" && !isExcluded c) components);
+      missing = filter (r: !(builtins.any (c: rust.canonical manifest c == r) wanted)) required;
       targets' = unique (filter (t: t != rust.host) targets);
       # rust-analyzer loads librustc_driver, which it only finds inside a
-      # sysroot, so when the channel has it, it is part of every sysroot.
-      hasAnalyzer = rust.hasComponent manifest "rust-analyzer";
+      # sysroot, so when the channel has it, it is part of every sysroot
+      # unless excluded.
+      hasAnalyzer = rust.hasComponent manifest "rust-analyzer" && !isExcluded "rust-analyzer";
       hasSrc = builtins.elem "rust-src" wanted;
       base = rust.sysroot {
         inherit manifest;
@@ -157,6 +172,15 @@ let
       );
       toolchain = withCargo "rust" cargo;
     in
+    assert lib.assertMsg (!(builtins.elem "cargo" exclude)) ''
+      crucible: cargo cannot be excluded: the toolchain's cargo is huacnlee/cargo, and
+      `.stock` is the same toolchain with the channel's own cargo.
+    '';
+    assert lib.assertMsg (missing == [ ]) ''
+      crucible: a toolchain needs ${lib.concatStringsSep " and " missing}, which ${
+        if lib.length missing == 1 then "is" else "are"
+      } missing from its components or excluded.
+    '';
     toolchain
     // {
       inherit stock base;
@@ -185,19 +209,23 @@ let
       channel ? "stable",
       components ? defaultComponents,
       targets ? [ ],
+      exclude ? [ ],
       manifest ? null,
       sha256 ? null,
     }:
     assemble {
       manifest = resolveManifest { inherit channel manifest sha256; };
-      inherit components targets;
+      inherit components targets exclude;
     };
 
   # Reads a rust-toolchain(.toml) file as rustup does: channel, profile,
-  # components and targets. The legacy one-line format works too.
+  # components and targets. The legacy one-line format works too. `exclude`
+  # removes components the file's profile brings in, which rustup has no
+  # syntax for.
   fromToolchainFile =
     {
       file,
+      exclude ? [ ],
       manifest ? null,
       sha256 ? null,
     }:
@@ -223,6 +251,7 @@ let
       # skipped; a component the file itself names must exist.
       components = filter (rust.hasComponent manifest') profile ++ spec.components or [ ];
       targets = spec.targets or [ ];
+      inherit exclude;
     };
 in
 {

@@ -35,7 +35,9 @@ in
       '';
       description = ''
         The toolchain to install: one from crucible's `packages` or `lib.<system>.rust`,
-        or any package with a `bin/cargo`.
+        or any package with a `bin/cargo`. To leave components out, build it with
+        `components` or `exclude`; a toolchain built with
+        `exclude = [ "rust-analyzer" ]` installs no rust-analyzer.
       '';
     };
 

@@ -37,7 +37,8 @@ Every toolchain also carries:
 
 - `.stock`: the same components with the channel's own cargo
 - `.rustPlatform`: `makeRustPlatform` over `.stock`, for `buildRustPackage`
-- `.rust-analyzer`: the channel's rust-analyzer, built for its rustc (`null` if it has none)
+- `.rust-analyzer`: the channel's rust-analyzer, built for its rustc (`null` if it has none or
+  it was excluded)
 - `.rustSrcPath`: the value for `RUST_SRC_PATH`; the toolchain's setup hook also exports it in
   any `mkShell` or build that includes the toolchain
 
@@ -63,18 +64,22 @@ crucible.lib.${system}.rust.toolchain {
                         # with `manifest` or `sha256`
   components ? [ "rustc" "rust-std" "rust-src" "clippy" "rustfmt" "llvm-tools" ];
   targets ? [ ];        # e.g. [ "wasm32-unknown-unknown" "aarch64-unknown-linux-musl" ]
+  exclude ? [ ];        # components to leave out, see "Leaving things out"
   manifest ? null;      # channel-rust-<channel>.toml as a file
   sha256 ? null;        # or that file's hash, fetched at evaluation time
 }
 ```
 
 Components take rustup's names (`clippy`, `rust-analyzer`, `rustc-codegen-cranelift`, ...).
-`"cargo"` is ignored: the fork's cargo is always the one added.
+`components` replaces the default list rather than adding to it. `"cargo"` is ignored: the fork's
+cargo is always the one added. rust-analyzer is added whenever the channel ships it, without
+being listed.
 
 ### fromToolchainFile
 
 Reads `channel`, `profile`, `components` and `targets` from `rust-toolchain.toml` (or the
 one-line `rust-toolchain`), so the file stays the single source of truth for rustup, CI and Nix.
+It also takes `exclude`, for components the file's profile brings in that you do not want.
 
 The neatest way to pin a numbered channel is to lock its manifest as a flake input. `nix flake
 update` then moves you to the newest patch release of the series, with no hash to paste:
@@ -132,6 +137,48 @@ update` then moves you to the newest patch release of the series, with no hash t
 ```
 
 `channel = "stable"`, `"beta"` and `"nightly"` need neither `manifest` nor `sha256`.
+
+### Leaving things out
+
+Every component is optional except `rustc` and `rust-std`. There are three ways to drop one:
+
+- **`components`** replaces the defaults, so list only what you want:
+
+  ```nix
+  crucible.lib.${system}.rust.toolchain {
+    components = [ "rustc" "rust-std" "rust-src" "rustfmt" ];  # no clippy, no llvm-tools
+  }
+  ```
+
+- **`profile = "minimal"`** in `rust-toolchain.toml` starts from rustc, rust-std and cargo only,
+  as with rustup; add the rest under `components`.
+
+- **`exclude`** removes components after the defaults or the profile are worked out. It is the
+  only way to drop part of a profile (rustup has no syntax for that), and the only way to drop
+  rust-analyzer, which is otherwise in every toolchain whose channel ships it (about 75 MB):
+
+  ```nix
+  crucible.lib.${system}.rust.fromToolchainFile {
+    file = ./rust-toolchain.toml;           # profile = "default"
+    exclude = [ "rust-docs" "rust-analyzer" ];
+  }
+  ```
+
+  Names match either spelling (`clippy` also drops `clippy-preview`). A name that is not in the
+  toolchain is ignored, so one `exclude` list can serve several channels.
+
+Some things cannot be left out, and say so at evaluation time instead of building a toolchain
+that cannot compile:
+
+| Asking for                      | Result                                                 |
+| ------------------------------- | ------------------------------------------------------ |
+| no `rustc` or no `rust-std`     | an error naming the missing component                  |
+| `exclude = [ "cargo" ]`         | an error: use `.stock` for the channel's own cargo     |
+| no `rust-src`                   | works; `.rustSrcPath` is `null` and no setup hook runs |
+| `exclude = [ "rust-analyzer" ]` | works; `.rust-analyzer` is `null`                      |
+
+The fork's cargo is always part of the toolchain itself. For the channel's own cargo use
+`.stock`, which has the same components; package builds use it through `.rustPlatform`.
 
 ### devShell
 

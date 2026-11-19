@@ -10,6 +10,18 @@ let
 
   wasm = rust.toolchain { targets = [ "wasm32-unknown-unknown" ]; };
   fromFile = rust.fromToolchainFile { file = ./rust-toolchain.toml; };
+  # The same file without two components: one the file names, and the
+  # rust-analyzer every toolchain otherwise gets.
+  excluded = rust.fromToolchainFile {
+    file = ./rust-toolchain.toml;
+    exclude = [
+      "clippy"
+      "rust-analyzer"
+    ];
+  };
+
+  # Whether a toolchain is rejected at evaluation time.
+  rejected = toolchain: !(builtins.tryEval toolchain.drvPath).success;
 
   # The path projects pinning a numbered channel take: the upstream
   # channel-rust-*.toml as `manifest`.
@@ -81,6 +93,26 @@ in
     rustc --print target-list >/dev/null
     test -d "$(rustc --print sysroot)/lib/rustlib/wasm32-unknown-unknown"
   '';
+
+  rust-exclude =
+    assert excluded.rust-analyzer == null;
+    cargoRun "exclude" excluded ''
+      ${runHello}
+      cargo fmt --check
+      sysroot=$(rustc --print sysroot)
+      test ! -e "$sysroot/bin/clippy-driver"
+      test ! -e "$sysroot/bin/rust-analyzer"
+    '';
+
+  # Mistakes that would otherwise build a toolchain that cannot compile.
+  rust-exclude-errors =
+    assert rejected (rust.toolchain { exclude = [ "rustc" ]; });
+    assert rejected (rust.toolchain { exclude = [ "rust-std" ]; });
+    assert rejected (rust.toolchain { components = [ "rustc" ]; });
+    assert rejected (rust.toolchain { exclude = [ "cargo" ]; });
+    # ...while dropping an optional component still evaluates.
+    assert !rejected (rust.toolchain { exclude = [ "llvm-tools" ]; });
+    pkgs.runCommand "crucible-check-rust-exclude-errors" { } "touch $out";
 
   rust-from-manifest = cargoRun "from-manifest" fromManifest ''
     rustc -V | grep -q "rustc 1.99.0 "

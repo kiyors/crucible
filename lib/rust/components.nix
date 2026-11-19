@@ -284,6 +284,7 @@ let
 in
 {
   inherit
+    canonical
     component
     sysroot
     hasComponent
