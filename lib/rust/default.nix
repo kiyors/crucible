@@ -12,8 +12,8 @@ in
 toolchains
 // {
   inherit cargo;
-  stable = toolchains.mkToolchain { };
-  nightly = toolchains.mkToolchain {
+  stable = toolchains.toolchain { };
+  nightly = toolchains.toolchain {
     channel = "nightly";
     # On a nightly rustc the fork compiles local crates with Cranelift.
     components = toolchains.defaultComponents ++ [ "rustc-codegen-cranelift" ];

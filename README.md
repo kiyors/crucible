@@ -28,7 +28,7 @@ releases support.
 | `packages.<system>.rust-nightly`      | complete nightly with Cranelift + patched cargo     |
 | `packages.<system>.cargo`             | the patched cargo alone                             |
 | `packages.<system>.crucible`          | the CLI (`update`, `doctor`, `pin`)                 |
-| `lib.<system>.rust.mkToolchain`       | a toolchain from a channel, components and targets  |
+| `lib.<system>.rust.toolchain`         | a toolchain from a channel, components and targets  |
 | `lib.<system>.rust.fromToolchainFile` | a toolchain from a project's `rust-toolchain.toml`  |
 | `overlays.default`                    | `pkgs.crucible`: `.rust` (everything above), `.cli` |
 | `homeManagerModules.default`          | `programs.crucible.rust`                            |
@@ -42,7 +42,7 @@ Every toolchain also carries:
   any `mkShell` or build that includes the toolchain
 
 > **Cross-compiling.** A toolchain runs on the machine that builds with it, so take it from the
-> native package set and add the target: `mkToolchain { targets = [ "aarch64-unknown-linux-musl" ]; }`.
+> native package set and add the target: `toolchain { targets = [ "aarch64-unknown-linux-musl" ]; }`.
 > Asking a `pkgsCross.*` package set for one fails with that hint.
 
 > **`rustPlatform` limits.** `.rustPlatform.buildRustPackage` works; its `rustLibSrc`,
@@ -54,10 +54,10 @@ Every toolchain also carries:
 
 ## Rust
 
-### mkToolchain
+### toolchain
 
 ```nix
-crucible.lib.${system}.rust.mkToolchain {
+crucible.lib.${system}.rust.toolchain {
   channel ? "stable";   # "stable" | "beta" | "nightly", pinned in data/rust/;
                         # or any rustup channel ("1.99", "1.99.0", "nightly-2026-11-01")
                         # with `manifest` or `sha256`
@@ -138,7 +138,7 @@ update` then moves you to the newest patch release of the series, with no hash t
 ```nix
 devShells.default = pkgs.mkShell {
   packages = [
-    (crucible.lib.${system}.rust.mkToolchain {
+    (crucible.lib.${system}.rust.toolchain {
       targets = [ "wasm32-unknown-unknown" ];
     })
   ];
@@ -154,7 +154,7 @@ devShells.default = pkgs.mkShell {
 
   programs.crucible.rust = {
     enable = true;
-    # package = inputs.crucible.lib.${pkgs.stdenv.hostPlatform.system}.rust.mkToolchain { ... };
+    # package = inputs.crucible.lib.${pkgs.stdenv.hostPlatform.system}.rust.toolchain { ... };
     extraPackages = [ pkgs.cargo-edit pkgs.bacon ];
     gc = {
       max-size = "auto";
@@ -210,7 +210,7 @@ pkgs = import nixpkgs {
 };
 
 # pkgs.crucible.rust.{stable,nightly,cargo}, pkgs.crucible.cli,
-# pkgs.crucible.rust.mkToolchain { ... }, pkgs.crucible.rust.fromToolchainFile { ... }
+# pkgs.crucible.rust.toolchain { ... }, pkgs.crucible.rust.fromToolchainFile { ... }
 ```
 
 ## CLI

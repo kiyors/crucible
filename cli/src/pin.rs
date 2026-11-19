@@ -37,7 +37,7 @@ pub fn run(channel: &str) -> Result<()> {
     println!("  flake = false;");
     println!("}};");
     println!();
-    println!("mkToolchain {{");
+    println!("toolchain {{");
     println!("  channel = \"{channel}\";");
     println!("  sha256 = \"{hash}\";");
     println!("}};");

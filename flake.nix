@@ -41,7 +41,7 @@
 
       lib = forAllSystems (system: {
         rust = {
-          inherit (crucible.${system}.rust) mkToolchain fromToolchainFile defaultComponents;
+          inherit (crucible.${system}.rust) toolchain fromToolchainFile defaultComponents;
         };
       });
 

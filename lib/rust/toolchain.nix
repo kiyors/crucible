@@ -180,7 +180,7 @@ let
       rustSrcPath = if hasSrc then rustSrcPath else null;
     };
 
-  mkToolchain =
+  toolchain =
     {
       channel ? "stable",
       components ? defaultComponents,
@@ -226,5 +226,5 @@ let
     };
 in
 {
-  inherit mkToolchain fromToolchainFile defaultComponents;
+  inherit toolchain fromToolchainFile defaultComponents;
 }

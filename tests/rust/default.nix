@@ -8,7 +8,7 @@ let
 
   src = ./hello;
 
-  wasm = rust.mkToolchain { targets = [ "wasm32-unknown-unknown" ]; };
+  wasm = rust.toolchain { targets = [ "wasm32-unknown-unknown" ]; };
   fromFile = rust.fromToolchainFile { file = ./rust-toolchain.toml; };
 
   # The path projects pinning a numbered channel take: the upstream

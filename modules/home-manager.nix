@@ -29,7 +29,7 @@ in
       default = self.packages.${pkgs.stdenv.hostPlatform.system}.rust;
       defaultText = literalExpression "crucible.packages.\${system}.rust";
       example = literalExpression ''
-        crucible.lib.''${system}.rust.mkToolchain {
+        crucible.lib.''${system}.rust.toolchain {
           targets = [ "wasm32-unknown-unknown" ];
         }
       '';
