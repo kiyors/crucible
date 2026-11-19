@@ -36,7 +36,7 @@ let
     "llvm-tools"
   ];
 
-  # Pinned by update.nu; no hash needed. `nightly` is the newest nightly that
+  # Pinned by `nix-cargo update`; no hash needed. `nightly` is the newest nightly that
   # ships every component on every supported host.
   pinned = {
     stable = importJSON ../data/stable.json;

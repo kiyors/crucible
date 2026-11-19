@@ -1,0 +1,65 @@
+{
+  "date": "2026-11-12",
+  "version": "1.100.0",
+  "profiles": {
+    "default": [
+      "rustc",
+      "cargo"
+    ]
+  },
+  "renames": {
+    "clippy": {
+      "to": "clippy-preview"
+    }
+  },
+  "pkg": {
+    "rustc": {
+      "version": "1.100.0 (0ef1bc386 2026-11-09)",
+      "target": {
+        "x86_64-unknown-linux-gnu": {
+          "url": "https://example.invalid/rustc-1.100.0-x86_64-unknown-linux-gnu.tar.xz",
+          "hash": "aaaa"
+        },
+        "aarch64-unknown-linux-gnu": {
+          "url": "https://example.invalid/rustc-1.100.0-aarch64-unknown-linux-gnu.tar.xz",
+          "hash": "bbbb"
+        },
+        "aarch64-apple-darwin": {
+          "url": "https://example.invalid/rustc-1.100.0-aarch64-apple-darwin.tar.xz",
+          "hash": "cccc"
+        }
+      }
+    },
+    "cargo": {
+      "version": "0.101.0 (3acc79c0c 2026-11-05)",
+      "target": {
+        "aarch64-apple-darwin": {
+          "url": "https://example.invalid/cargo-1.100.0-aarch64-apple-darwin.tar.gz",
+          "hash": "4444"
+        }
+      }
+    },
+    "rust-std": {
+      "version": "1.100.0 (0ef1bc386 2026-11-09)",
+      "target": {
+        "x86_64-unknown-linux-gnu": {
+          "url": "https://example.invalid/rust-std-1.100.0-x86_64-unknown-linux-gnu.tar.xz",
+          "hash": "dddd"
+        },
+        "wasm32-unknown-unknown": {
+          "url": "https://example.invalid/rust-std-1.100.0-wasm32-unknown-unknown.tar.xz",
+          "hash": "eeee"
+        }
+      }
+    },
+    "rust-src": {
+      "version": "1.100.0 (0ef1bc386 2026-11-09)",
+      "target": {
+        "*": {
+          "url": "https://example.invalid/rust-src-1.100.0.tar.xz",
+          "hash": "abab"
+        }
+      }
+    }
+  }
+}

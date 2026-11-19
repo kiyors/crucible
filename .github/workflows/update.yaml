@@ -28,7 +28,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          ./update.nu
+          nix run .#nix-cargo -- update
           {
             echo "cargo=$(jq -r .version sources.json)"
             echo "stable=$(jq -r .version data/stable.json)"

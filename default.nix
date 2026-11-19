@@ -10,7 +10,7 @@ let
   };
 in
 toolchains
-// {
+// rec {
   inherit cargo;
   default = toolchains.mkToolchain { };
   nightly = toolchains.mkToolchain {
@@ -18,4 +18,6 @@ toolchains
     # On a nightly rustc the fork compiles local crates with Cranelift.
     components = toolchains.defaultComponents ++ [ "rustc-codegen-cranelift" ];
   };
+  # `nix-cargo update | doctor | pin`
+  cli = pkgs.callPackage ./cli/package.nix { inherit (default) rustPlatform; };
 }

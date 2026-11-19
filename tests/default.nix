@@ -93,4 +93,7 @@ in
   };
 
   inherit (nixCargo) cargo;
+
+  # Built and unit-tested by the default toolchain's rustPlatform.
+  inherit (nixCargo) cli;
 }

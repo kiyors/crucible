@@ -8,7 +8,8 @@ and git worktrees share one build directory that it keeps under a size limit.
   prefix the way rustup installs them, so every official binary finds its libraries where it
   expects to. The only flake input is nixpkgs.
 - **Pinned and updated daily.** `data/{stable,beta,nightly}.json` hold the trimmed channel
-  manifests and `sources.json` the fork's release; a scheduled workflow refreshes both.
+  manifests and `sources.json` the fork's release; a scheduled workflow refreshes both with the
+  repo's own Rust CLI.
 - **Nightly is always complete.** The pinned nightly is the newest one that ships rustc, clippy,
   rustfmt, rust-src, llvm-tools, rust-analyzer and Cranelift on every supported host.
 - **The fork cannot update itself** inside the read-only store (`CARGO_FORK_AUTO_UPDATE=0`).
@@ -196,18 +197,32 @@ one copy of it: a second toolchain on the same release (another target, another 
 a project's `rust-toolchain.toml`) adds about 150 MB instead of 700 MB, and nothing is unpacked
 twice.
 
+## CLI
+
+`nix-cargo` is a small Rust program in `cli/`, built with this flake's own toolchain:
+
+```sh
+nix run github:kiyors/nix-cargo -- doctor     # is cargo the fork, and is anything working against it?
+nix run github:kiyors/nix-cargo -- pin 1.99   # the rust-manifest input and sha256 for a channel
+```
+
+`doctor` checks that the first `cargo` on PATH is the fork, and warns about other cargos and
+rustup proxies on PATH, `CARGO_INCREMENTAL=0`, `RUSTC_WRAPPER` caches, `CARGO_TARGET_DIR`, a
+`RUST_SRC_PATH` from another release, and a `rust-toolchain.toml` that disagrees with `rustc`. It
+exits non-zero when cargo is not the fork.
+
 ## Updating
 
 ```sh
-./update.nu                          # everything
-./update.nu cargo                    # latest huacnlee/cargo release
-./update.nu cargo --version 0.103.0-1
-./update.nu rust                     # stable, beta and the newest complete nightly
+nix run .#nix-cargo -- update                          # everything
+nix run .#nix-cargo -- update cargo                    # latest huacnlee/cargo release
+nix run .#nix-cargo -- update cargo --version 0.103.0-1
+nix run .#nix-cargo -- update rust                     # stable, beta, newest complete nightly
 ```
 
 The fork's hashes come from each release's `SHA256SUMS` and the Rust ones from the channel
-manifests, so nothing is downloaded. The `update` workflow runs this and `nix flake update`
-daily and opens a pull request.
+manifests, so nothing is downloaded. The nightly search fetches candidate dates in parallel. The
+`update` workflow runs this and `nix flake update` daily and opens a pull request.
 
 Pull requests opened with the default `GITHUB_TOKEN` do not trigger other workflows. To have
 `check` run on them automatically, give `create-pull-request` a token from a GitHub App or a
@@ -219,4 +234,5 @@ fine-grained PAT.
 direnv allow          # or: nix develop ./dev
 nix flake check -L    # builds a crate with every toolchain
 cd dev && nix fmt
+cd cli && cargo test  # in a shell with the default toolchain
 ```

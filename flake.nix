@@ -18,6 +18,16 @@
     {
       packages = forAllSystems (system: {
         inherit (nixCargo.${system}) cargo default nightly;
+        nix-cargo = nixCargo.${system}.cli;
+      });
+
+      # `nix run github:kiyors/nix-cargo -- doctor`
+      apps = forAllSystems (system: {
+        default = {
+          type = "app";
+          program = nixpkgs.lib.getExe nixCargo.${system}.cli;
+          meta.description = "Update nix-cargo's pins, diagnose a Rust setup, pin a channel";
+        };
       });
 
       lib = forAllSystems (system: {

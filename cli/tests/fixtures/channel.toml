@@ -1,0 +1,87 @@
+# A hand-made slice of channel-rust-*.toml, shaped like the real thing: every
+# field the trimmer reads, an unavailable target, a pkg it drops, a pkg with a
+# "*" target, and a target without xz fields (the fallback path).
+manifest-version = "2"
+date = "2026-11-12"
+
+[pkg.rustc]
+version = "1.100.0 (0ef1bc386 2026-11-09)"
+
+[pkg.rustc.target.x86_64-unknown-linux-gnu]
+available = true
+url = "https://example.invalid/rustc-1.100.0-x86_64-unknown-linux-gnu.tar.gz"
+hash = "1111"
+xz_url = "https://example.invalid/rustc-1.100.0-x86_64-unknown-linux-gnu.tar.xz"
+xz_hash = "aaaa"
+
+[pkg.rustc.target.aarch64-unknown-linux-gnu]
+available = true
+url = "https://example.invalid/rustc-1.100.0-aarch64-unknown-linux-gnu.tar.gz"
+hash = "2222"
+xz_url = "https://example.invalid/rustc-1.100.0-aarch64-unknown-linux-gnu.tar.xz"
+xz_hash = "bbbb"
+
+[pkg.rustc.target.aarch64-apple-darwin]
+available = true
+url = "https://example.invalid/rustc-1.100.0-aarch64-apple-darwin.tar.gz"
+hash = "3333"
+xz_url = "https://example.invalid/rustc-1.100.0-aarch64-apple-darwin.tar.xz"
+xz_hash = "cccc"
+
+[pkg.cargo]
+version = "0.101.0 (3acc79c0c 2026-11-05)"
+
+[pkg.cargo.target.aarch64-apple-darwin]
+available = true
+url = "https://example.invalid/cargo-1.100.0-aarch64-apple-darwin.tar.gz"
+hash = "4444"
+
+[pkg.rust-std]
+version = "1.100.0 (0ef1bc386 2026-11-09)"
+
+[pkg.rust-std.target.x86_64-unknown-linux-gnu]
+available = true
+url = "https://example.invalid/rust-std-1.100.0-x86_64-unknown-linux-gnu.tar.gz"
+hash = "5555"
+xz_url = "https://example.invalid/rust-std-1.100.0-x86_64-unknown-linux-gnu.tar.xz"
+xz_hash = "dddd"
+
+[pkg.rust-std.target.wasm32-unknown-unknown]
+available = true
+url = "https://example.invalid/rust-std-1.100.0-wasm32-unknown-unknown.tar.gz"
+hash = "6666"
+xz_url = "https://example.invalid/rust-std-1.100.0-wasm32-unknown-unknown.tar.xz"
+xz_hash = "eeee"
+
+[pkg.rust-std.target.aarch64-unknown-linux-gnu]
+available = false
+url = "https://example.invalid/rust-std-1.100.0-aarch64-unknown-linux-gnu.tar.gz"
+hash = "7777"
+xz_url = "https://example.invalid/rust-std-1.100.0-aarch64-unknown-linux-gnu.tar.xz"
+xz_hash = "ffff"
+
+[pkg.rust]
+version = "1.100.0 (0ef1bc386 2026-11-09)"
+
+[pkg.rust.target.x86_64-unknown-linux-gnu]
+available = true
+url = "https://example.invalid/rust-1.100.0-x86_64-unknown-linux-gnu.tar.gz"
+hash = "8888"
+xz_url = "https://example.invalid/rust-1.100.0-x86_64-unknown-linux-gnu.tar.xz"
+xz_hash = "9999"
+
+[pkg.rust-src]
+version = "1.100.0 (0ef1bc386 2026-11-09)"
+
+[pkg.rust-src.target."*"]
+available = true
+url = "https://example.invalid/rust-src-1.100.0.tar.gz"
+hash = "1010"
+xz_url = "https://example.invalid/rust-src-1.100.0.tar.xz"
+xz_hash = "abab"
+
+[profiles]
+default = ["rustc", "cargo"]
+
+[renames.clippy]
+to = "clippy-preview"

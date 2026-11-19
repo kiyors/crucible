@@ -52,10 +52,12 @@
               oxfmt.enable = true;
               rustfmt.enable = true;
             };
-            # Written by update.nu; reformatting them would churn every update.
+            # Written by `nix-cargo update`; reformatting them would churn every update.
             settings.global.excludes = [
               "data/*.json"
               "sources.json"
+              # Exact expected output of the trimmer.
+              "cli/tests/fixtures/*.json"
             ];
           };
 

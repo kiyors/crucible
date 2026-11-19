@@ -69,10 +69,6 @@ stdenv.mkDerivation {
 
   dontStrip = true;
 
-  passthru = {
-    updateScript = ./update.nu;
-  };
-
   meta = with lib; {
     inherit version;
     description = "Cargo fork with a shared, size-bounded build directory for worktrees and agents";
