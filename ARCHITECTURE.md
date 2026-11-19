@@ -72,7 +72,8 @@ The design rests on two ideas:
     the sysroot. It asserts at evaluation time that `rustc` and `rust-std` are present and that
     `cargo` is not excluded.
   - Each toolchain carries `.stock`, `.rustPlatform`, `.rust-analyzer`, `.rustSrcPath` and
-    `.base`, plus a setup hook that exports `RUST_SRC_PATH`.
+    `.base`, plus a setup hook that exports `RUST_SRC_PATH`, overwriting any inherited value so
+    a dev shell's own sources always win.
 
 ### Data (`data/rust/`)
 
@@ -113,18 +114,20 @@ process. `main.rs` is only clap.
 ### Integration
 
 - `modules/home-manager.nix`: `programs.crucible.rust.*`. It installs a toolchain, sets
-  `CARGO_HOME` and `RUST_SRC_PATH`, writes `~/.cargo/config.toml` from `settings` and `gc` (the
-  fork's `[build.gc]`), and warns about settings that work against the fork.
+  `CARGO_HOME`, writes `~/.cargo/config.toml` from `settings` and `gc` (the fork's
+  `[build.gc]`), and warns about settings that work against the fork. It deliberately sets no
+  `RUST_SRC_PATH`: rust-analyzer finds the sources through `rustc --print sysroot`, and a global
+  value would leak this release into every other project.
 - `templates/default`: a Rust project whose toolchain comes from `rust-toolchain.toml`.
 
 ### Verification
 
 - `tests/default.nix` → `checks.<system>`, one set per language (`tests/rust/`) plus the CLI
   build. The Rust checks build `tests/rust/hello` with each kind of toolchain: stable (clippy,
-  fmt, llvm-tools, rust-analyzer, `RUST_SRC_PATH`), stock cargo, nightly, wasm32 (a real link),
-  `fromToolchainFile`, a numbered channel through `manifest`, `exclude` and its evaluation-time
-  errors, `rustPlatform.buildRustPackage`, and on Linux a rust-lld link whose interpreter must be
-  in the store.
+  fmt, llvm-tools, rust-analyzer, `RUST_SRC_PATH`, which must beat an inherited one), stock
+  cargo, nightly, wasm32 (a real link), `fromToolchainFile`, a numbered channel through
+  `manifest`, `exclude` and its evaluation-time errors, `rustPlatform.buildRustPackage`, and on
+  Linux a rust-lld link whose interpreter must be in the store.
 - `dev/flake.nix`: a separate flake for treefmt (nixfmt, deadnix, statix, typos, oxfmt,
   rustfmt) and git hooks (treefmt, gitleaks), kept separate so consumers never pay for those
   inputs.

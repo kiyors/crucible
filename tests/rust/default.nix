@@ -73,6 +73,20 @@ in
     test -f "$RUST_SRC_PATH/core/src/lib.rs"
   '';
 
+  # A RUST_SRC_PATH inherited from the login shell (another release, or a
+  # store path since collected) must not beat the toolchain's own sources.
+  rust-src-path =
+    pkgs.runCommand "crucible-check-rust-src-path"
+      {
+        nativeBuildInputs = [ rust.stable ];
+        RUST_SRC_PATH = "/nonexistent/lib/rustlib/src/rust/library";
+      }
+      ''
+        test "$RUST_SRC_PATH" = "${rust.stable.rustSrcPath}"
+        test -f "$RUST_SRC_PATH/core/src/lib.rs"
+        touch $out
+      '';
+
   # The channel's own cargo, as packages are built with.
   rust-stock = cargoRun "stock" rust.stable.stock ''
     cargo -V | grep -vq huacnlee/cargo

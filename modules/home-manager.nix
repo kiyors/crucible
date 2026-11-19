@@ -38,6 +38,8 @@ in
         or any package with a `bin/cargo`. To leave components out, build it with
         `components` or `exclude`; a toolchain built with
         `exclude = [ "rust-analyzer" ]` installs no rust-analyzer.
+        The module does not set `RUST_SRC_PATH`: rust-analyzer finds the
+        standard library in the sysroot of whichever `rustc` a project uses.
       '';
     };
 
@@ -119,12 +121,10 @@ in
       ++ optional (cfg.rust-analyzer != null) cfg.rust-analyzer
       ++ cfg.extraPackages;
 
-      sessionVariables = {
-        CARGO_HOME = cargoHome;
-      }
-      // lib.optionalAttrs (cfg.package ? rustSrcPath) {
-        RUST_SRC_PATH = cfg.package.rustSrcPath;
-      };
+      # No RUST_SRC_PATH: rust-analyzer finds the sources through `rustc
+      # --print sysroot`, and a global value would point rust-analyzer at this
+      # release in projects that use another one (rustup, a pinned dev shell).
+      sessionVariables.CARGO_HOME = cargoHome;
 
       sessionPath = [ "${cargoHome}/bin" ];
 

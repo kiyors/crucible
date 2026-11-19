@@ -11,7 +11,8 @@
 #   .rust-analyzer the channel's rust-analyzer, built for its rustc, or null
 #                  (the channel has none, or it was excluded)
 #   .rustSrcPath   the value for RUST_SRC_PATH (null without rust-src), which
-#                  the toolchain's setup hook also exports in shells
+#                  the toolchain's setup hook also exports in shells, replacing
+#                  any inherited value
 {
   lib,
   pkgs,
@@ -144,11 +145,15 @@ let
             base
             cargo'
           ];
-          # Any shell or build that has the toolchain gets RUST_SRC_PATH, so
-          # rust-analyzer finds the standard library without per-project setup.
+          # rust-analyzer would find these sources through `rustc --print
+          # sysroot` on its own, but it reads RUST_SRC_PATH first, so a value
+          # inherited from the login shell (another release, or a collected
+          # store path) would win over the shell's own rustc. Overwriting it
+          # makes the toolchain authoritative; a shellHook still runs after
+          # setup hooks if a project really wants something else.
           postBuild = lib.optionalString hasSrc ''
             mkdir -p $out/nix-support
-            echo 'export RUST_SRC_PATH="''${RUST_SRC_PATH:-${rustSrcPath}}"' > $out/nix-support/setup-hook
+            echo 'export RUST_SRC_PATH="${rustSrcPath}"' > $out/nix-support/setup-hook
           '';
           passthru = {
             inherit (base) version;

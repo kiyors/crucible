@@ -40,7 +40,8 @@ Every toolchain also carries:
 - `.rust-analyzer`: the channel's rust-analyzer, built for its rustc (`null` if it has none or
   it was excluded)
 - `.rustSrcPath`: the value for `RUST_SRC_PATH`; the toolchain's setup hook also exports it in
-  any `mkShell` or build that includes the toolchain
+  any `mkShell` or build that includes the toolchain, replacing any value inherited from the
+  login shell
 
 > **Cross-compiling.** A toolchain runs on the machine that builds with it, so take it from the
 > native package set and add the target: `toolchain { targets = [ "aarch64-unknown-linux-musl" ]; }`.
@@ -215,11 +216,16 @@ devShells.default = pkgs.mkShell {
 Setting `gc` or `settings` makes Home Manager own `~/.cargo/config.toml`: move anything already in
 that file into `settings` first, or activation stops on the existing file.
 
-The module installs the toolchain (with its rust-analyzer), sets `CARGO_HOME` and `RUST_SRC_PATH`,
-and writes `~/.cargo/config.toml` from `settings` and `gc` (the fork's `[build.gc]`). It warns
-about settings that work against the fork: `CARGO_INCREMENTAL=0` (turns off the incremental
-caches it shares between worktrees), `CARGO_TARGET_DIR` (ignored) and `RUSTC_WRAPPER` caches such
-as sccache or kache (they store every dependency a second time).
+The module installs the toolchain (with its rust-analyzer), sets `CARGO_HOME`, and writes
+`~/.cargo/config.toml` from `settings` and `gc` (the fork's `[build.gc]`). It warns about
+settings that work against the fork: `CARGO_INCREMENTAL=0` (turns off the incremental caches it
+shares between worktrees), `CARGO_TARGET_DIR` (ignored) and `RUSTC_WRAPPER` caches such as
+sccache or kache (they store every dependency a second time).
+
+It does not set `RUST_SRC_PATH`. rust-analyzer finds the standard library in the sysroot of the
+`rustc` a project uses, and a global value would point it at this release's sources in projects
+on another one (rustup, or a dev shell pinned elsewhere). Shells opened before a switch keep the
+old value until you start a new login shell; `crucible doctor` points this out.
 
 ### How a toolchain is built
 
