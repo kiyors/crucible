@@ -4,13 +4,12 @@
 //! is the newest one that is complete on every host. Finding it means looking
 //! at up to a month of manifests, which is why those fetches run in parallel.
 
-use std::fs;
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 
-use super::write_json;
-use crate::http::Http;
+use super::{Plan, json};
+use crate::http::{Http, HttpError};
 use crate::manifest::Manifest;
 
 const DIST: &str = "https://static.rust-lang.org/dist";
@@ -32,26 +31,32 @@ const REQUIRED: [&str; 9] = [
 const MAX_DAYS: u32 = 30;
 const WORKERS: usize = 6;
 
-pub fn update(http: &Http, root: &Path) -> Result<()> {
+/// Fetch and validate stable, beta and nightly, without writing anything.
+pub fn plan(http: &Http, root: &Path) -> Result<Plan> {
     let data = root.join("data");
-    fs::create_dir_all(&data)?;
+    let mut plan = Plan::new();
 
     for channel in ["stable", "beta"] {
         let manifest = fetch_manifest(http, &format!("{DIST}/channel-rust-{channel}.toml"))?;
         let trimmed = manifest.trim();
         println!("  {channel}: {} ({})", trimmed.version, trimmed.date);
-        write_json(&data.join(format!("{channel}.json")), &trimmed)?;
+        plan.push((data.join(format!("{channel}.json")), json(&trimmed)?));
     }
 
     let trimmed = complete_nightly(http)?.trim();
     println!("  nightly: {} ({})", trimmed.version, trimmed.date);
-    write_json(&data.join("nightly.json"), &trimmed)
+    plan.push((data.join("nightly.json"), json(&trimmed)?));
+    Ok(plan)
 }
 
 fn fetch_manifest(http: &Http, url: &str) -> Result<Manifest> {
     let body = http.get(url)?;
-    let text = String::from_utf8(body).with_context(|| format!("{url} is not UTF-8"))?;
-    toml::from_str(&text).with_context(|| format!("failed to parse {url}"))
+    parse_manifest(url, &body)
+}
+
+fn parse_manifest(url: &str, body: &[u8]) -> Result<Manifest> {
+    let text = std::str::from_utf8(body).with_context(|| format!("{url} is not UTF-8"))?;
+    toml::from_str(text).with_context(|| format!("failed to parse {url}"))
 }
 
 /// The newest nightly that has every required component on every host.
@@ -60,53 +65,91 @@ fn complete_nightly(http: &Http) -> Result<Manifest> {
     let start = parse_date(&latest.date)
         .with_context(|| format!("nightly manifest has no usable date: {}", latest.date))?;
 
-    let latest_date = latest.date.clone();
-    if let Some(manifest) = complete(latest, &latest_date) {
+    let date = latest.date.clone();
+    if let Some(manifest) = pick_nightly(vec![(date, inspect(latest))])? {
         return Ok(manifest);
     }
 
     // Newest first, so the first complete batch wins and the later days are
-    // never fetched.
+    // never fetched. Within a batch, `pick_nightly` stops at the first complete
+    // date and only tolerates gaps and incomplete dates ahead of it.
     let days: Vec<u32> = (1..=MAX_DAYS).collect();
     for batch in days.chunks(WORKERS) {
-        for (day, manifest) in fetch_batch(http, start, batch) {
-            if let Some(manifest) = manifest {
-                if let Some(manifest) = complete(manifest, &date_of(start - i64::from(day))) {
-                    return Ok(manifest);
-                }
-            }
+        if let Some(manifest) = pick_nightly(fetch_batch(http, start, batch))? {
+            return Ok(manifest);
         }
     }
 
     bail!("no complete nightly in the last {MAX_DAYS} days")
 }
 
-/// Report whether `manifest` is complete, and return it if it is.
-fn complete(manifest: Manifest, date: &str) -> Option<Manifest> {
+/// How one dated manifest fetch turned out.
+///
+/// Kept separate from the walk so the "newer than the pick" rule is a pure
+/// decision that can be tested without a network.
+enum NightlyOutcome {
+    /// The archive has no manifest for this date (404): a normal gap.
+    Missing,
+    /// The manifest exists but lacks required components on some host.
+    Incomplete(Vec<String>),
+    // Boxed: a manifest is large and the other outcomes are not.
+    Complete(Box<Manifest>),
+    /// Anything else: transport, non-404 HTTP or parse failure.
+    Failed(anyhow::Error),
+}
+
+fn inspect(manifest: Manifest) -> NightlyOutcome {
     let missing = manifest.missing(&REQUIRED);
     if missing.is_empty() {
-        println!("  nightly: {date} is complete");
-        Some(manifest)
+        NightlyOutcome::Complete(Box::new(manifest))
     } else {
-        println!("  nightly: {date} lacks {}", missing.join(", "));
-        None
+        NightlyOutcome::Incomplete(missing)
     }
 }
 
-/// Fetch up to a batch of dated manifests concurrently. A failed candidate is
-/// skipped: a gap in the archive is not fatal while an older complete nightly
-/// still exists.
-fn fetch_batch(http: &Http, start: i64, days: &[u32]) -> Vec<(u32, Option<Manifest>)> {
+/// Pick the newest complete nightly from `results`, which must be newest first.
+///
+/// A gap or an incomplete manifest is a normal miss. A failure is not: it may
+/// hide a complete nightly that is newer than the pick, and falling back to an
+/// older one would silently move the pin backwards. So any failure newer than
+/// the pick fails the whole update with its date and URL.
+fn pick_nightly(results: Vec<(String, NightlyOutcome)>) -> Result<Option<Manifest>> {
+    for (date, outcome) in results {
+        match outcome {
+            NightlyOutcome::Complete(manifest) => {
+                println!("  nightly: {date} is complete");
+                return Ok(Some(*manifest));
+            }
+            NightlyOutcome::Missing => continue,
+            NightlyOutcome::Incomplete(missing) => {
+                println!("  nightly: {date} lacks {}", missing.join(", "));
+            }
+            NightlyOutcome::Failed(err) => {
+                bail!("nightly {date} ({}) failed: {err:#}", daily_url(&date));
+            }
+        }
+    }
+    Ok(None)
+}
+
+fn daily_url(date: &str) -> String {
+    format!("{DIST}/{date}/channel-rust-nightly.toml")
+}
+
+/// Fetch up to a batch of dated manifests concurrently, newest first. Only a
+/// 404 means "no such nightly"; everything else is reported as a failure for
+/// `pick_nightly` to judge.
+fn fetch_batch(http: &Http, start: i64, days: &[u32]) -> Vec<(String, NightlyOutcome)> {
     std::thread::scope(|scope| {
         let handles: Vec<_> = days
             .iter()
             .map(|&day| {
                 let http = http.clone();
-                let url = format!(
-                    "{DIST}/{}/channel-rust-nightly.toml",
-                    date_of(start - i64::from(day))
-                );
-                scope.spawn(move || (day, fetch_manifest(&http, &url).ok()))
+                let date = date_of(start - i64::from(day));
+                scope.spawn(move || {
+                    let outcome = fetch_dated(&http, &date);
+                    (date, outcome)
+                })
             })
             .collect();
         handles
@@ -114,6 +157,19 @@ fn fetch_batch(http: &Http, start: i64, days: &[u32]) -> Vec<(u32, Option<Manife
             .map(|handle| handle.join().expect("nightly fetch thread panicked"))
             .collect()
     })
+}
+
+fn fetch_dated(http: &Http, date: &str) -> NightlyOutcome {
+    let url = daily_url(date);
+    let body = match http.get(&url) {
+        Ok(body) => body,
+        Err(HttpError::NotFound { .. }) => return NightlyOutcome::Missing,
+        Err(err) => return NightlyOutcome::Failed(err.into()),
+    };
+    match parse_manifest(&url, &body) {
+        Ok(manifest) => inspect(manifest),
+        Err(err) => NightlyOutcome::Failed(err),
+    }
 }
 
 /// Days since the Unix epoch, so "30 days back" needs no date library.
@@ -169,6 +225,64 @@ fn civil_from_days(days: i64) -> (i64, i64, i64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn complete(date: &str) -> NightlyOutcome {
+        NightlyOutcome::Complete(Box::new(Manifest {
+            date: date.to_string(),
+            ..Default::default()
+        }))
+    }
+
+    #[test]
+    fn picks_the_newest_complete_one_after_gaps_and_incomplete_dates() {
+        let picked = pick_nightly(vec![
+            ("2026-11-10".to_string(), NightlyOutcome::Missing),
+            (
+                "2026-11-09".to_string(),
+                NightlyOutcome::Incomplete(vec!["cargo/x86_64-unknown-linux-gnu".to_string()]),
+            ),
+            ("2026-11-08".to_string(), complete("2026-11-08")),
+            ("2026-11-07".to_string(), complete("2026-11-07")),
+        ])
+        .unwrap()
+        .unwrap();
+        assert_eq!(picked.date, "2026-11-08");
+    }
+
+    #[test]
+    fn a_failure_newer_than_the_pick_fails_the_run() {
+        let err = pick_nightly(vec![
+            ("2026-11-10".to_string(), NightlyOutcome::Missing),
+            (
+                "2026-11-09".to_string(),
+                NightlyOutcome::Failed(anyhow::anyhow!("connection reset")),
+            ),
+            ("2026-11-08".to_string(), complete("2026-11-08")),
+        ])
+        .unwrap_err()
+        .to_string();
+
+        assert!(err.contains("2026-11-09"), "{err}");
+        assert!(
+            err.contains("https://static.rust-lang.org/dist/2026-11-09/channel-rust-nightly.toml"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn gaps_and_incomplete_dates_alone_mean_no_pick() {
+        assert!(
+            pick_nightly(vec![
+                ("2026-11-10".to_string(), NightlyOutcome::Missing),
+                (
+                    "2026-11-09".to_string(),
+                    NightlyOutcome::Incomplete(vec!["rustc/x".to_string()]),
+                ),
+            ])
+            .unwrap()
+            .is_none()
+        );
+    }
 
     #[test]
     fn walks_back_over_month_and_year_boundaries() {

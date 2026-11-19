@@ -20,10 +20,11 @@ pub fn run() -> Result<ExitCode> {
     let mut checks = Checks::default();
 
     let cargo = check_cargo(&mut checks);
+    let rustc = check_rustc(&mut checks);
     check_rustup(&mut checks);
     check_env(&mut checks, cargo.as_deref());
     check_rust_src(&mut checks);
-    check_toolchain_file(&mut checks, &cwd);
+    check_toolchain_file(&mut checks, &cwd, rustc.as_deref());
     check_targets_dir(&mut checks);
 
     Ok(if checks.errors == 0 {
@@ -108,6 +109,30 @@ fn check_cargo(checks: &mut Checks) -> Option<PathBuf> {
     Some(first.clone())
 }
 
+/// A compiler must exist even when cargo does: build scripts, rust-analyzer and
+/// the toolchain-file check below all need `rustc`, and a missing one makes
+/// every pin look fine while nothing compiles. Returns rustc's `-V` line.
+fn check_rustc(checks: &mut Checks) -> Option<String> {
+    match Command::new("rustc").arg("-V").output() {
+        Ok(output) if output.status.success() => {
+            let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            checks.ok(format!("rustc is {version}"));
+            Some(version)
+        }
+        Ok(output) => {
+            checks.error(format!(
+                "rustc -V failed: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ));
+            None
+        }
+        Err(err) => {
+            checks.error(format!("cannot run rustc: {err}"));
+            None
+        }
+    }
+}
+
 /// rustup's proxies replace the toolchain's binaries, so its presence is
 /// usually an accident waiting to happen.
 fn check_rustup(checks: &mut Checks) {
@@ -173,7 +198,7 @@ fn check_env(checks: &mut Checks, cargo: Option<&Path>) {
 fn check_rust_src(checks: &mut Checks) {
     let sysroot_src = rustc_sysroot().map(|sysroot| sysroot.join("lib/rustlib/src/rust/library"));
     match env_value("RUST_SRC_PATH") {
-        None => match sysroot_src.filter(|src| src.exists()) {
+        None => match sysroot_src.filter(|src| has_std_sources(src)) {
             Some(src) => checks.ok(format!(
                 "RUST_SRC_PATH is not set; rustc's sysroot has the sources ({})",
                 src.display()
@@ -187,9 +212,16 @@ fn check_rust_src(checks: &mut Checks) {
                     "RUST_SRC_PATH points at {}, which does not exist",
                     path.display()
                 ));
+            } else if !has_std_sources(&path) {
+                // A directory that exists but holds no `core` is not usable
+                // sources, so it must not count as a match.
+                checks.warn(format!(
+                    "RUST_SRC_PATH ({}) has no standard library sources (core/src/lib.rs is missing)",
+                    path.display()
+                ));
             } else if sysroot_src
                 .as_deref()
-                .is_some_and(|src| !same_path(src, &path))
+                .is_some_and(|src| has_std_sources(src) && !same_path(src, &path))
             {
                 checks.warn(format!(
                     "RUST_SRC_PATH ({}) is not the active rustc's sources ({}); rust-analyzer will index another release",
@@ -201,6 +233,12 @@ fn check_rust_src(checks: &mut Checks) {
             }
         }
     }
+}
+
+/// rust-analyzer needs `core` to be unpacked; a `library` directory on its own
+/// is not sources.
+fn has_std_sources(path: &Path) -> bool {
+    path.join("core/src/lib.rs").is_file()
 }
 
 fn rustc_sysroot() -> Option<PathBuf> {
@@ -225,15 +263,22 @@ fn same_path(a: &Path, b: &Path) -> bool {
     }
 }
 
-/// A `rust-toolchain` file overrides the dev shell; if it names another
-/// release, the shell's rustc and the project's expectations disagree.
-fn check_toolchain_file(checks: &mut Checks, cwd: &Path) {
-    let Some(path) = ["rust-toolchain.toml", "rust-toolchain"]
-        .into_iter()
-        .map(|name| cwd.join(name))
-        .find(|path| path.is_file())
-    else {
-        checks.ok("no rust-toolchain file in the current directory".to_string());
+/// The toolchain file rustup would use: the nearest `rust-toolchain.toml` or
+/// `rust-toolchain` in `dir` or one of its ancestors.
+fn find_toolchain_file(dir: &Path) -> Option<PathBuf> {
+    dir.ancestors().find_map(|dir| {
+        ["rust-toolchain.toml", "rust-toolchain"]
+            .into_iter()
+            .map(|name| dir.join(name))
+            .find(|path| path.is_file())
+    })
+}
+
+/// A toolchain file names the release the project expects; if the shell's
+/// rustc is another one, the two disagree.
+fn check_toolchain_file(checks: &mut Checks, cwd: &Path, rustc: Option<&str>) {
+    let Some(path) = find_toolchain_file(cwd) else {
+        checks.ok("no rust-toolchain file here or in a parent directory".to_string());
         return;
     };
 
@@ -244,8 +289,14 @@ fn check_toolchain_file(checks: &mut Checks, cwd: &Path) {
             return;
         }
     };
-    let channel = if text.contains("[toolchain]") {
-        match toml::from_str::<toml::Value>(&text) {
+    // As rustup and lib/toolchain.nix decide it: `rust-toolchain` without an
+    // extension may still be TOML; only a single bare line is the legacy form.
+    let text = text.trim();
+    let legacy = path.extension().is_none() && !text.contains(['\n', '[', '=']);
+    let channel = if legacy {
+        Some(text.to_string())
+    } else {
+        match toml::from_str::<toml::Value>(text) {
             Ok(value) => value
                 .get("toolchain")
                 .and_then(|toolchain| toolchain.get("channel"))
@@ -256,8 +307,6 @@ fn check_toolchain_file(checks: &mut Checks, cwd: &Path) {
                 return;
             }
         }
-    } else {
-        Some(text.trim().to_string())
     };
     let Some(channel) = channel.filter(|channel| !channel.is_empty()) else {
         checks.error(format!("{} sets no toolchain.channel", path.display()));
@@ -272,23 +321,9 @@ fn check_toolchain_file(checks: &mut Checks, cwd: &Path) {
         return;
     }
 
-    let rustc = match Command::new("rustc").arg("-V").output() {
-        Ok(output) if output.status.success() => String::from_utf8_lossy(&output.stdout)
-            .split_whitespace()
-            .nth(1)
-            .unwrap_or("")
-            .to_string(),
-        Ok(output) => {
-            checks.error(format!(
-                "rustc -V failed: {}",
-                String::from_utf8_lossy(&output.stderr).trim()
-            ));
-            return;
-        }
-        Err(err) => {
-            checks.error(format!("cannot run rustc: {err}"));
-            return;
-        }
+    // A missing rustc was already reported by check_rustc.
+    let Some(rustc) = rustc.and_then(|line| line.split_whitespace().nth(1)) else {
+        return;
     };
 
     // "1.99" and "1.99.0" both pin the 1.99 series, so a prefix match is right;
@@ -414,6 +449,35 @@ fn human_size(bytes: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn finds_the_nearest_toolchain_file_upwards() {
+        let root = std::env::temp_dir().join(format!("nix-cargo-doctor-{}", std::process::id()));
+        let nested = root.join("crates/app/src");
+        fs::create_dir_all(&nested).unwrap();
+        assert_eq!(find_toolchain_file(&nested), None);
+
+        fs::write(root.join("rust-toolchain"), "stable\n").unwrap();
+        assert_eq!(
+            find_toolchain_file(&nested),
+            Some(root.join("rust-toolchain"))
+        );
+
+        // The nearer file wins, and .toml wins within one directory.
+        let app = root.join("crates/app");
+        fs::write(app.join("rust-toolchain"), "1.99\n").unwrap();
+        fs::write(
+            app.join("rust-toolchain.toml"),
+            "[toolchain]\nchannel = \"1.99\"\n",
+        )
+        .unwrap();
+        assert_eq!(
+            find_toolchain_file(&nested),
+            Some(app.join("rust-toolchain.toml"))
+        );
+
+        fs::remove_dir_all(&root).unwrap();
+    }
 
     #[test]
     fn formats_sizes() {

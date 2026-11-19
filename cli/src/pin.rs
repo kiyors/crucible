@@ -4,7 +4,7 @@
 //! The URL rules mirror `manifestUrl` in lib/toolchain.nix, including the dated
 //! forms (`nightly-2026-11-01`), so the hashes and the flake agree.
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 
 use crate::http::Http;
 use crate::manifest::Manifest;
@@ -57,6 +57,12 @@ pub fn manifest_url(channel: &str) -> Result<String> {
 /// `(name, date)` from `name[-YYYY-MM-DD]`, with `name` one of the forms the
 /// `manifestUrl` regex allows.
 fn split_channel(channel: &str) -> Result<(&str, Option<&str>)> {
+    // `split_at` panics when the offset lands inside a character, so reject
+    // anything non-ASCII before computing the suffix length.
+    if !channel.is_ascii() {
+        return Err(invalid(channel));
+    }
+
     let (name, date) = if channel.len() > 11 {
         let (name, tail) = channel.split_at(channel.len() - 11);
         match tail.strip_prefix('-') {
@@ -68,9 +74,14 @@ fn split_channel(channel: &str) -> Result<(&str, Option<&str>)> {
     };
 
     if !valid_name(name) {
-        bail!("\"{channel}\" is not a channel rustup understands");
+        return Err(invalid(channel));
     }
     Ok((name, date))
+}
+
+/// The one error rustup's channel parser would produce for a bad name.
+fn invalid(channel: &str) -> anyhow::Error {
+    anyhow::anyhow!("\"{channel}\" is not a channel rustup understands")
 }
 
 fn valid_name(name: &str) -> bool {
@@ -135,6 +146,18 @@ mod tests {
         ];
         for (channel, url) in cases {
             assert_eq!(manifest_url(channel).unwrap(), url, "{channel}");
+        }
+    }
+
+    #[test]
+    fn rejects_non_ascii_without_panicking() {
+        // 11 bytes of suffix would slice inside `é`, which used to panic.
+        for channel in ["é0123456789", "nightly-2026-11-0é", "é"] {
+            let err = manifest_url(channel).unwrap_err().to_string();
+            assert_eq!(
+                err,
+                format!("\"{channel}\" is not a channel rustup understands")
+            );
         }
     }
 

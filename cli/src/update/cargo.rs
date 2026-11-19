@@ -10,7 +10,7 @@ use anyhow::{Context, Result};
 use serde::Serialize;
 use serde_json::{Map, Value};
 
-use super::write_json;
+use super::{Plan, json};
 use crate::http::Http;
 use crate::sri;
 
@@ -29,7 +29,8 @@ struct Sources {
     platforms: Map<String, Value>,
 }
 
-pub fn update(http: &Http, version: Option<String>, root: &Path) -> Result<()> {
+/// Fetch and validate `sources.json`, without writing it.
+pub fn plan(http: &Http, version: Option<String>, root: &Path) -> Result<Plan> {
     let path = root.join("sources.json");
     let current = read_version(&path)?;
     let version = match version {
@@ -60,7 +61,8 @@ pub fn update(http: &Http, version: Option<String>, root: &Path) -> Result<()> {
         platforms.insert(system.to_string(), Value::Object(platform));
     }
 
-    write_json(&path, &Sources { version, platforms })
+    let bytes = json(&Sources { version, platforms })?;
+    Ok(vec![(path, bytes)])
 }
 
 fn read_version(path: &Path) -> Result<String> {
