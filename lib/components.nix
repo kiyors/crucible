@@ -26,6 +26,7 @@ let
 
   host = stdenv.hostPlatform.rust.rustcTarget;
   inherit (stdenv.cc) bintools;
+  darwinSdkSetup = path + "/pkgs/build-support/wrapper-common/darwin-sdk-setup.bash";
 
   canonical = manifest: c: manifest.renames.${c}.to or c;
 
@@ -67,6 +68,18 @@ let
       substituteAll ${
         path + "/pkgs/build-support/bintools-wrapper/add-hardening.sh"
       } $out/nix-support/add-hardening.sh
+      # ld-wrapper.sh sources it unconditionally, Linux included.
+      ${optionalString (builtins.pathExists darwinSdkSetup) ''
+        substituteAll ${darwinSdkSetup} $out/nix-support/darwin-sdk-setup.bash
+      ''}
+      # The libc and dynamic linker defaults add-flags.sh reads, as the
+      # system bintools wrapper has them, so a link through rust-lld gets the
+      # store's ld.so and libc even when nothing else passes them.
+      for file in dynamic-linker dynamic-linker-m32 ld-set-dynamic-linker libc-ldflags libc-ldflags-before; do
+        if [ -e ${bintools}/nix-support/$file ]; then
+          cp ${bintools}/nix-support/$file $out/nix-support/$file
+        fi
+      done
 
       for ld in "''${lds[@]}"; do
         # ld.lld finds rust-lld relative to itself and takes its flavor from
@@ -241,7 +254,9 @@ let
       postBuild = ''
         for file in $out/bin/* $out/lib/librustc_driver-*; do
           if [ -L "$file" ]; then
+            # Store files are read-only; the Linux pass below rewrites these.
             cp --remove-destination "$(realpath "$file")" "$file"
+            chmod u+w "$file"
           fi
         done
       ''

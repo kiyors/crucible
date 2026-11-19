@@ -101,6 +101,12 @@ let
       components,
       targets,
     }:
+    # The components here run on the build machine, so a cross package set
+    # (pkgsCross.*) would select binaries for the wrong one.
+    assert lib.assertMsg (pkgs.stdenv.buildPlatform.config == pkgs.stdenv.hostPlatform.config) ''
+      nix-cargo: toolchains are built for the machine that runs them. For ${pkgs.stdenv.hostPlatform.config},
+      use the native package set's toolchain with `targets = [ "${pkgs.stdenv.hostPlatform.rust.rustcTarget}" ]`.
+    '';
     let
       wanted = unique (filter (c: c != "cargo") components);
       targets' = unique (filter (t: t != rust.host) targets);
@@ -196,15 +202,19 @@ let
       sha256 ? null,
     }:
     let
-      text = builtins.readFile file;
-      spec =
-        if builtins.match ".*\\[toolchain].*" text != null then
-          (importTOML file).toolchain
-        else
-          { channel = lib.trim text; };
-      channel = spec.channel or (throw "nix-cargo: ${toString file} sets no toolchain.channel");
+      name = toString file;
+      text = lib.trim (builtins.readFile file);
+      # rustup reads `rust-toolchain.toml` as TOML, and `rust-toolchain` as TOML
+      # unless it is the legacy single line naming a channel.
+      legacy = !(lib.hasSuffix ".toml" name) && builtins.match "[^]=\n[]+" text != null;
+      spec = if legacy then { channel = text; } else (builtins.fromTOML text).toolchain or { };
+      channel = spec.channel or (throw "nix-cargo: ${name} sets no toolchain.channel");
       manifest' = resolveManifest { inherit channel manifest sha256; };
-      profile = manifest'.profiles.${spec.profile or "default"};
+      profileName = spec.profile or "default";
+      profile =
+        manifest'.profiles.${profileName} or (throw ''
+          nix-cargo: ${name} asks for profile "${profileName}"; the ${manifest'.version} manifest has ${lib.concatStringsSep ", " (builtins.attrNames manifest'.profiles)}.
+        '');
     in
     assert lib.assertMsg (!(spec ? path)) "nix-cargo: toolchain.path is not supported";
     assemble {

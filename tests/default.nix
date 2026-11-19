@@ -26,7 +26,12 @@ let
     name: toolchain: script:
     pkgs.runCommand "nix-cargo-check-${name}"
       {
-        nativeBuildInputs = [ toolchain ] ++ lib.optional pkgs.stdenv.hostPlatform.isDarwin pkgs.stdenv.cc;
+        # runCommand has no C compiler, which rustc needs as its linker driver;
+        # a dev shell from mkShell always has one.
+        nativeBuildInputs = [
+          toolchain
+          pkgs.stdenv.cc
+        ];
       }
       ''
         export HOME=$TMPDIR
@@ -63,9 +68,11 @@ in
 
   nightly = cargoRun "nightly" nixCargo.nightly runHello;
 
+  # A linked .wasm module, not just an rlib: the link goes through the
+  # sysroot's rust-lld (as wasm-ld) on every host.
   wasm32 = cargoRun "wasm32" wasm ''
-    cargo build --offline --lib --target wasm32-unknown-unknown
-    find ~/.cargo/targets target -name 'libhello.rlib' -path '*wasm32*' 2>/dev/null | grep -q .
+    cargo rustc --offline --lib --crate-type cdylib --target wasm32-unknown-unknown
+    find -L ~/.cargo/targets target -name 'hello.wasm' -path '*wasm32*' 2>/dev/null | grep -q .
   '';
 
   from-toolchain-file = cargoRun "from-toolchain-file" fromFile ''
@@ -96,4 +103,20 @@ in
 
   # Built and unit-tested by the default toolchain's rustPlatform.
   inherit (nixCargo) cli;
+}
+// lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+  # Links through rustc's bundled rust-lld (gcc-ld/ld.lld), the default on
+  # x86_64-linux and forced here so every Linux host covers it. The sandbox has
+  # no /lib64, so the binary only runs if the ld wrapper gave it the store's
+  # dynamic linker.
+  rust-lld = cargoRun "rust-lld" nixCargo.nightly ''
+    export RUSTFLAGS="-Zunstable-options -Clinker-features=+lld -Clink-self-contained=+linker"
+    ${runHello}
+    exe=$(cargo build --offline --quiet --message-format=json \
+      | grep -o '"executable":"[^"]*"' | cut -d'"' -f4 | tail -1)
+    # rust-lld did the link, not a fallback to the system linker...
+    ${pkgs.binutils-unwrapped}/bin/readelf -p .comment "$exe" | grep -q 'Linker: LLD'
+    # ...and the binary asks for the store's ld.so.
+    ${pkgs.patchelf}/bin/patchelf --print-interpreter "$exe" | grep -q '^/nix/store/'
+  '';
 }

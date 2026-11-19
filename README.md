@@ -37,6 +37,13 @@ Every toolchain also carries:
 - `.rustSrcPath`: the value for `RUST_SRC_PATH`; the toolchain's setup hook also exports it in
   any `mkShell` or build that includes the toolchain
 
+> **Cross-compiling.** A toolchain runs on the machine that builds with it, so take it from the
+> native package set and add the target: `mkToolchain { targets = [ "aarch64-unknown-linux-musl" ]; }`.
+> Asking a `pkgsCross.*` package set for one fails with that hint.
+
+> **`rustPlatform` limits.** `.rustPlatform.buildRustPackage` works; its `rustLibSrc`,
+> `rustcSrc` and `rustVendorSrc` helpers expect a rustc built from source and are not available.
+
 > **Dev shells, not package builds.** The fork always builds in `./target` and
 > `~/.cargo/targets` and ignores `CARGO_TARGET_DIR`, which does not fit the Nix sandbox. Build
 > packages with `toolchain.rustPlatform`: the channel's stock cargo, with the same rustc.
@@ -172,7 +179,10 @@ pkgs = import nixpkgs {
 }
 ```
 
-The module installs the toolchain and its rust-analyzer, sets `CARGO_HOME` and `RUST_SRC_PATH`,
+Setting `gc` or `settings` makes Home Manager own `~/.cargo/config.toml`: move anything already in
+that file into `settings` first, or activation stops on the existing file.
+
+The module installs the toolchain (with its rust-analyzer), sets `CARGO_HOME` and `RUST_SRC_PATH`,
 and writes `~/.cargo/config.toml` from `settings` and `gc` (the fork's `[build.gc]`). It warns
 about settings that work against the fork: `CARGO_INCREMENTAL=0` (turns off the incremental
 caches it shares between worktrees), `CARGO_TARGET_DIR` (ignored) and `RUSTC_WRAPPER` caches such
@@ -224,9 +234,10 @@ The fork's hashes come from each release's `SHA256SUMS` and the Rust ones from t
 manifests, so nothing is downloaded. The nightly search fetches candidate dates in parallel. The
 `update` workflow runs this and `nix flake update` daily and opens a pull request.
 
-Pull requests opened with the default `GITHUB_TOKEN` do not trigger other workflows. To have
-`check` run on them automatically, give `create-pull-request` a token from a GitHub App or a
-fine-grained PAT.
+Pull requests opened with the default `GITHUB_TOKEN` do not start other workflows, so `check`
+waits for a manual run. To have it run on its own, create a GitHub App (or a fine-grained PAT with
+`contents` and `pull-requests` write), store it as a secret and pass it to `create-pull-request`
+as `token`.
 
 ## Development
 
