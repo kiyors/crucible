@@ -16,8 +16,10 @@ use crucible::{doctor, pin, update};
     about = "Refresh crucible's pins and diagnose a toolchain environment"
 )]
 struct Cli {
+    // Optional so a bare `nix run github:kiyors/crucible` diagnoses the
+    // caller's shell: `doctor` is the one command most users ever need.
     #[command(subcommand)]
-    command: Command,
+    command: Option<Command>,
 }
 
 #[derive(Subcommand)]
@@ -62,16 +64,16 @@ fn main() -> ExitCode {
 
 fn run() -> Result<ExitCode> {
     match Cli::parse().command {
-        Command::Update {
+        None | Some(Command::Doctor) => doctor::run(),
+        Some(Command::Update {
             what,
             version,
             root,
-        } => {
+        }) => {
             update::run(what, version, &root)?;
             Ok(ExitCode::SUCCESS)
         }
-        Command::Doctor => doctor::run(),
-        Command::Pin(Pin::Rust { channel }) => {
+        Some(Command::Pin(Pin::Rust { channel })) => {
             pin::run(&channel)?;
             Ok(ExitCode::SUCCESS)
         }

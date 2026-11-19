@@ -265,14 +265,14 @@ pkgs = import nixpkgs {
 `crucible` is a small Rust program in `cli/`, built with this flake's own toolchain:
 
 ```sh
-nix run github:kiyors/crucible -- doctor         # is cargo the fork, and is anything working against it?
+nix run github:kiyors/crucible                   # doctor: is cargo the fork, and is anything working against it?
 nix run github:kiyors/crucible -- pin rust 1.99  # the rust-manifest input and sha256 for a channel
 ```
 
 `doctor` checks that the first `cargo` on PATH is the fork, and warns about other cargos and
 rustup proxies on PATH, `CARGO_INCREMENTAL=0`, `RUSTC_WRAPPER` caches, `CARGO_TARGET_DIR`, a
 `RUST_SRC_PATH` from another release, and a `rust-toolchain.toml` that disagrees with `rustc`. It
-exits non-zero when cargo is not the fork.
+exits non-zero when cargo is not the fork. It is what `crucible` runs with no command.
 
 ## Updating
 

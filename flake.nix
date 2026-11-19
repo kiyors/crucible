@@ -30,7 +30,7 @@
         }
       );
 
-      # `nix run github:kiyors/crucible -- doctor`
+      # `nix run github:kiyors/crucible` runs `doctor`.
       apps = forAllSystems (system: {
         default = {
           type = "app";
