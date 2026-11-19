@@ -106,7 +106,9 @@ process. `main.rs` is only clap.
   channel. Its URL rules mirror `manifestUrl` in `toolchain.nix`, and the two must stay in sync.
 - `doctor.rs`: checks the user's environment. Is `cargo` the fork? It also looks for rustup
   proxies, `CARGO_INCREMENTAL=0`, `CARGO_TARGET_DIR`, `RUSTC_WRAPPER` caches, a stale
-  `RUST_SRC_PATH`, and a `rust-toolchain.toml` that disagrees with `rustc`.
+  `RUST_SRC_PATH`, a `rust-toolchain.toml` that disagrees with `rustc`, variables the current
+  `hm-session-vars.sh` no longer sets (a shell older than the last switch), and on macOS a GCC
+  `cc`.
 - `http.rs`: the single path for every download. It retries transient failures and never retries
   a 404.
 - `sri.rs`: hex/bytes → `sha256-<base64>`, so the CLI never has to shell out to `nix`.

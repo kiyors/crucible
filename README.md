@@ -280,6 +280,16 @@ rustup proxies on PATH, `CARGO_INCREMENTAL=0`, `RUSTC_WRAPPER` caches, `CARGO_TA
 `RUST_SRC_PATH` from another release, and a `rust-toolchain.toml` that disagrees with `rustc`. It
 exits non-zero when cargo is not the fork. It is what `crucible` runs with no command.
 
+Two hints cover problems that live outside the toolchain:
+
+- **A shell older than the last Home Manager switch.** When one of those variables is set but the
+  current `hm-session-vars.sh` no longer sets it, the shell (or the tmux or zellij server that
+  started it) may still hold what an earlier generation set, such as a `RUSTC_WRAPPER` for a cache
+  you since removed. A new login shell clears it. The hint is skipped when Home Manager's files
+  are not there.
+- **GCC as `cc` on macOS.** Crates such as `aws-lc-sys`, and build scripts that compile
+  Objective-C, need Apple clang. Put `/usr/bin` earlier on PATH or set `CC=/usr/bin/cc`.
+
 ## Updating
 
 ```sh

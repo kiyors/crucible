@@ -2,8 +2,9 @@
 //! this flake intends.
 //!
 //! Every check mirrors something the README warns about: other `cargo` binaries
-//! earlier or later on PATH, rustup's proxies, settings the fork ignores, and
-//! caches that end up storing everything twice.
+//! earlier or later on PATH, rustup's proxies, settings the fork ignores,
+//! caches that end up storing everything twice, a shell older than the last
+//! Home Manager switch, and a C compiler that cannot build some crates.
 
 use std::collections::HashSet;
 use std::env;
@@ -24,6 +25,8 @@ pub fn run() -> Result<ExitCode> {
     check_rustup(&mut checks);
     check_env(&mut checks, cargo.as_deref());
     check_rust_src(&mut checks);
+    check_hm_session(&mut checks);
+    check_cc(&mut checks);
     check_toolchain_file(&mut checks, &cwd, rustc.as_deref());
     check_targets_dir(&mut checks);
 
@@ -233,6 +236,126 @@ fn check_rust_src(checks: &mut Checks) {
             }
         }
     }
+}
+
+/// Variables the checks above judge, and that Home Manager configs commonly
+/// set. Not CARGO_FORK_AUTO_UPDATE: crucible's cargo wrapper exports it to
+/// everything cargo runs, and it does no harm when stale.
+const SESSION_VARS: [&str; 5] = [
+    "RUSTC_WRAPPER",
+    "CARGO_INCREMENTAL",
+    "CARGO_TARGET_DIR",
+    "CARGO_BUILD_TARGET_DIR",
+    "RUST_SRC_PATH",
+];
+
+/// A shell keeps the session variables it started with: hm-session-vars.sh
+/// only runs once per session, and tmux or zellij servers hand their old
+/// environment to every new pane. So a variable a switch removed (a kache
+/// RUSTC_WRAPPER, the module's old RUST_SRC_PATH) lives on and the checks above
+/// blame the current config for it. This is only a hint: the variable may as
+/// well come from a shell rc file or a dev shell.
+fn check_hm_session(checks: &mut Checks) {
+    if env_value("__HM_SESS_VARS_SOURCED").is_none() {
+        return;
+    }
+    // Without the file there is nothing to compare against (no Home Manager
+    // profile here, CI), and silence beats a guess.
+    let Some(text) = hm_session_vars_files()
+        .iter()
+        .find_map(|path| fs::read_to_string(path).ok())
+    else {
+        return;
+    };
+    // A dev shell's toolchain sets RUST_SRC_PATH itself.
+    let in_nix_shell = env_value("IN_NIX_SHELL").is_some();
+    let stale = stale_session_vars(&text, |name| {
+        env_value(name).is_some() && !(in_nix_shell && name == "RUST_SRC_PATH")
+    });
+    if !stale.is_empty() {
+        let (verb, pronoun) = if stale.len() == 1 {
+            ("is", "it")
+        } else {
+            ("are", "them")
+        };
+        checks.info(format!(
+            "{} {verb} set but not in the current hm-session-vars.sh; if Home Manager set \
+             {pronoun} before the last switch, this shell predates it: open a new login shell \
+             (and restart tmux or zellij, which keep their old environment)",
+            stale.join(", "),
+        ));
+    }
+}
+
+/// Where Home Manager installs its session variables: nix-darwin and NixOS
+/// (`useUserPackages`), a standalone profile, and its XDG variant.
+fn hm_session_vars_files() -> Vec<PathBuf> {
+    const FILE: &str = "etc/profile.d/hm-session-vars.sh";
+    let mut files = Vec::new();
+    if let Some(user) = env_value("USER") {
+        files.push(Path::new("/etc/profiles/per-user").join(user).join(FILE));
+    }
+    if let Some(home) = env::var_os("HOME").map(PathBuf::from) {
+        files.push(home.join(".nix-profile").join(FILE));
+        files.push(home.join(".local/state/nix/profile").join(FILE));
+    }
+    files
+}
+
+/// The SESSION_VARS that `is_set` but that `hm_session_vars` (the script's
+/// text) does not export.
+fn stale_session_vars(hm_session_vars: &str, is_set: impl Fn(&str) -> bool) -> Vec<&'static str> {
+    SESSION_VARS
+        .into_iter()
+        .filter(|name| is_set(name))
+        .filter(|name| {
+            !hm_session_vars.lines().any(|line| {
+                let line = line.trim_start();
+                let line = line.strip_prefix("export ").unwrap_or(line);
+                line.strip_prefix(name)
+                    .is_some_and(|rest| rest.starts_with('='))
+            })
+        })
+        .collect()
+}
+
+/// On macOS, build scripts that compile C or Objective-C (aws-lc-sys, objc2,
+/// anything using Apple frameworks) need Apple's clang; a Homebrew or Nix GCC
+/// first on PATH as `cc` fails them with unrecognised flags.
+fn check_cc(checks: &mut Checks) {
+    if !cfg!(target_os = "macos") {
+        return;
+    }
+    let Some(cc) = executables("cc").into_iter().next() else {
+        checks.info("no cc on PATH; rustc links and build scripts compile with it".to_string());
+        return;
+    };
+    let version = match Command::new(&cc).arg("--version").output() {
+        Ok(output) => String::from_utf8_lossy(&output.stdout).into_owned(),
+        Err(err) => {
+            checks.warn(format!("cannot run {}: {err}", cc.display()));
+            return;
+        }
+    };
+    let first_line = version.lines().next().unwrap_or_default();
+    if is_gcc(&version) {
+        checks.warn(format!(
+            "{} is GCC ({first_line}); crates such as aws-lc-sys and Objective-C build scripts \
+             need Apple clang: put /usr/bin earlier on PATH or set CC=/usr/bin/cc",
+            cc.display()
+        ));
+    } else {
+        checks.ok(format!("{} is {first_line}", cc.display()));
+    }
+}
+
+/// Whether `cc --version` output is GCC's. Any clang (Apple's or a Nix
+/// wrapper's) says so in its first line, while GCC names itself or its
+/// copyright holder.
+fn is_gcc(version: &str) -> bool {
+    let version = version.to_lowercase();
+    !version.contains("clang")
+        && (version.contains("gcc") || version.contains("free software foundation"))
 }
 
 /// rust-analyzer needs `core` to be unpacked; a `library` directory on its own
@@ -477,6 +600,42 @@ mod tests {
         );
 
         fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn finds_session_variables_the_last_switch_dropped() {
+        let hm = "\
+# Only source this once.
+if [ -n \"${__HM_SESS_VARS_SOURCED-}\" ]; then return; fi
+export __HM_SESS_VARS_SOURCED=1
+export CARGO_HOME=\"/home/me/.cargo\"
+export CARGO_INCREMENTAL=\"1\"
+export RUSTC_WRAPPER_LOG=\"debug\"
+";
+        let set = ["RUSTC_WRAPPER", "CARGO_INCREMENTAL", "RUST_SRC_PATH"];
+        // RUSTC_WRAPPER_LOG must not count as RUSTC_WRAPPER.
+        assert_eq!(
+            stale_session_vars(hm, |name| set.contains(&name)),
+            ["RUSTC_WRAPPER", "RUST_SRC_PATH"]
+        );
+        assert!(stale_session_vars(hm, |_| false).is_empty());
+        assert!(stale_session_vars(hm, |name| name == "CARGO_INCREMENTAL").is_empty());
+    }
+
+    #[test]
+    fn tells_gcc_from_clang() {
+        assert!(is_gcc(
+            "gcc-14 (Homebrew GCC 14.2.0) 14.2.0\nCopyright (C) 2024 Free Software Foundation, Inc.\n"
+        ));
+        assert!(is_gcc(
+            "cc (GCC) 14.2.0\nCopyright (C) 2024 Free Software Foundation, Inc.\n"
+        ));
+        assert!(!is_gcc(
+            "Apple clang version 21.0.0 (clang-2100.4.1.1)\nTarget: arm64-apple-darwin27.2.0\n"
+        ));
+        assert!(!is_gcc(
+            "clang version 19.1.7\nTarget: arm64-apple-darwin\n"
+        ));
     }
 
     #[test]
