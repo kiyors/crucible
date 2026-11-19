@@ -1,5 +1,5 @@
 {
-  description = "Development environment for nix-cargo";
+  description = "Development environment for crucible";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -52,10 +52,9 @@
               oxfmt.enable = true;
               rustfmt.enable = true;
             };
-            # Written by `nix-cargo update`; reformatting them would churn every update.
+            # Written by `crucible update`; reformatting them would churn every update.
             settings.global.excludes = [
-              "data/*.json"
-              "sources.json"
+              "data/**/*.json"
               # Exact expected output of the trimmer.
               "cli/tests/fixtures/*.json"
             ];

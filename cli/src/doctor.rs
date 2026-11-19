@@ -1,4 +1,4 @@
-//! `nix-cargo doctor`: explain why a machine is not using the fork the way
+//! `crucible doctor`: explain why a machine is not using the fork the way
 //! this flake intends.
 //!
 //! Every check mirrors something the README warns about: other `cargo` binaries
@@ -173,7 +173,7 @@ fn check_env(checks: &mut Checks, cargo: Option<&Path>) {
         ));
     }
 
-    // nix-cargo's wrapper sets CARGO_FORK_AUTO_UPDATE=0 for its own process,
+    // crucible's wrapper sets CARGO_FORK_AUTO_UPDATE=0 for its own process,
     // so the shell's value only matters for a cargo from outside the store.
     let from_store = cargo
         .and_then(|cargo| fs::canonicalize(cargo).ok())
@@ -289,7 +289,7 @@ fn check_toolchain_file(checks: &mut Checks, cwd: &Path, rustc: Option<&str>) {
             return;
         }
     };
-    // As rustup and lib/toolchain.nix decide it: `rust-toolchain` without an
+    // As rustup and lib/rust/toolchain.nix decide it: `rust-toolchain` without an
     // extension may still be TOML; only a single bare line is the legacy form.
     let text = text.trim();
     let legacy = path.extension().is_none() && !text.contains(['\n', '[', '=']);
@@ -452,7 +452,7 @@ mod tests {
 
     #[test]
     fn finds_the_nearest_toolchain_file_upwards() {
-        let root = std::env::temp_dir().join(format!("nix-cargo-doctor-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("crucible-doctor-{}", std::process::id()));
         let nested = root.join("crates/app/src");
         fs::create_dir_all(&nested).unwrap();
         assert_eq!(find_toolchain_file(&nested), None);

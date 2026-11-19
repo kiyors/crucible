@@ -4,4 +4,4 @@ result-*
 .pre-commit-config.yaml
 /fenix/
 /nix-vite-plus/
-.nix-cargo-update.lock
+.crucible-update.lock

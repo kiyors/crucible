@@ -1,4 +1,4 @@
-//! `nix-cargo update`: rewrite `sources.json` and `data/*.json`.
+//! `crucible update`: rewrite `data/rust/*.json`.
 //!
 //! Every pin is fetched and checked before the first file is touched, so a
 //! failed update leaves the previous pins intact instead of a mixed set. Each
@@ -28,13 +28,13 @@ pub enum Scope {
 type Plan = Vec<(PathBuf, Vec<u8>)>;
 
 /// The lock lives in the repo root the run modifies, next to the pins.
-const LOCK: &str = ".nix-cargo-update.lock";
+const LOCK: &str = ".crucible-update.lock";
 
 pub fn run(scope: Scope, version: Option<String>, root: &Path) -> Result<()> {
     let _lock = Lock::acquire(root)?;
     let http = crate::http::Http::new();
 
-    // Plan everything first: sources.json, then stable, beta and nightly, so a
+    // Plan everything first: the cargo pin, then stable, beta and nightly, so a
     // fetch failure anywhere aborts before any pin changes.
     let plan = match scope {
         Scope::All => {
@@ -127,7 +127,7 @@ mod tests {
     fn temp_dir(name: &str) -> PathBuf {
         static NEXT: AtomicU32 = AtomicU32::new(0);
         let dir = std::env::temp_dir().join(format!(
-            "nix-cargo-update-{}-{}-{name}",
+            "crucible-update-{}-{}-{name}",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));

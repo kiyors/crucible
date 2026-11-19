@@ -14,7 +14,7 @@
 {
   lib,
   pkgs,
-  # huacnlee/cargo, from package.nix.
+  # huacnlee/cargo, from cargo.nix.
   cargo,
 }:
 let
@@ -36,12 +36,12 @@ let
     "llvm-tools"
   ];
 
-  # Pinned by `nix-cargo update`; no hash needed. `nightly` is the newest nightly that
+  # Pinned by `crucible update`; no hash needed. `nightly` is the newest nightly that
   # ships every component on every supported host.
   pinned = {
-    stable = importJSON ../data/stable.json;
-    beta = importJSON ../data/beta.json;
-    nightly = importJSON ../data/nightly.json;
+    stable = importJSON ../../data/rust/stable.json;
+    beta = importJSON ../../data/rust/beta.json;
+    nightly = importJSON ../../data/rust/nightly.json;
   };
 
   # A rustup channel name to its manifest URL: "1.99", "1.99.0", "stable",
@@ -54,14 +54,14 @@ let
       date = builtins.elemAt m 3;
     in
     if m == null then
-      throw "nix-cargo: \"${channel}\" is not a channel rustup understands"
+      throw "crucible: \"${channel}\" is not a channel rustup understands"
     else
       "https://static.rust-lang.org/dist${
         lib.optionalString (date != null) "/${date}"
       }/channel-rust-${name}.toml";
 
   # An upstream channel-rust-*.toml carries rustc's version only as
-  # "1.99.0 (b940084d7 2026-09-28)" under pkg.rustc; data/*.json has it trimmed
+  # "1.99.0 (b940084d7 2026-09-28)" under pkg.rustc; data/rust/*.json has it trimmed
   # at the top level already.
   importManifest =
     file:
@@ -90,7 +90,7 @@ let
       )
     else
       pinned.${channel} or (throw ''
-        nix-cargo: channel "${channel}" is not pinned (stable, beta, nightly), so it needs
+        crucible: channel "${channel}" is not pinned (stable, beta, nightly), so it needs
         ${manifestUrl channel}
         as `manifest` (a `flake = false` input) or its `sha256` (nix-prefetch-url <url>).
       '');
@@ -104,7 +104,7 @@ let
     # The components here run on the build machine, so a cross package set
     # (pkgsCross.*) would select binaries for the wrong one.
     assert lib.assertMsg (pkgs.stdenv.buildPlatform.config == pkgs.stdenv.hostPlatform.config) ''
-      nix-cargo: toolchains are built for the machine that runs them. For ${pkgs.stdenv.hostPlatform.config},
+      crucible: toolchains are built for the machine that runs them. For ${pkgs.stdenv.hostPlatform.config},
       use the native package set's toolchain with `targets = [ "${pkgs.stdenv.hostPlatform.rust.rustcTarget}" ]`.
     '';
     let
@@ -208,15 +208,15 @@ let
       # unless it is the legacy single line naming a channel.
       legacy = !(lib.hasSuffix ".toml" name) && builtins.match "[^]=\n[]+" text != null;
       spec = if legacy then { channel = text; } else (builtins.fromTOML text).toolchain or { };
-      channel = spec.channel or (throw "nix-cargo: ${name} sets no toolchain.channel");
+      channel = spec.channel or (throw "crucible: ${name} sets no toolchain.channel");
       manifest' = resolveManifest { inherit channel manifest sha256; };
       profileName = spec.profile or "default";
       profile =
         manifest'.profiles.${profileName} or (throw ''
-          nix-cargo: ${name} asks for profile "${profileName}"; the ${manifest'.version} manifest has ${lib.concatStringsSep ", " (builtins.attrNames manifest'.profiles)}.
+          crucible: ${name} asks for profile "${profileName}"; the ${manifest'.version} manifest has ${lib.concatStringsSep ", " (builtins.attrNames manifest'.profiles)}.
         '');
     in
-    assert lib.assertMsg (!(spec ? path)) "nix-cargo: toolchain.path is not supported";
+    assert lib.assertMsg (!(spec ? path)) "crucible: toolchain.path is not supported";
     assemble {
       manifest = manifest';
       # A profile names components some hosts lack (rust-mingw), so those are

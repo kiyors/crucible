@@ -1,4 +1,4 @@
-# The nix-cargo CLI, built with the stock-cargo sibling of nix-cargo's own
+# The crucible CLI, built with the stock-cargo sibling of crucible's own
 # stable toolchain, so every CI run also proves that toolchain packages a real
 # crate with dependencies.
 {
@@ -25,8 +25,8 @@ rustPlatform.buildRustPackage {
 
   meta = {
     inherit (manifest.package) description;
-    homepage = "https://github.com/kiyors/nix-cargo";
+    homepage = "https://github.com/kiyors/crucible";
     license = lib.licenses.mit;
-    mainProgram = "nix-cargo";
+    mainProgram = "crucible";
   };
 }

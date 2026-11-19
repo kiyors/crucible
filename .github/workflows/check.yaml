@@ -35,7 +35,7 @@ jobs:
         run: nix build -L .#cargo
       - name: Check version
         run: |
-          version=$(jq -r .version sources.json)
+          version=$(jq -r .version data/rust/cargo.json)
           output=$(./result/bin/cargo -V)
           echo "Detected version: $output"
           if ! echo "$output" | grep -F "huacnlee/cargo $version"; then

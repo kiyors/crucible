@@ -15,26 +15,26 @@ let
     types
     ;
 
-  cfg = config.programs.nix-cargo;
+  cfg = config.programs.crucible.rust;
   tomlFormat = pkgs.formats.toml { };
   cargoHome = "${config.home.homeDirectory}/${cfg.cargoHomeDir}";
   sessionVariables = config.home.sessionVariables;
 in
 {
-  options.programs.nix-cargo = {
+  options.programs.crucible.rust = {
     enable = mkEnableOption "a Rust toolchain whose cargo is huacnlee/cargo";
 
     package = mkOption {
       type = types.package;
-      default = self.packages.${pkgs.stdenv.hostPlatform.system}.default;
-      defaultText = literalExpression "nix-cargo.packages.\${system}.default";
+      default = self.packages.${pkgs.stdenv.hostPlatform.system}.rust;
+      defaultText = literalExpression "crucible.packages.\${system}.rust";
       example = literalExpression ''
-        nix-cargo.lib.''${system}.mkToolchain {
+        crucible.lib.''${system}.rust.mkToolchain {
           targets = [ "wasm32-unknown-unknown" ];
         }
       '';
       description = ''
-        The toolchain to install: one from nix-cargo's `packages` or `lib`,
+        The toolchain to install: one from crucible's `packages` or `lib.<system>.rust`,
         or any package with a `bin/cargo`.
       '';
     };
@@ -44,7 +44,7 @@ in
       default = null;
       example = literalExpression "pkgs.rust-analyzer";
       description = ''
-        A rust-analyzer to install next to the toolchain. nix-cargo's toolchains
+        A rust-analyzer to install next to the toolchain. crucible's toolchains
         already include the one built for their rustc, so this is only for a
         `package` that lacks it.
       '';
@@ -86,7 +86,7 @@ in
       };
       description = ''
         Cargo configuration written to {file}`$CARGO_HOME/config.toml`, merged
-        with {option}`programs.nix-cargo.gc`.
+        with {option}`programs.crucible.rust.gc`.
       '';
     };
   };
@@ -94,21 +94,21 @@ in
   config = mkIf cfg.enable {
     warnings =
       optional ((sessionVariables.CARGO_INCREMENTAL or null) == "0") ''
-        programs.nix-cargo: CARGO_INCREMENTAL=0 turns off the incremental caches
+        programs.crucible.rust: CARGO_INCREMENTAL=0 turns off the incremental caches
         huacnlee/cargo shares between worktrees, so undoing an edit or switching
         back to a branch rebuilds from scratch.
       ''
       ++ optional (sessionVariables ? CARGO_TARGET_DIR) ''
-        programs.nix-cargo: huacnlee/cargo ignores CARGO_TARGET_DIR and always
+        programs.crucible.rust: huacnlee/cargo ignores CARGO_TARGET_DIR and always
         builds in ./target and ~/.cargo/targets.
       ''
       ++ optional (sessionVariables ? RUSTC_WRAPPER) ''
-        programs.nix-cargo: RUSTC_WRAPPER is set. huacnlee/cargo already shares
+        programs.crucible.rust: RUSTC_WRAPPER is set. huacnlee/cargo already shares
         compiled dependencies between projects, so a compiler cache such as
         sccache or kache stores everything a second time.
       '';
 
-    programs.nix-cargo.settings = mkIf (cfg.gc != { }) { build.gc = cfg.gc; };
+    programs.crucible.rust.settings = mkIf (cfg.gc != { }) { build.gc = cfg.gc; };
 
     home = {
       packages = [

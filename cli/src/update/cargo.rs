@@ -16,7 +16,7 @@ use crate::sri;
 
 const REPO: &str = "huacnlee/cargo";
 
-/// Nix system -> Rust host triple, in `lib/systems.nix` order.
+/// Nix system -> Rust host triple, in `lib/common/systems.nix` order.
 const PLATFORMS: [(&str, &str); 3] = [
     ("x86_64-linux", "x86_64-unknown-linux-gnu"),
     ("aarch64-linux", "aarch64-unknown-linux-gnu"),
@@ -29,9 +29,9 @@ struct Sources {
     platforms: Map<String, Value>,
 }
 
-/// Fetch and validate `sources.json`, without writing it.
+/// Fetch and validate `data/rust/cargo.json`, without writing it.
 pub fn plan(http: &Http, version: Option<String>, root: &Path) -> Result<Plan> {
-    let path = root.join("sources.json");
+    let path = root.join("data/rust/cargo.json");
     let current = read_version(&path)?;
     let version = match version {
         Some(version) => version,

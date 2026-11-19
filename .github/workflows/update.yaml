@@ -28,18 +28,18 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          nix run .#nix-cargo -- update
+          nix run .#crucible -- update
           {
-            echo "cargo=$(jq -r .version sources.json)"
-            echo "stable=$(jq -r .version data/stable.json)"
-            echo "nightly=$(jq -r '.version + " " + .date' data/nightly.json)"
+            echo "cargo=$(jq -r .version data/rust/cargo.json)"
+            echo "stable=$(jq -r .version data/rust/stable.json)"
+            echo "nightly=$(jq -r '.version + " " + .date' data/rust/nightly.json)"
           } >> "$GITHUB_OUTPUT"
 
       - name: Update flake.lock
         run: nix flake update
 
       - name: Build cargo and the default toolchain
-        run: nix build -L .#cargo .#default
+        run: nix build -L .#cargo .#rust
 
       - name: Open a pull request
         uses: peter-evans/create-pull-request@3ffccacd46053766916f087ce41d627c0b8cf2d1 # v8.1.3
@@ -55,6 +55,5 @@ jobs:
 
             The check workflow builds a crate with every toolchain on Linux and macOS before this can merge.
           add-paths: |
-            sources.json
-            data/*.json
+            data
             flake.lock

@@ -1,5 +1,5 @@
 {
-  description = "Rust toolchains from static.rust-lang.org, with huacnlee/cargo as their cargo.";
+  description = "Language toolchains for Nix, straight from upstream releases: Rust with huacnlee/cargo.";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -11,34 +11,45 @@
       nixpkgs,
     }:
     let
-      forAllSystems = nixpkgs.lib.genAttrs (import ./lib/systems.nix);
+      forAllSystems = nixpkgs.lib.genAttrs (import ./lib/common/systems.nix);
 
-      nixCargo = forAllSystems (system: import ./. { pkgs = nixpkgs.legacyPackages.${system}; });
+      crucible = forAllSystems (system: import ./. { pkgs = nixpkgs.legacyPackages.${system}; });
     in
     {
-      packages = forAllSystems (system: {
-        inherit (nixCargo.${system}) cargo default nightly;
-        nix-cargo = nixCargo.${system}.cli;
-      });
+      packages = forAllSystems (
+        system:
+        let
+          inherit (crucible.${system}) rust cli;
+        in
+        {
+          default = rust.stable;
+          rust = rust.stable;
+          rust-nightly = rust.nightly;
+          inherit (rust) cargo;
+          crucible = cli;
+        }
+      );
 
-      # `nix run github:kiyors/nix-cargo -- doctor`
+      # `nix run github:kiyors/crucible -- doctor`
       apps = forAllSystems (system: {
         default = {
           type = "app";
-          program = nixpkgs.lib.getExe nixCargo.${system}.cli;
-          meta.description = "Update nix-cargo's pins, diagnose a Rust setup, pin a channel";
+          program = nixpkgs.lib.getExe crucible.${system}.cli;
+          meta.description = "Update crucible's pins, diagnose a toolchain setup, pin a channel";
         };
       });
 
       lib = forAllSystems (system: {
-        inherit (nixCargo.${system}) mkToolchain fromToolchainFile defaultComponents;
+        rust = {
+          inherit (crucible.${system}.rust) mkToolchain fromToolchainFile defaultComponents;
+        };
       });
 
       checks = forAllSystems (
         system:
         import ./tests {
           pkgs = nixpkgs.legacyPackages.${system};
-          nixCargo = nixCargo.${system};
+          crucible = crucible.${system};
         }
       );
 

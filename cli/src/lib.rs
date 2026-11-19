@@ -1,4 +1,4 @@
-//! The pieces behind the `nix-cargo` binary, split out so the trimming and
+//! The pieces behind the `crucible` binary, split out so the trimming and
 //! parsing rules can be tested without a network or a process.
 
 pub mod doctor;

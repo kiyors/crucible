@@ -424,7 +424,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "nix-cargo"
+name = "crucible"
 version = "0.1.0"
 dependencies = [
  "anyhow",

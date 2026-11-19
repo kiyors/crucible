@@ -1,3 +1,3 @@
 pub fn greeting() -> &'static str {
-    "hello from nix-cargo"
+    "hello from crucible"
 }

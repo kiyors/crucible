@@ -1,16 +1,16 @@
 [package]
-name = "nix-cargo"
+name = "crucible"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.85"
-description = "Refresh and diagnose nix-cargo's pinned Rust toolchains"
+description = "Refresh crucible's pinned toolchains and diagnose the environment that uses them"
 publish = false
 
 [dependencies]
 anyhow = "1"
 base64 = "0.22"
 clap = { version = "4.5", features = ["derive"] }
-# Ordered maps, so a manifest's package order survives into data/*.json.
+# Ordered maps, so a manifest's package order survives into data/rust/*.json.
 indexmap = { version = "2", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 # The channel manifest is big and its package order is part of the output, so

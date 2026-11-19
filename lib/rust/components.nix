@@ -140,7 +140,7 @@ let
     in
     assert lib.assertMsg (
       src != null
-    ) "nix-cargo: the ${manifest.version} (${manifest.date}) manifest has no ${pkg} for ${target}";
+    ) "crucible: the ${manifest.version} (${manifest.date}) manifest has no ${pkg} for ${target}";
     stdenv.mkDerivation (
       {
         pname = "${pkg}-${target}";
@@ -210,7 +210,7 @@ let
             asl20
           ];
           sourceProvenance = with lib.sourceTypes; [ binaryNativeCode ];
-          platforms = import ./systems.nix;
+          platforms = import ../common/systems.nix;
         };
       }
       // lib.optionalAttrs (stdenv.hostPlatform.isLinux && isRustc) { env = ldWrapperEnv; }

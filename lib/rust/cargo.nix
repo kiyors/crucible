@@ -7,7 +7,7 @@
   zlib,
 }:
 let
-  sourcesData = lib.importJSON ./sources.json;
+  sourcesData = lib.importJSON ../../data/rust/cargo.json;
   inherit (sourcesData) version;
   sources = sourcesData.platforms;
 
@@ -50,7 +50,7 @@ stdenv.mkDerivation {
 
     # Once a day the fork checks for a newer release in the background and
     # renames it over its own binary, which cannot work inside /nix/store.
-    # Updates come through sources.json instead.
+    # Updates come through data/rust/cargo.json instead.
     wrapProgram $out/bin/cargo \
       --set CARGO_FORK_AUTO_UPDATE 0
 
@@ -79,6 +79,6 @@ stdenv.mkDerivation {
     ];
     sourceProvenance = with lib.sourceTypes; [ binaryNativeCode ];
     mainProgram = "cargo";
-    platforms = import ./lib/systems.nix;
+    platforms = import ../common/systems.nix;
   };
 }

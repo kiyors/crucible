@@ -1,7 +1,7 @@
-//! `nix-cargo pin`: turn a rustup channel into the two things a Nix user needs
+//! `crucible pin rust`: turn a rustup channel into the two things a Nix user needs
 //! to pin it: a `flake = false` input, or the manifest's SRI hash.
 //!
-//! The URL rules mirror `manifestUrl` in lib/toolchain.nix, including the dated
+//! The URL rules mirror `manifestUrl` in lib/rust/toolchain.nix, including the dated
 //! forms (`nightly-2026-11-01`), so the hashes and the flake agree.
 
 use anyhow::{Context, Result};

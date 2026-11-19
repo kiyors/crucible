@@ -1,4 +1,4 @@
-//! `nix-cargo`: the repo's updater, environment doctor and channel pin helper.
+//! `crucible`: the repo's updater, environment doctor and channel pin helper.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -6,14 +6,14 @@ use std::process::ExitCode;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
-use nix_cargo::update::Scope;
-use nix_cargo::{doctor, pin, update};
+use crucible::update::Scope;
+use crucible::{doctor, pin, update};
 
 #[derive(Parser)]
 #[command(
-    name = "nix-cargo",
+    name = "crucible",
     version,
-    about = "Refresh nix-cargo's pins and diagnose a Rust environment"
+    about = "Refresh crucible's pins and diagnose a toolchain environment"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -22,7 +22,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Rewrite sources.json and data/*.json from upstream
+    /// Rewrite the pins in data/ from upstream
     Update {
         /// What to refresh
         #[arg(value_enum, default_value = "all")]
@@ -30,14 +30,21 @@ enum Command {
         /// Use this huacnlee/cargo version instead of the latest release
         #[arg(long)]
         version: Option<String>,
-        /// Repository root holding sources.json and data/
+        /// Repository root holding data/
         #[arg(long, default_value = ".")]
         root: PathBuf,
     },
     /// Check that the fork is what cargo resolves to
     Doctor,
-    /// Print the flake input and sha256 for a rustup channel
-    Pin {
+    /// Print what a project needs to pin a toolchain version
+    #[command(subcommand)]
+    Pin(Pin),
+}
+
+#[derive(Subcommand)]
+enum Pin {
+    /// The flake input and sha256 for a rustup channel
+    Rust {
         /// A rustup channel: stable, 1.99, nightly-2026-11-01, ...
         channel: String,
     },
@@ -64,7 +71,7 @@ fn run() -> Result<ExitCode> {
             Ok(ExitCode::SUCCESS)
         }
         Command::Doctor => doctor::run(),
-        Command::Pin { channel } => {
+        Command::Pin(Pin::Rust { channel }) => {
             pin::run(&channel)?;
             Ok(ExitCode::SUCCESS)
         }

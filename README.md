@@ -1,15 +1,18 @@
-# nix-cargo
+# crucible
 
-Rust toolchains for Nix, built from the official rust-lang.org channel manifests, with
-[huacnlee/cargo](https://github.com/huacnlee/cargo) as their cargo: a Cargo fork whose projects
-and git worktrees share one build directory that it keeps under a size limit.
+Language toolchains for Nix, built from each language's own upstream releases rather than from
+source or through another overlay, and pinned from the files projects already have.
+
+- **Rust**: toolchains from the official rust-lang.org channel manifests, with
+  [huacnlee/cargo](https://github.com/huacnlee/cargo) as their cargo: a Cargo fork whose projects
+  and git worktrees share one build directory that it keeps under a size limit.
 
 - **No intermediaries.** Components come straight from `static.rust-lang.org`, unpacked into one
   prefix the way rustup installs them, so every official binary finds its libraries where it
   expects to. The only flake input is nixpkgs.
-- **Pinned and updated daily.** `data/{stable,beta,nightly}.json` hold the trimmed channel
-  manifests and `sources.json` the fork's release; a scheduled workflow refreshes both with the
-  repo's own Rust CLI.
+- **Pinned and updated daily.** `data/rust/{stable,beta,nightly}.json` hold the trimmed channel
+  manifests and `data/rust/cargo.json` the fork's release; a scheduled workflow refreshes them
+  with the repo's own CLI.
 - **Nightly is always complete.** The pinned nightly is the newest one that ships rustc, clippy,
   rustfmt, rust-src, llvm-tools, rust-analyzer and Cranelift on every supported host.
 - **The fork cannot update itself** inside the read-only store (`CARGO_FORK_AUTO_UPDATE=0`).
@@ -19,15 +22,16 @@ releases support.
 
 ## Outputs
 
-| Output                           | What it is                                                    |
-| -------------------------------- | ------------------------------------------------------------- |
-| `packages.<system>.cargo`        | the patched cargo alone                                       |
-| `packages.<system>.default`      | stable + patched cargo                                        |
-| `packages.<system>.nightly`      | complete nightly with Cranelift + patched cargo               |
-| `lib.<system>.mkToolchain`       | a toolchain from a channel, components and targets            |
-| `lib.<system>.fromToolchainFile` | a toolchain from a project's `rust-toolchain.toml`            |
-| `overlays.default`               | `pkgs.nix-cargo` (everything above) and `pkgs.huacnlee-cargo` |
-| `homeManagerModules.default`     | `programs.nix-cargo`                                          |
+| Output                                | What it is                                          |
+| ------------------------------------- | --------------------------------------------------- |
+| `packages.<system>.rust` (`default`)  | stable + patched cargo                              |
+| `packages.<system>.rust-nightly`      | complete nightly with Cranelift + patched cargo     |
+| `packages.<system>.cargo`             | the patched cargo alone                             |
+| `packages.<system>.crucible`          | the CLI (`update`, `doctor`, `pin`)                 |
+| `lib.<system>.rust.mkToolchain`       | a toolchain from a channel, components and targets  |
+| `lib.<system>.rust.fromToolchainFile` | a toolchain from a project's `rust-toolchain.toml`  |
+| `overlays.default`                    | `pkgs.crucible`: `.rust` (everything above), `.cli` |
+| `homeManagerModules.default`          | `programs.crucible.rust`                            |
 
 Every toolchain also carries:
 
@@ -48,11 +52,13 @@ Every toolchain also carries:
 > `~/.cargo/targets` and ignores `CARGO_TARGET_DIR`, which does not fit the Nix sandbox. Build
 > packages with `toolchain.rustPlatform`: the channel's stock cargo, with the same rustc.
 
-## mkToolchain
+## Rust
+
+### mkToolchain
 
 ```nix
-nix-cargo.lib.${system}.mkToolchain {
-  channel ? "stable";   # "stable" | "beta" | "nightly", pinned in data/;
+crucible.lib.${system}.rust.mkToolchain {
+  channel ? "stable";   # "stable" | "beta" | "nightly", pinned in data/rust/;
                         # or any rustup channel ("1.99", "1.99.0", "nightly-2026-11-01")
                         # with `manifest` or `sha256`
   components ? [ "rustc" "rust-std" "rust-src" "clippy" "rustfmt" "llvm-tools" ];
@@ -65,7 +71,7 @@ nix-cargo.lib.${system}.mkToolchain {
 Components take rustup's names (`clippy`, `rust-analyzer`, `rustc-codegen-cranelift`, ...).
 `"cargo"` is ignored: the fork's cargo is always the one added.
 
-## fromToolchainFile
+### fromToolchainFile
 
 Reads `channel`, `profile`, `components` and `targets` from `rust-toolchain.toml` (or the
 one-line `rust-toolchain`), so the file stays the single source of truth for rustup, CI and Nix.
@@ -77,8 +83,8 @@ update` then moves you to the newest patch release of the series, with no hash t
 {
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    nix-cargo = {
-      url = "github:kiyors/nix-cargo";
+    crucible = {
+      url = "github:kiyors/crucible";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     # Must match `channel` in rust-toolchain.toml.
@@ -89,12 +95,12 @@ update` then moves you to the newest patch release of the series, with no hash t
   };
 
   outputs =
-    { nixpkgs, nix-cargo, rust-manifest, ... }:
+    { nixpkgs, crucible, rust-manifest, ... }:
     let
       forAllSystems = nixpkgs.lib.genAttrs [ "x86_64-linux" "aarch64-linux" "aarch64-darwin" ];
       rustFor =
         system:
-        nix-cargo.lib.${system}.fromToolchainFile {
+        crucible.lib.${system}.rust.fromToolchainFile {
           file = ./rust-toolchain.toml;
           manifest = rust-manifest;
         };
@@ -127,48 +133,28 @@ update` then moves you to the newest patch release of the series, with no hash t
 
 `channel = "stable"`, `"beta"` and `"nightly"` need neither `manifest` nor `sha256`.
 
-## Template
-
-```sh
-nix flake init -t github:kiyors/nix-cargo
-```
-
-A `flake.nix` with a dev shell and a package, a `rust-toolchain.toml` and an `.envrc`.
-
-## devShell
+### devShell
 
 ```nix
 devShells.default = pkgs.mkShell {
   packages = [
-    (nix-cargo.lib.${system}.mkToolchain {
+    (crucible.lib.${system}.rust.mkToolchain {
       targets = [ "wasm32-unknown-unknown" ];
     })
   ];
 };
 ```
 
-## Overlay
-
-```nix
-pkgs = import nixpkgs {
-  inherit system;
-  overlays = [ nix-cargo.overlays.default ];
-};
-
-# pkgs.huacnlee-cargo, pkgs.nix-cargo.default, pkgs.nix-cargo.nightly,
-# pkgs.nix-cargo.mkToolchain { ... }, pkgs.nix-cargo.fromToolchainFile { ... }
-```
-
-## Home Manager
+### Home Manager
 
 ```nix
 { inputs, pkgs, ... }:
 {
-  imports = [ inputs.nix-cargo.homeManagerModules.default ];
+  imports = [ inputs.crucible.homeManagerModules.default ];
 
-  programs.nix-cargo = {
+  programs.crucible.rust = {
     enable = true;
-    # package = inputs.nix-cargo.lib.${pkgs.stdenv.hostPlatform.system}.mkToolchain { ... };
+    # package = inputs.crucible.lib.${pkgs.stdenv.hostPlatform.system}.rust.mkToolchain { ... };
     extraPackages = [ pkgs.cargo-edit pkgs.bacon ];
     gc = {
       max-size = "auto";
@@ -188,11 +174,11 @@ about settings that work against the fork: `CARGO_INCREMENTAL=0` (turns off the 
 caches it shares between worktrees), `CARGO_TARGET_DIR` (ignored) and `RUSTC_WRAPPER` caches such
 as sccache or kache (they store every dependency a second time).
 
-## How a toolchain is built
+### How a toolchain is built
 
-1. `lib/toolchain.nix` resolves the channel to a manifest: a pinned `data/*.json`, or a
+1. `lib/rust/toolchain.nix` resolves the channel to a manifest: a pinned `data/rust/*.json`, or a
    `channel-rust-*.toml` you pass in.
-2. `lib/components.nix` turns each component tarball (rustc, rust-std for one target, clippy,
+2. `lib/rust/components.nix` turns each component tarball (rustc, rust-std for one target, clippy,
    ...) into its own derivation, fetched by the manifest's hash. On Linux it patches host binaries
    with `autoPatchelf` and routes rustc's bundled `gcc-ld/ld.lld` through the nixpkgs ld wrapper,
    so binaries it links get the store's dynamic linker and library paths.
@@ -207,13 +193,33 @@ one copy of it: a second toolchain on the same release (another target, another 
 a project's `rust-toolchain.toml`) adds about 150 MB instead of 700 MB, and nothing is unpacked
 twice.
 
-## CLI
-
-`nix-cargo` is a small Rust program in `cli/`, built with this flake's own toolchain:
+## Template
 
 ```sh
-nix run github:kiyors/nix-cargo -- doctor     # is cargo the fork, and is anything working against it?
-nix run github:kiyors/nix-cargo -- pin 1.99   # the rust-manifest input and sha256 for a channel
+nix flake init -t github:kiyors/crucible
+```
+
+A `flake.nix` with a dev shell and a package, a `rust-toolchain.toml` and an `.envrc`.
+
+## Overlay
+
+```nix
+pkgs = import nixpkgs {
+  inherit system;
+  overlays = [ crucible.overlays.default ];
+};
+
+# pkgs.crucible.rust.{stable,nightly,cargo}, pkgs.crucible.cli,
+# pkgs.crucible.rust.mkToolchain { ... }, pkgs.crucible.rust.fromToolchainFile { ... }
+```
+
+## CLI
+
+`crucible` is a small Rust program in `cli/`, built with this flake's own toolchain:
+
+```sh
+nix run github:kiyors/crucible -- doctor         # is cargo the fork, and is anything working against it?
+nix run github:kiyors/crucible -- pin rust 1.99  # the rust-manifest input and sha256 for a channel
 ```
 
 `doctor` checks that the first `cargo` on PATH is the fork, and warns about other cargos and
@@ -224,10 +230,10 @@ exits non-zero when cargo is not the fork.
 ## Updating
 
 ```sh
-nix run .#nix-cargo -- update                          # everything
-nix run .#nix-cargo -- update cargo                    # latest huacnlee/cargo release
-nix run .#nix-cargo -- update cargo --version 0.103.0-1
-nix run .#nix-cargo -- update rust                     # stable, beta, newest complete nightly
+nix run .#crucible -- update                          # everything
+nix run .#crucible -- update cargo                    # latest huacnlee/cargo release
+nix run .#crucible -- update cargo --version 0.103.0-1
+nix run .#crucible -- update rust                     # stable, beta, newest complete nightly
 ```
 
 The fork's hashes come from each release's `SHA256SUMS` and the Rust ones from the channel

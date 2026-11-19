@@ -1,3 +1,3 @@
 fn main() {
-    println!("hello from nix-cargo");
+    println!("hello from crucible");
 }

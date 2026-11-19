@@ -1,14 +1,14 @@
 //! A channel manifest from `static.rust-lang.org`, and the subset of it the
 //! flake consumes.
 //!
-//! Package and target order is kept from the manifest: `data/*.json` is a
+//! Package and target order is kept from the manifest: `data/rust/*.json` is a
 //! human-readable pin, and reordering it on every update would bury the real
 //! change in noise.
 
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
-/// The host triples of `lib/systems.nix`, in the same order.
+/// The host triples of `lib/common/systems.nix`, in the same order.
 pub const HOSTS: [&str; 3] = [
     "x86_64-unknown-linux-gnu",
     "aarch64-unknown-linux-gnu",
@@ -55,7 +55,7 @@ pub struct Rename {
     pub to: String,
 }
 
-/// The pinned format of `data/*.json`.
+/// The pinned format of `data/rust/*.json`.
 #[derive(Clone, Debug, Serialize)]
 pub struct Trimmed {
     pub date: String,
@@ -118,7 +118,7 @@ impl Manifest {
 
         Trimmed {
             date: self.date.clone(),
-            // `importManifest` in lib/toolchain.nix wants just the number, but
+            // `importManifest` in lib/rust/toolchain.nix wants just the number, but
             // upstream packs the commit and date into the same string.
             version: self
                 .pkg

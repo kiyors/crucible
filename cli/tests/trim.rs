@@ -1,7 +1,7 @@
-//! `update rust` rewrites `data/*.json` on every run, so the trimming rules
+//! `update rust` rewrites `data/rust/*.json` on every run, so the trimming rules
 //! are compared against a checked-in expectation rather than a live manifest.
 
-use nix_cargo::manifest::Manifest;
+use crucible::manifest::Manifest;
 
 #[test]
 fn trims_a_channel_manifest_exactly() {
