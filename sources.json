@@ -1,0 +1,17 @@
+{
+  "version": "0.103.0-1",
+  "platforms": {
+    "x86_64-linux": {
+      "url": "https://github.com/huacnlee/cargo/releases/download/v0.103.0-1/cargo-0.103.0-1-x86_64-unknown-linux-gnu.tar.gz",
+      "hash": "sha256-aBUF3sczNdWT2hrk4EkkIzRHmXV+9QUZMjP2izvG4QM="
+    },
+    "aarch64-linux": {
+      "url": "https://github.com/huacnlee/cargo/releases/download/v0.103.0-1/cargo-0.103.0-1-aarch64-unknown-linux-gnu.tar.gz",
+      "hash": "sha256-jXwfrtEEFRsnL78bm2N6OQLa8HTJ0gF9P/XSvrf0PKk="
+    },
+    "aarch64-darwin": {
+      "url": "https://github.com/huacnlee/cargo/releases/download/v0.103.0-1/cargo-0.103.0-1-aarch64-apple-darwin.tar.gz",
+      "hash": "sha256-TJY0STv7PW/JJqXO4UJxr6LjMAineTkyFI4xxLTVQ90="
+    }
+  }
+}

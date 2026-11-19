@@ -1,0 +1,48 @@
+name: check
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  fmt-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup-nix
+      - name: Check Nix formatting
+        run: cd dev && nix fmt -- --fail-on-change
+      - name: Run git-hooks checks
+        run: cd dev && nix flake check -L
+
+  build-and-test:
+    strategy:
+      # a platform-specific failure should not cancel the other platforms,
+      # otherwise their results are unknown until the first one is fixed
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup-nix
+      - name: Build cargo
+        run: nix build -L .#cargo
+      - name: Check version
+        run: |
+          version=$(jq -r .version sources.json)
+          output=$(./result/bin/cargo -V)
+          echo "Detected version: $output"
+          if ! echo "$output" | grep -F "huacnlee/cargo $version"; then
+            echo "Error: expected huacnlee/cargo $version"
+            exit 1
+          fi
+      - name: Build toolchains and run checks
+        # Builds a crate with the stable, nightly, wasm32 and rust-toolchain.toml
+        # toolchains, and with the stock-cargo rustPlatform.
+        run: nix flake check -L

@@ -1,0 +1,5 @@
+# A numbered channel, read from its upstream manifest rather than data/.
+[toolchain]
+channel = "1.99.0"
+profile = "minimal"
+components = [ "clippy" ]
