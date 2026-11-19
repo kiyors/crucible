@@ -51,6 +51,8 @@ in
     # llvm-tools live in the sysroot, linked against rustc's libLLVM.
     "$(rustc --print sysroot)/lib/rustlib/${host}/bin/llvm-nm" --version
     ${nixCargo.default.rust-analyzer}/bin/rust-analyzer --version
+    # Exported by the toolchain's setup hook.
+    test -f "$RUST_SRC_PATH/core/src/lib.rs"
   '';
 
   # The channel's own cargo, as packages are built with.

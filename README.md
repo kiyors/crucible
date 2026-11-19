@@ -33,7 +33,8 @@ Every toolchain also carries:
 - `.stock`: the same components with the channel's own cargo
 - `.rustPlatform`: `makeRustPlatform` over `.stock`, for `buildRustPackage`
 - `.rust-analyzer`: the channel's rust-analyzer, built for its rustc (`null` if it has none)
-- `.rustSrcPath`: the value for `RUST_SRC_PATH`
+- `.rustSrcPath`: the value for `RUST_SRC_PATH`; the toolchain's setup hook also exports it in
+  any `mkShell` or build that includes the toolchain
 
 > **Dev shells, not package builds.** The fork always builds in `./target` and
 > `~/.cargo/targets` and ignores `CARGO_TARGET_DIR`, which does not fit the Nix sandbox. Build
@@ -98,10 +99,9 @@ update` then moves you to the newest patch release of the series, with no hash t
           rust = rustFor system;
         in
         {
-          default = pkgs.mkShell {
-            packages = [ rust rust.rust-analyzer ];
-            RUST_SRC_PATH = rust.rustSrcPath;
-          };
+          # rust-analyzer is in the toolchain when the channel ships it, and
+          # its setup hook exports RUST_SRC_PATH.
+          default = pkgs.mkShell { packages = [ rust ]; };
         }
       );
 
@@ -118,6 +118,14 @@ update` then moves you to the newest patch release of the series, with no hash t
 ```
 
 `channel = "stable"`, `"beta"` and `"nightly"` need neither `manifest` nor `sha256`.
+
+## Template
+
+```sh
+nix flake init -t github:kiyors/nix-cargo
+```
+
+A `flake.nix` with a dev shell and a package, a `rust-toolchain.toml` and an `.envrc`.
 
 ## devShell
 
@@ -173,12 +181,20 @@ as sccache or kache (they store every dependency a second time).
 
 1. `lib/toolchain.nix` resolves the channel to a manifest: a pinned `data/*.json`, or a
    `channel-rust-*.toml` you pass in.
-2. `lib/components.nix` fetches each component's tarball by the manifest's hash and unpacks them all
-   into one prefix. On Linux it patches the host binaries with `autoPatchelf` and routes rustc's
-   bundled `gcc-ld/ld.lld` through the nixpkgs ld wrapper, so binaries it links get the store's
-   dynamic linker and library paths.
-3. The fork's cargo is joined on top. `.stock` joins the channel's own cargo onto the same
-   components instead, so the two share one copy of them.
+2. `lib/components.nix` turns each component tarball (rustc, rust-std for one target, clippy,
+   ...) into its own derivation, fetched by the manifest's hash. On Linux it patches host binaries
+   with `autoPatchelf` and routes rustc's bundled `gcc-ld/ld.lld` through the nixpkgs ld wrapper,
+   so binaries it links get the store's dynamic linker and library paths.
+3. A sysroot joins the components with symlinks. Only `bin/*` and `librustc_driver` are real
+   copies: rustc takes its sysroot from where the driver is loaded, and the tools find their
+   libraries next to themselves.
+4. The fork's cargo is joined on top. `.stock` joins the channel's own cargo onto the same
+   sysroot instead.
+
+Components are keyed by their tarball alone, so every toolchain that uses the same rustc shares
+one copy of it: a second toolchain on the same release (another target, another component set,
+a project's `rust-toolchain.toml`) adds about 150 MB instead of 700 MB, and nothing is unpacked
+twice.
 
 ## Updating
 

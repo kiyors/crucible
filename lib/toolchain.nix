@@ -1,14 +1,16 @@
 # The public toolchain API: a Rust channel's components from static.rust-lang.org,
 # with huacnlee/cargo as their cargo.
 #
-# A toolchain is the components (lib/components.nix) joined with the fork's cargo.
+# A toolchain is a sysroot of the channel's components (lib/components.nix),
+# joined with the fork's cargo.
 # Each one carries:
 #   .stock         the same components with the channel's own cargo; the fork
 #                  pins its build directory under ~/.cargo/targets, which the
 #                  Nix sandbox does not have
 #   .rustPlatform  makeRustPlatform over .stock, for buildRustPackage
 #   .rust-analyzer the channel's rust-analyzer, built for its rustc, or null
-#   .rustSrcPath   the value for RUST_SRC_PATH
+#   .rustSrcPath   the value for RUST_SRC_PATH (null without rust-src), which
+#                  the toolchain's setup hook also exports in shells
 {
   lib,
   pkgs,
@@ -23,8 +25,7 @@ let
     unique
     ;
 
-  mkRust = pkgs.callPackage ./components.nix { };
-  host = pkgs.stdenv.hostPlatform.rust.rustcTarget;
+  rust = pkgs.callPackage ./components.nix { };
 
   defaultComponents = [
     "rustc"
@@ -102,21 +103,18 @@ let
     }:
     let
       wanted = unique (filter (c: c != "cargo") components);
-      targets' = unique (filter (t: t != host) targets);
-      # rust-analyzer links rustc's librustc_driver through a relative path, so
-      # it has to share the components' prefix rather than get one of its own.
-      hasAnalyzer = (manifest.pkg.rust-analyzer-preview.target or { }) ? ${host};
-      base = mkRust {
+      targets' = unique (filter (t: t != rust.host) targets);
+      # rust-analyzer loads librustc_driver, which it only finds inside a
+      # sysroot, so when the channel has it, it is part of every sysroot.
+      hasAnalyzer = rust.hasComponent manifest "rust-analyzer";
+      hasSrc = builtins.elem "rust-src" wanted;
+      base = rust.sysroot {
         inherit manifest;
-        name = "rust-components";
         components = unique (wanted ++ lib.optional hasAnalyzer "rust-analyzer");
         targets = targets';
       };
-      ownCargo = mkRust {
-        inherit manifest;
-        name = "rust-cargo";
-        components = [ "cargo" ];
-      };
+      rustSrcPath = "${base}/lib/rustlib/src/rust/library";
+
       withCargo =
         name: cargo':
         pkgs.symlinkJoin {
@@ -125,6 +123,12 @@ let
             base
             cargo'
           ];
+          # Any shell or build that has the toolchain gets RUST_SRC_PATH, so
+          # rust-analyzer finds the standard library without per-project setup.
+          postBuild = lib.optionalString hasSrc ''
+            mkdir -p $out/nix-support
+            echo 'export RUST_SRC_PATH="''${RUST_SRC_PATH:-${rustSrcPath}}"' > $out/nix-support/setup-hook
+          '';
           passthru = {
             inherit (base) version;
             inherit manifest;
@@ -139,7 +143,12 @@ let
           };
         };
 
-      stock = withCargo "rust-stock" ownCargo;
+      stock = withCargo "rust-stock" (
+        rust.component {
+          inherit manifest;
+          pkg = "cargo";
+        }
+      );
       toolchain = withCargo "rust" cargo;
     in
     toolchain
@@ -162,7 +171,7 @@ let
             ''
         else
           null;
-      rustSrcPath = "${base}/lib/rustlib/src/rust/library";
+      rustSrcPath = if hasSrc then rustSrcPath else null;
     };
 
   mkToolchain =
@@ -196,20 +205,13 @@ let
       channel = spec.channel or (throw "nix-cargo: ${toString file} sets no toolchain.channel");
       manifest' = resolveManifest { inherit channel manifest sha256; };
       profile = manifest'.profiles.${spec.profile or "default"};
-      onHost =
-        c:
-        let
-          target = manifest'.pkg.${manifest'.renames.${c}.to or c}.target or { };
-          src = target.${host} or target."*" or null;
-        in
-        src != null && src.available or true;
     in
     assert lib.assertMsg (!(spec ? path)) "nix-cargo: toolchain.path is not supported";
     assemble {
       manifest = manifest';
       # A profile names components some hosts lack (rust-mingw), so those are
       # skipped; a component the file itself names must exist.
-      components = filter onHost profile ++ spec.components or [ ];
+      components = filter (rust.hasComponent manifest') profile ++ spec.components or [ ];
       targets = spec.targets or [ ];
     };
 in

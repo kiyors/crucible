@@ -35,5 +35,10 @@
       overlays.default = import ./overlay.nix;
 
       homeManagerModules.default = import ./modules/home-manager.nix { inherit self; };
+
+      templates.default = {
+        path = ./templates/default;
+        description = "A Rust project whose toolchain comes from rust-toolchain.toml";
+      };
     };
 }
