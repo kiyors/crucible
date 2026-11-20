@@ -14,6 +14,8 @@ cd dev && nix flake check                 # git hooks (treefmt, gitleaks)
 nix shell .#rust.stock -c cargo test --workspace                         # unit tests
 nix shell .#rust.stock -c cargo clippy --workspace --all-targets         # lints
 nix shell .#rust.stock -c cargo build -p crucible --no-default-features  # doctor-only build
+actionlint                                # the workflows
+shellcheck scripts/linux-from-macos.sh
 ```
 
 - **New files must be `git add`ed** before Nix can see them. An untracked file looks like a
@@ -78,7 +80,10 @@ nix shell .#rust.stock -c cargo build -p crucible --no-default-features  # docto
 
 ## Linux from macOS
 
-aarch64-linux can be tested in an Apple `container`:
+[scripts/linux-from-macos.sh](scripts/linux-from-macos.sh) wraps the steps below: it rsyncs a copy
+of the repo (excluding `fenix`, `nix-vite-plus`, `target` and `result`), starts the Apple
+`container` VM, enables flakes in the `nixlinux` VM and runs `nix flake check -L --keep-going` for
+aarch64-linux. It exits with a clear error if `container` or `rsync` is missing.
 
 ```sh
 container system start
@@ -87,8 +92,7 @@ container exec nixlinux sh -c 'echo "experimental-features = nix-command flakes"
 container exec nixlinux sh -c 'cd /src && nix flake check -L --keep-going'
 ```
 
-Mount a copy made with `rsync -a --delete --exclude fenix --exclude nix-vite-plus --exclude
-/target --exclude result` rather than the working tree itself. Only CI covers x86_64-linux.
+Only CI covers x86_64-linux.
 
 ## Out of scope
 

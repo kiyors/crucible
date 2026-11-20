@@ -154,7 +154,10 @@
               config.packages.taplo
               config.packages.typos
               config.packages.typos-lsp
+              # Validate the workflows and the Linux-from-macOS script.
+              pkgs.actionlint
               pkgs.gitleaks
+              pkgs.shellcheck
             ];
           };
         };
