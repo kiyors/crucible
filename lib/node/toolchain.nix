@@ -140,56 +140,98 @@ let
       in
       if newest == null then throw (notPinned spec) else byVersion newest;
 
-  # The package manager a toolchain asks for ("pnpm@12.21.0", or a devEngines
-  # range such as "pnpm@^10"), run by this Node.js. A major with a pin gets
-  # that exact release from npm; the rest keep nixpkgs' one-release-per-major
-  # build. npm ships with Node.js.
+  # The package manager a toolchain asks for: a spec such as "pnpm@12" or a
+  # range such as "pnpm@^10", or a package with the manager's binary for an
+  # exact release crucible does not pin. A major with a pin gets that exact
+  # release from npm; otherwise nixpkgs' one-release-per-major build is used,
+  # but only when its release is inside the requested range. npm ships with
+  # Node.js.
+  #
+  # Matching the range rather than the major alone matters: package.json pins
+  # an exact release, and silently substituting the newest release of its major
+  # makes the shell disagree with package.json and `crucible doctor`.
   packageManagerFor =
-    node: spec:
-    let
-      m = match "(npm|pnpm|yarn|bun)@[\\^~>=v ]*([0-9]+)([^0-9].*)?" spec;
-      name = elemAt m 0;
-      major = elemAt m 1;
-      pin = pinnedPackageManagers.${name}.${major} or null;
-      attr =
-        if name == "pnpm" then
-          "pnpm_${major}"
-        else if name == "yarn" then
-          (if major == "1" then "yarn" else "yarn-berry_${major}")
-        else
-          "bun";
-      package =
-        pkgs.${attr} or (throw ''
-          crucible: packageManager "${spec}" needs ${name} ${major}, which nixpkgs does not have as `${attr}`.
-          Add a ${name} to the shell yourself, or pass `packageManager = null`.
-        '');
-      args = lib.functionArgs package.override;
-      onNode =
-        if args ? nodejs-slim then
-          package.override { nodejs-slim = node; }
-        else if args ? nodejs then
-          package.override { nodejs = node; }
-        else
-          package;
-    in
-    if m == null then
-      throw ''
-        crucible: packageManager "${spec}" is not <npm|pnpm|yarn|bun>@<version>.
-      ''
-    # npm ships with Node.js.
-    else if name == "npm" then
-      null
-    else if pin != null then
-      pkgs.callPackage ./package-manager.nix {
-        nodejs = node;
-        inherit name major;
-        inherit pin;
-      }
+    node: packageManager:
+    if lib.isDerivation packageManager then
+      packageManager
     else
-      assert lib.assertMsg (name != "bun" || lib.versions.major package.version == major) ''
-        crucible: packageManager "${spec}" needs bun ${major}; nixpkgs has ${package.version}.
-      '';
-      onNode;
+      let
+        spec = packageManager;
+        m = match "(npm|pnpm|yarn|bun)@(.+)" (lib.trim spec);
+        name = if m == null then null else elemAt m 0;
+        # Corepack may append +sha512.<digest> to packageManager; it is an
+        # integrity suffix, not part of the version range.
+        requested = if m == null then null else head (lib.splitString "+" (lib.trim (elemAt m 1)));
+        majorMatch = if requested == null then null else match "[\\^~>=v ]*([0-9]+).*" requested;
+        major = if majorMatch == null then null else head majorMatch;
+        exact = if requested == null then null else match "v?([0-9]+\\.[0-9]+\\.[0-9]+)" requested;
+        pin =
+          if name == null || major == null then null else pinnedPackageManagers.${name}.${major} or null;
+        attr =
+          if name == "pnpm" then
+            "pnpm_${major}"
+          else if name == "yarn" then
+            (if major == "1" then "yarn" else "yarn-berry_${major}")
+          else
+            "bun";
+        nixpkgsPackage = pkgs.${attr} or null;
+        onNode =
+          package:
+          let
+            args = lib.functionArgs (package.override or (_: { }));
+          in
+          if args ? nodejs-slim then
+            package.override { nodejs-slim = node; }
+          else if args ? nodejs then
+            package.override { nodejs = node; }
+          else
+            package;
+        # A pin is usable when it is the exact release requested, or when the
+        # request is a range that contains it. A pin for another release of the
+        # same major is not silently accepted.
+        pinMatches =
+          pin != null
+          && (exact == null || head exact == pin.version)
+          && semver.satisfies pin.version requested;
+        nixpkgsMatches =
+          nixpkgsPackage != null
+          && (name != "bun" || lib.versions.major nixpkgsPackage.version == major)
+          && semver.satisfies nixpkgsPackage.version requested;
+        chosen =
+          if pinMatches then
+            pkgs.callPackage ./package-manager.nix {
+              nodejs = node;
+              inherit name major;
+              inherit pin;
+            }
+          else if nixpkgsMatches then
+            onNode nixpkgsPackage
+          else
+            null;
+        whatIsAvailable =
+          (
+            if pin != null then
+              "crucible pins ${name} ${pin.version}"
+            else
+              "crucible has no ${name} ${major} pin"
+          )
+          + lib.optionalString (nixpkgsPackage != null) " and nixpkgs has ${nixpkgsPackage.version}";
+      in
+      if m == null then
+        throw ''
+          crucible: packageManager "${spec}" is not <npm|pnpm|yarn|bun>@<version>.
+        ''
+      # npm ships with Node.js.
+      else if name == "npm" then
+        null
+      else if chosen != null then
+        chosen
+      else
+        throw ''
+          crucible: packageManager "${spec}" asks for ${name} ${requested}, but ${whatIsAvailable}.
+          Use a major or range that crucible or nixpkgs satisfies, or pass a package built
+          from the release you need as `packageManager`.
+        '';
 
   assemble =
     {
@@ -264,6 +306,9 @@ let
     {
       file,
       vitePlus ? true,
+      # Override the file's packageManager, for a project whose exact release
+      # is not pinned: pass a package built from it.
+      packageManager ? null,
       shasums ? null,
       sha256 ? null,
     }:
@@ -299,18 +344,19 @@ let
           fileVersion
         else
           json.engines.node or "lts";
-      packageManager =
+      packageManagerFromJson =
         json.packageManager
           or (if devManager != null then "${devManager.name}@${devManager.version}" else null);
+      packageManager' = if packageManager != null then packageManager else packageManagerFromJson;
     in
     toolchain {
       inherit
         version
         vitePlus
-        packageManager
         shasums
         sha256
         ;
+      packageManager = packageManager';
     };
 in
 {

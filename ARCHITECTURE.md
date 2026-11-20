@@ -108,9 +108,11 @@ The design rests on two ideas:
   - `resolve` turns "lts", "current", "lts/<codename>", a line, a range or an exact release into
     a pinned release, or reads one from `shasums` or a `builtins.fetchurl` checked against
     `sha256`. `shasumsUrl` must match the URL `pin node` prints.
-  - `packageManagerFor` prefers the exact release of that major pinned in
+  - `packageManagerFor` uses the pinned release of that major from
     `data/node/package-managers.json` (built by `lib/node/package-manager.nix` from npm registry
-    tarballs), and falls back to nixpkgs' build of that major. npm ships with node.
+    tarballs) when it satisfies the requested range, then nixpkgs' build of that major when it
+    does, and otherwise rejects the spec instead of silently substituting another release. A
+    package can be passed directly for a release crucible does not pin. npm ships with node.
   - `assemble` asserts that Vite+'s `engines.node` allows the node, joins node, vp and the
     package manager, and adds a setup hook that sets `VP_ENV_FORBIDDEN=1` and unsets `VP_HOME`.
     Each toolchain carries `.node`, `.vite-plus`, `.packageManager` and `.buildNpmPackage`

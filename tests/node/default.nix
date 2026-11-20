@@ -146,7 +146,14 @@ in
     assert (pinnedPm "bun" "1").version == pmPins.bun."1".version;
     assert (pinnedPm "yarn" "1").version == pmPins.yarn."1".version;
     assert (pinnedPm "yarn" "4").version == pmPins.yarn."4".version;
-    assert (node.toolchain { packageManager = "pnpm@10.12.1"; }).packageManager.pname == "pnpm";
+    # A major with no pin comes from nixpkgs; the range must contain it.
+    assert (node.toolchain { packageManager = "pnpm@10"; }).packageManager.pname == "pnpm";
+    # fromPackageJson's packageManager argument overrides the file's spec.
+    assert
+      (node.fromPackageJson {
+        file = ./app/package.json;
+        packageManager = "pnpm@${pmPins.pnpm."12".version}";
+      }).packageManager.version == pmPins.pnpm."12".version;
     pkgs.runCommand "crucible-check-node-package-manager-pins" { } "touch $out";
 
   # Build and run a pinned yarn and bun, so a tarball layout change fails a
@@ -189,6 +196,15 @@ in
     # A package manager major nixpkgs does not have, and a malformed one.
     assert rejected (node.toolchain { packageManager = "pnpm@3.0.0"; });
     assert rejected (node.toolchain { packageManager = "deno@2.0.0"; });
+    # An exact release that is neither the pin nor nixpkgs' release is an
+    # error, not a silent substitution; the same version as a range is fine.
+    assert rejected (node.toolchain { packageManager = "pnpm@12.3.4"; });
+    assert !rejected (node.toolchain { packageManager = "pnpm@^12.3.4"; });
+    # A package built from the exact release is the escape hatch.
+    assert
+      (node.toolchain {
+        packageManager = pkgs.writeShellScriptBin "pnpm" "echo 12.3.4";
+      }).packageManager.name == "pnpm";
     # Vite+ with a Node.js outside its engines (^24.11.0 on that line)...
     assert rejected (
       node.toolchain {

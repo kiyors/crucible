@@ -267,9 +267,9 @@ crucible.lib.${system}.node.toolchain {
                           # ("^22.12.0 || >=24") or an exact release, pinned in data/node/;
                           # any other exact release ("24.11.0") with `shasums` or `sha256`
   vitePlus ? true;        # include vp, set up for this Node.js
-  packageManager ? null;  # "pnpm@12.21.0", "yarn@4.5.0", "bun@1.2.0": that exact release when
-                          # pinned in data/node/package-managers.json, else nixpkgs' build of that
-                          # major; all run by this Node.js. "npm@..." needs nothing
+  packageManager ? null;  # "pnpm@12" (the pinned 12.x), a range ("pnpm@^10"), an exact
+                          # pinned release ("pnpm@12.21.0"), or a package built from
+                          # another release; all run by this Node.js. "npm@..." needs nothing
   shasums ? null;         # the release's SHASUMS256.txt as a file (a `flake = false` input)
   sha256 ? null;          # or that file's hash, fetched at evaluation time
 }
@@ -296,6 +296,7 @@ Every toolchain carries:
 crucible.lib.${system}.node.fromPackageJson {
   file = ./package.json;
   vitePlus ? true;
+  packageManager ? null; # override package.json's spec, e.g. a package for an exact release
   shasums ? null;
   sha256 ? null;
 }
@@ -305,13 +306,16 @@ Reads the Node.js version from `devEngines.runtime` (the entry named `node`), th
 `.node-version` or `.nvmrc` (in that order), then `engines.node`, then falls back to the pinned
 LTS. The version-manager files are explicit pins, so they beat `engines.node`'s advisory range.
 The package manager comes from `packageManager`, then `devEngines.packageManager`, the order
-corepack uses.
+corepack uses. An explicit `packageManager` argument overrides both.
 
 Package managers run on the toolchain's Node.js. The newest release of each supported major is
 pinned in `data/node/package-managers.json` from the npm registry's own integrity hashes, so
-`packageManager = "pnpm@12.21.0"` is exactly 12.21.0. An unpinned major falls back to nixpkgs
-(`pnpm_12`, `yarn-berry_4`, ...), which keeps one release per major; a major nixpkgs lacks is an
-evaluation error. npm ships with Node.js and needs no separate pin.
+`packageManager = "pnpm@12"` selects the pinned 12.x (12.21.0 today) and
+`packageManager = "pnpm@12.21.0"` is exactly that release. A range is used only when the pinned
+release, or nixpkgs' build of that major (`pnpm_12`, `yarn-berry_4`, ...), satisfies it. An exact
+release that neither has is an evaluation error rather than a silent substitution: pass a package
+built from that release as `packageManager` (or `fromPackageJson`'s `packageManager` argument),
+or use the major. npm ships with Node.js and needs no separate pin.
 
 ### devShell
 
