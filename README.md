@@ -11,6 +11,7 @@ source or through another overlay, and pinned from the files projects already ha
 - **Python**: CPython from [python-build-standalone](https://github.com/astral-sh/python-build-standalone),
   the relocatable builds uv installs, with [uv](https://docs.astral.sh/uv) next to them, set up
   to use that Python and never download one.
+- **Go**: the official go.dev builds, set up so `go` never downloads another toolchain.
 
 - **No intermediaries.** Components come straight from `static.rust-lang.org`, unpacked into one
   prefix the way rustup installs them, so every official binary finds its libraries where it
@@ -19,7 +20,8 @@ source or through another overlay, and pinned from the files projects already ha
   manifests, `data/rust/cargo.json` the fork's release, `data/node/node.json` the newest release
   of every supported Node.js line, `data/node/vite-plus.json` the Vite+ release with its
   dependency tree, `data/python/python.json` the newest CPython of every supported line and
-  `data/python/uv.json` the uv release; the scheduled `update` workflow refreshes them with the
+  `data/python/uv.json` the uv release, `data/go/go.json` the newest release of every supported
+  Go line; the scheduled `update` workflow refreshes them with the
   latest released CLI.
 - **Nightly is always complete.** The pinned nightly is the newest one that ships rustc, clippy,
   rustfmt, rust-src, llvm-tools, rust-analyzer and Cranelift on every supported host.
@@ -30,28 +32,31 @@ releases support.
 
 ## Outputs
 
-| Output                                  | What it is                                          |
-| --------------------------------------- | --------------------------------------------------- |
-| `packages.<system>.rust` (`default`)    | stable + patched cargo                              |
-| `packages.<system>.rust-nightly`        | complete nightly with Cranelift + patched cargo     |
-| `packages.<system>.cargo`               | the patched cargo alone                             |
-| `packages.<system>.crucible`            | the CLI (`update`, `doctor`, `pin`, `init`)         |
-| `packages.<system>.crucible-doctor`     | the CLI with `doctor` and `init` (`apps.default`)   |
-| `lib.<system>.rust.toolchain`           | a toolchain from a channel, components and targets  |
-| `lib.<system>.rust.fromToolchainFile`   | a toolchain from a project's `rust-toolchain.toml`  |
-| `packages.<system>.node`                | Node.js LTS + npm + Vite+                           |
-| `packages.<system>.node-current`        | the newest Node.js line + npm + Vite+               |
-| `packages.<system>.vite-plus`           | `vp` alone, on Node.js LTS                          |
-| `lib.<system>.node.toolchain`           | a toolchain from a Node.js version or range         |
-| `lib.<system>.node.fromPackageJson`     | a toolchain from a project's `package.json`         |
-| `lib.<system>.deno.toolchain`           | a Deno release from denoland/deno's GitHub releases |
-| `packages.<system>.python`              | the newest CPython + pip + uv                       |
-| `packages.<system>.uv`                  | `uv` alone, on that CPython                         |
-| `lib.<system>.python.toolchain`         | a toolchain from a Python version or specifier      |
-| `lib.<system>.python.fromPythonVersion` | a toolchain from a project's `.python-version`      |
-| `lib.<system>.python.fromPyprojectToml` | a toolchain from a project's `pyproject.toml`       |
-| `overlays.default`                      | `pkgs.crucible`: `.rust`, `.node`, `.python`, ...   |
-| `homeManagerModules.default`            | `programs.crucible.{rust,node,python}`              |
+| Output                                  | What it is                                               |
+| --------------------------------------- | -------------------------------------------------------- |
+| `packages.<system>.rust` (`default`)    | stable + patched cargo                                   |
+| `packages.<system>.rust-nightly`        | complete nightly with Cranelift + patched cargo          |
+| `packages.<system>.cargo`               | the patched cargo alone                                  |
+| `packages.<system>.crucible`            | the CLI (`update`, `doctor`, `pin`, `init`)              |
+| `packages.<system>.crucible-doctor`     | the CLI with `doctor` and `init` (`apps.default`)        |
+| `lib.<system>.rust.toolchain`           | a toolchain from a channel, components and targets       |
+| `lib.<system>.rust.fromToolchainFile`   | a toolchain from a project's `rust-toolchain.toml`       |
+| `packages.<system>.node`                | Node.js LTS + npm + Vite+                                |
+| `packages.<system>.node-current`        | the newest Node.js line + npm + Vite+                    |
+| `packages.<system>.vite-plus`           | `vp` alone, on Node.js LTS                               |
+| `lib.<system>.node.toolchain`           | a toolchain from a Node.js version or range              |
+| `lib.<system>.node.fromPackageJson`     | a toolchain from a project's `package.json`              |
+| `lib.<system>.deno.toolchain`           | a Deno release from denoland/deno's GitHub releases      |
+| `packages.<system>.python`              | the newest CPython + pip + uv                            |
+| `packages.<system>.uv`                  | `uv` alone, on that CPython                              |
+| `lib.<system>.python.toolchain`         | a toolchain from a Python version or specifier           |
+| `lib.<system>.python.fromPythonVersion` | a toolchain from a project's `.python-version`           |
+| `lib.<system>.python.fromPyprojectToml` | a toolchain from a project's `pyproject.toml`            |
+| `packages.<system>.go`                  | the newest Go line                                       |
+| `lib.<system>.go.toolchain`             | a toolchain from a Go line or release                    |
+| `lib.<system>.go.fromGoMod`             | a toolchain from a project's `go.mod`                    |
+| `overlays.default`                      | `pkgs.crucible`: `.rust`, `.node`, `.python`, `.go`, ... |
+| `homeManagerModules.default`            | `programs.crucible.{rust,node,python,go}`                |
 
 Every Rust toolchain also carries:
 
@@ -526,6 +531,112 @@ or a `UV_PYTHON*` or `UV_MANAGED_PYTHON` session variable overrides what crucibl
    them for the toolchain's Python.
 4. A `symlinkJoin` puts python and uv together, with the setup hook.
 
+## Go
+
+### toolchain
+
+```nix
+crucible.lib.${system}.go.toolchain {
+  version ? "stable";  # "stable", a line ("1.27") or an exact release ("1.27.4", "go1.27.4"),
+                       # pinned in data/go/; any other exact release with `hashes`
+  hashes ? null;       # { x86_64-linux = "sha256-..."; aarch64-darwin = "sha256-..."; ... }
+}
+```
+
+The pins hold the newest release of each line Go still supports, which is the two newest (1.26
+and 1.27 today). A line resolves to its pinned release. An exact release has to be the pinned
+one, or come with the archive hashes of the systems you build on:
+`nix run github:kiyors/crucible#crucible -- pin go 1.25.3` prints the `toolchain` call with all
+of them, taken from go.dev's release index.
+
+Every toolchain carries:
+
+- `.goroot`: its GOROOT
+- `.buildGoModule`: nixpkgs' `buildGoModule` on this Go
+
+### fromGoMod
+
+```nix
+crucible.lib.${system}.go.fromGoMod {
+  file = ./go.mod;  # or ./go.work
+  hashes ? null;    # for the exact release the file names, when it is not pinned
+}
+```
+
+Reads the `toolchain` directive, then the `go` directive, the order the go command uses. Both
+name the oldest release that will do, so `go 1.26.2` or `toolchain go1.26.2` gets the pinned
+1.26 release (1.26.11 today), and keeps working as the daily update moves the pin. A file asking
+for a newer release than the pin, or for a line that is no longer pinned, is an evaluation error
+that says to update crucible or pass `hashes`.
+
+### devShell
+
+```nix
+devShells.default = pkgs.mkShell {
+  packages = [
+    (crucible.lib.${system}.go.fromGoMod { file = ./go.mod; })
+    pkgs.gopls
+  ];
+};
+```
+
+Since Go 1.21, `go` switches to whatever toolchain a module's `go.mod` asks for, downloading it
+into the module cache (`GOTOOLCHAIN=auto`). crucible's go does not:
+
+- Its own `go.env` sets `GOTOOLCHAIN=local`, so a module that needs a newer Go stops with
+  `go.mod requires go >= ... (running go ...; GOTOOLCHAIN=local)` instead of running something
+  that is not in the store. This holds wherever the toolchain is installed, Home Manager
+  included.
+- The toolchain's setup hook also exports `GOTOOLCHAIN=local` in every shell or build that
+  includes it, replacing a value inherited from the login shell or written by `go env -w`, and
+  unsets `GOROOT`, which would otherwise pair this `go` with another installation's standard
+  library.
+
+cgo uses the shell's C compiler, as with any `go`. On Linux, programs it links get the store's
+dynamic linker from the nixpkgs compiler wrapper, so they run on NixOS. Without a C compiler on
+PATH, Go turns cgo off by itself.
+
+**gopls is not part of the toolchain.** rust-analyzer is in Rust toolchains because the channel
+ships it, prebuilt for its rustc. Go releases ship no gopls, so it would have to be built from
+source, and it needs no matching build: it runs the `go` on PATH, and supports the current and
+previous Go releases. Use nixpkgs' `pkgs.gopls`, which is built with the newest Go.
+
+### Package builds
+
+`.buildGoModule` is nixpkgs' builder on the toolchain's Go, with the usual `vendorHash`:
+
+```nix
+(crucible.lib.${system}.go.fromGoMod { file = ./go.mod; }).buildGoModule {
+  pname = "my-app";
+  version = "0.1.0";
+  src = ./.;
+  vendorHash = null; # or the hash of the vendored dependencies
+}
+```
+
+### Home Manager
+
+```nix
+programs.crucible.go = {
+  enable = true;
+  # package = inputs.crucible.lib.${pkgs.stdenv.hostPlatform.system}.go.toolchain { version = "1.26"; };
+  extraPackages = [ pkgs.gopls pkgs.golangci-lint ];
+  goPath = "go";  # the default: GOPATH=~/go, with ~/go/bin (`go install`) on PATH
+};
+```
+
+It warns when `GOROOT` is set, and when `GOTOOLCHAIN` is set to anything but `local`.
+
+### How a toolchain is built
+
+1. `lib/go/toolchain.nix` resolves the version against `data/go/go.json`, or builds the release
+   from the `hashes` you pass in.
+2. `lib/go/go.nix` unpacks the official archive into `share/go` (the GOROOT) as it is, with no
+   fixup: its tools are static, stripping would break the macOS signatures, and the standard
+   library sources hold test binaries that must not be patched. The only change is
+   `GOTOOLCHAIN=local` in `go.env`. `bin/go` and `bin/gofmt` are symlinks, from which `go` finds
+   its GOROOT.
+
 ## Templates
 
 ```sh
@@ -569,6 +680,7 @@ pkgs = import nixpkgs {
 # pkgs.crucible.node.{lts,current}, pkgs.crucible.node.toolchain { ... },
 # pkgs.crucible.node.fromPackageJson { ... }, pkgs.crucible.python.latest,
 # pkgs.crucible.python.toolchain { ... }, pkgs.crucible.python.fromPyprojectToml { ... }
+# pkgs.crucible.go.stable, pkgs.crucible.go.toolchain { ... }, pkgs.crucible.go.fromGoMod { ... }
 ```
 
 ## CLI
@@ -581,6 +693,7 @@ nix run github:kiyors/crucible                             # doctor: is cargo th
 nix run github:kiyors/crucible -- init                     # a flake.nix for this project, see Templates
 nix run github:kiyors/crucible#crucible -- pin rust 1.99   # the rust-manifest input and sha256 for a channel
 nix run github:kiyors/crucible#crucible -- pin node 24.11.0 # the SHASUMS256.txt input and sha256 for a release
+nix run github:kiyors/crucible#crucible -- pin go 1.25.3   # the per-system hashes for a Go release
 ```
 
 The bare `nix run` builds a doctor-only binary (`packages.<system>.crucible-doctor`, cargo
@@ -619,6 +732,7 @@ nix run .#crucible -- update rust                     # stable, beta, newest com
 nix run .#crucible -- update node                     # every supported Node.js line, and Vite+
 nix run .#crucible -- update deno                     # the newest stable Deno release
 nix run .#crucible -- update python                   # every supported CPython line, and uv
+nix run .#crucible -- update go                       # the newest release of each supported Go line
 ```
 
 The fork's hashes come from each release's `SHA256SUMS`, the Rust ones from the channel
@@ -626,7 +740,9 @@ manifests, Node.js's from each release's `SHASUMS256.txt` and Vite+'s from its
 `vp-checksums.txt` and its pnpm lockfile, so nothing is downloaded but metadata. Every
 `SHASUMS256.txt` is verified against its GPG signature before its hashes are used, with the active
 Node.js release keys vendored in `data/node/release-keys.asc`. Package-manager pins come from the
-npm registry's `dist.integrity`. Which Node.js lines are supported comes from the Release working
+npm registry's `dist.integrity`. Go's hashes come from go.dev's release index
+(`?mode=json&include=all`), which also decides the supported lines: the two newest with a stable
+release, as Go's release policy has it. Which Node.js lines are supported comes from the Release working
 group's `schedule.json`. CPython's hashes come from the newest python-build-standalone
 build's `SHA256SUMS` and uv's from its release's `sha256.sum`, each checked against the sha256
 GitHub records for the release asset, since neither file is signed. Which CPython lines are

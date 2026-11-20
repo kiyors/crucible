@@ -41,8 +41,8 @@ shellcheck scripts/linux-from-macos.sh
   README, the Home Manager option `description`, and a check in `tests/`.
 - **Per-language layout**: `lib/<lang>/`, `data/<lang>/`, `tests/<lang>/`, and
   `lib.<system>.<lang>.*` in the flake. Shared code goes in `lib/common/`. The public function
-  names are `toolchain` and `from<ProjectFile>` (for example `fromToolchainFile`, and later
-  `fromPackageJson`). Do not use `mk*` names.
+  names are `toolchain` and `from<ProjectFile>` (for example `fromToolchainFile`,
+  `fromPackageJson`, `fromGoMod`). Do not use `mk*` names.
 
 ## Rules that are easy to break
 
@@ -60,6 +60,8 @@ shellcheck scripts/linux-from-macos.sh
     `crates/pins/src/pin.rs`
   - `platforms` in `lib/python/toolchain.nix` ↔ `PLATFORMS` in `crates/pins/src/update/python.rs`
   - `releaseUrl` in `lib/python/toolchain.nix` ↔ `release_url` in `crates/pins/src/update/python.rs`
+  - `platforms` and `downloadUrl` in `lib/go/toolchain.nix` ↔ `PLATFORMS` and `DL` in
+    `crates/pins/src/update/go.rs`
 - **Package builds use `.rustPlatform`** (stock cargo). The fork cannot build in the sandbox,
   because it keeps its build directory under `~/.cargo/targets`.
 - **The sysroot's real copies are deliberate** (`bin/*`, `librustc_driver`). Do not "optimize"

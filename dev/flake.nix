@@ -117,6 +117,7 @@
                       home.sessionVariables = {
                         VP_HOME = "/home/tester/.local/share/vite-plus";
                         UV_PYTHON_DOWNLOADS = "automatic";
+                        GOTOOLCHAIN = "auto";
                       };
                       programs.crucible.rust = {
                         enable = true;
@@ -131,6 +132,10 @@
                       programs.crucible.python = {
                         enable = true;
                         extraPackages = [ pkgs.hello ];
+                      };
+                      programs.crucible.go = {
+                        enable = true;
+                        extraPackages = [ pkgs.gopls ];
                       };
                     }
                   ];
@@ -151,6 +156,11 @@
               ) hm.config.home.packages;
               assert lib.elem pkgs.hello hm.config.home.packages;
               assert lib.elem "/home/tester/.local/bin" hm.config.home.sessionPath;
+              assert hm.config.home.sessionVariables.GOPATH == "/home/tester/go";
+              assert lib.elem "/home/tester/go/bin" hm.config.home.sessionPath;
+              assert lib.any (package: package == inputs.crucible.packages.${system}.go) hm.config.home.packages;
+              assert lib.elem pkgs.gopls hm.config.home.packages;
+              assert lib.any (warning: builtins.match ".*GOTOOLCHAIN=auto.*" warning != null) hm.config.warnings;
               assert hm.config.home.file.".cargo/config.toml".source != null;
               assert lib.any (warning: builtins.match ".*VP_HOME.*" warning != null) hm.config.warnings;
               assert lib.any (warning: builtins.match ".*UV_PYTHON.*" warning != null) hm.config.warnings;

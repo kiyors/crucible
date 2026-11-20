@@ -1,0 +1,39 @@
+{
+  "stable": "1.27",
+  "releases": {
+    "1.26": {
+      "version": "1.26.11",
+      "platforms": {
+        "x86_64-linux": {
+          "url": "https://dl.google.com/go/go1.26.11.linux-amd64.tar.gz",
+          "hash": "sha256-mEn04E7jUwNxTjT7w6yKtE6j5EipWqGC+R47m3nHEOw="
+        },
+        "aarch64-linux": {
+          "url": "https://dl.google.com/go/go1.26.11.linux-arm64.tar.gz",
+          "hash": "sha256-bC8ptFi1rdCDXxi3dvaciIGm2IQo8UhKbaVXVeYgdX4="
+        },
+        "aarch64-darwin": {
+          "url": "https://dl.google.com/go/go1.26.11.darwin-arm64.tar.gz",
+          "hash": "sha256-46QuZ6eorPRQ662isHTHyoYwAMpRSQe3GFtF6PXN/1c="
+        }
+      }
+    },
+    "1.27": {
+      "version": "1.27.4",
+      "platforms": {
+        "x86_64-linux": {
+          "url": "https://dl.google.com/go/go1.27.4.linux-amd64.tar.gz",
+          "hash": "sha256-ciZzbCM5cZzaKPvzpU1xqmO87+N26YzvAANCaNqySEA="
+        },
+        "aarch64-linux": {
+          "url": "https://dl.google.com/go/go1.27.4.linux-arm64.tar.gz",
+          "hash": "sha256-M5JYKYiic6h6tQQ+4bLJwXosPABYC/kybEei4KqurJI="
+        },
+        "aarch64-darwin": {
+          "url": "https://dl.google.com/go/go1.27.4.darwin-arm64.tar.gz",
+          "hash": "sha256-kaRKK4pxZgCtlKTxQ+FWEWYg24goCGpuNgIpG+m9C7Q="
+        }
+      }
+    }
+  }
+}

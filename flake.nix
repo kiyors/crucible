@@ -1,5 +1,5 @@
 {
-  description = "Language toolchains for Nix, straight from upstream releases: Rust with huacnlee/cargo, Node.js with Vite+, Python with uv.";
+  description = "Language toolchains for Nix, straight from upstream releases: Rust with huacnlee/cargo, Node.js with Vite+, Python with uv, Go.";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -23,6 +23,7 @@
             rust
             node
             python
+            go
             cli
             cli-doctor
             ;
@@ -37,6 +38,7 @@
           vite-plus = node.lts.vite-plus;
           python = python.latest;
           inherit (python.latest) uv;
+          go = go.stable;
           crucible = cli;
           crucible-doctor = cli-doctor;
         }
@@ -67,6 +69,9 @@
         };
         python = {
           inherit (crucible.${system}.python) toolchain fromPythonVersion fromPyprojectToml;
+        };
+        go = {
+          inherit (crucible.${system}.go) toolchain fromGoMod;
         };
       });
 

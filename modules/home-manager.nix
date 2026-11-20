@@ -19,6 +19,7 @@ let
   cfg = config.programs.crucible.rust;
   nodeCfg = config.programs.crucible.node;
   pythonCfg = config.programs.crucible.python;
+  goCfg = config.programs.crucible.go;
   tomlFormat = pkgs.formats.toml { };
   cargoHome = "${config.home.homeDirectory}/${cfg.cargoHomeDir}";
   sessionVariables = config.home.sessionVariables;
@@ -186,6 +187,47 @@ in
     };
   };
 
+  options.programs.crucible.go = {
+    enable = mkEnableOption "a Go toolchain from go.dev";
+
+    package = mkOption {
+      type = types.package;
+      default = self.packages.${pkgs.stdenv.hostPlatform.system}.go;
+      defaultText = literalExpression "crucible.packages.\${system}.go";
+      example = literalExpression ''
+        crucible.lib.''${system}.go.toolchain { version = "1.26"; }
+      '';
+      description = ''
+        The toolchain to install: one from crucible's `packages` or `lib.<system>.go`
+        (the newest pinned release by default), or any package with a `bin/go`.
+        crucible's toolchains default to `GOTOOLCHAIN=local` in their own
+        {file}`go.env`, so `go` never downloads the toolchain a module asks for.
+        gopls is not included; add it to {option}`programs.crucible.go.extraPackages`.
+      '';
+    };
+
+    extraPackages = mkOption {
+      type = types.listOf types.package;
+      default = [ ];
+      example = literalExpression "[ pkgs.gopls pkgs.golangci-lint ]";
+      description = ''
+        gopls and other tools installed next to the toolchain. A second Go here
+        shadows the toolchain's.
+      '';
+    };
+
+    goPath = mkOption {
+      type = types.nullOr types.str;
+      default = "go";
+      example = ".local/share/go";
+      description = ''
+        GOPATH, relative to the home directory, with its {file}`bin` (where
+        `go install` puts programs) on PATH. The default is Go's own default,
+        {file}`~/go`. `null` leaves GOPATH and PATH alone.
+      '';
+    };
+  };
+
   config = mkMerge [
     (mkIf cfg.enable {
       warnings =
@@ -273,6 +315,26 @@ in
       # `uv tool install` puts its commands here.
       home.packages = [ pythonCfg.package ] ++ pythonCfg.extraPackages;
       home.sessionPath = [ "${config.home.homeDirectory}/.local/bin" ];
+    })
+
+    (mkIf goCfg.enable {
+      warnings =
+        optional (sessionVariables ? GOROOT) ''
+          programs.crucible.go: GOROOT is set, so the toolchain's go uses the standard library
+          and tools under it instead of its own. Go finds its GOROOT by itself; remove it.
+        ''
+        ++ optional ((sessionVariables.GOTOOLCHAIN or "local") != "local") ''
+          programs.crucible.go: GOTOOLCHAIN=${toString sessionVariables.GOTOOLCHAIN} lets go
+          download and run the toolchain a module asks for instead of this one.
+        '';
+
+      home = {
+        packages = [ goCfg.package ] ++ goCfg.extraPackages;
+        sessionVariables = mkIf (goCfg.goPath != null) {
+          GOPATH = "${config.home.homeDirectory}/${goCfg.goPath}";
+        };
+        sessionPath = optional (goCfg.goPath != null) "${config.home.homeDirectory}/${goCfg.goPath}/bin";
+      };
     })
   ];
 }

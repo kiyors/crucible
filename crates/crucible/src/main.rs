@@ -79,6 +79,11 @@ enum Pin {
         /// An exact release: 22.11.0, v24.1.0, ...
         version: String,
     },
+    /// The per-system hashes for a Go release the pins do not cover
+    Go {
+        /// An exact release: 1.25.3, go1.27rc1, ...
+        version: String,
+    },
 }
 
 fn main() -> ExitCode {
@@ -121,6 +126,11 @@ fn run() -> Result<ExitCode> {
         #[cfg(feature = "net")]
         Some(Command::Pin(Pin::Node { version })) => {
             pin::node(&version)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        #[cfg(feature = "net")]
+        Some(Command::Pin(Pin::Go { version })) => {
+            update::go::pin(&version)?;
             Ok(ExitCode::SUCCESS)
         }
     }
