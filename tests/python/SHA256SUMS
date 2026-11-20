@@ -1,0 +1,9 @@
+77f98d36c7de8bf059bfa64e844c272e4aaff741c482ab3c6242a64df34d7b32  cpython-3.14.0+20251014-aarch64-apple-darwin-debug-full.tar.zst
+1333ce2807fbea673eb242edbf4997ea1e2f6cbc01cd80dec1f9d19de2cd63ed  cpython-3.14.0+20251014-aarch64-apple-darwin-install_only.tar.gz
+057476264b07222a2baeff68a733647f91a9d61c94f79beba46a44eb42101749  cpython-3.14.0+20251014-aarch64-apple-darwin-install_only_stripped.tar.gz
+8170df6e4ba272b86d78920b0e3df68b1fce53276dc8663c3824b1d3b03a3e33  cpython-3.14.0+20251014-aarch64-unknown-linux-gnu-debug-full.tar.zst
+e613f44e60227b3423a994698426698569e055c24447c10dd9c1c022cf511f05  cpython-3.14.0+20251014-aarch64-unknown-linux-gnu-install_only.tar.gz
+7dbb43b742c040835a277318355fb359b41e509dbf4fbb614da38005a9290e16  cpython-3.14.0+20251014-aarch64-unknown-linux-gnu-install_only_stripped.tar.gz
+21137bc068799b7c4bcabb5f6e93f9a9c43a97332900be3900ea12cde974d5b0  cpython-3.14.0+20251014-x86_64-unknown-linux-gnu-debug-full.tar.zst
+74d4516a64abc63ae4bcbffb35482879a85b7faa187fcfa47c1ca8f00faebf5f  cpython-3.14.0+20251014-x86_64-unknown-linux-gnu-install_only.tar.gz
+493c477b4a88bb1ea2f6c6f57fa0e88ffbe55d9e7b1405c4699f2d41c04eb154  cpython-3.14.0+20251014-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz

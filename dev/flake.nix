@@ -114,7 +114,10 @@
                       home.username = "tester";
                       home.homeDirectory = "/home/tester";
                       home.stateVersion = "25.11";
-                      home.sessionVariables.VP_HOME = "/home/tester/.local/share/vite-plus";
+                      home.sessionVariables = {
+                        VP_HOME = "/home/tester/.local/share/vite-plus";
+                        UV_PYTHON_DOWNLOADS = "automatic";
+                      };
                       programs.crucible.rust = {
                         enable = true;
                         settings.net.git-fetch-with-cli = true;
@@ -124,6 +127,10 @@
                         enable = true;
                         npmPrefix = ".npm-global";
                         pnpmHome = ".local/share/pnpm";
+                      };
+                      programs.crucible.python = {
+                        enable = true;
+                        extraPackages = [ pkgs.hello ];
                       };
                     }
                   ];
@@ -139,8 +146,14 @@
               assert lib.any (
                 package: package == inputs.crucible.packages.${system}.node
               ) hm.config.home.packages;
+              assert lib.any (
+                package: package == inputs.crucible.packages.${system}.python
+              ) hm.config.home.packages;
+              assert lib.elem pkgs.hello hm.config.home.packages;
+              assert lib.elem "/home/tester/.local/bin" hm.config.home.sessionPath;
               assert hm.config.home.file.".cargo/config.toml".source != null;
               assert lib.any (warning: builtins.match ".*VP_HOME.*" warning != null) hm.config.warnings;
+              assert lib.any (warning: builtins.match ".*UV_PYTHON.*" warning != null) hm.config.warnings;
               pkgs.runCommand "crucible-home-manager-check" { } "touch $out";
           };
 

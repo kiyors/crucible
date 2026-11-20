@@ -8,14 +8,19 @@ source or through another overlay, and pinned from the files projects already ha
   and git worktrees share one build directory that it keeps under a size limit.
 - **Node.js**: the official nodejs.org builds, with [Vite+](https://viteplus.dev) (`vp`) next to
   them, set up to use that Node.js instead of downloading its own.
+- **Python**: CPython from [python-build-standalone](https://github.com/astral-sh/python-build-standalone),
+  the relocatable builds uv installs, with [uv](https://docs.astral.sh/uv) next to them, set up
+  to use that Python and never download one.
 
 - **No intermediaries.** Components come straight from `static.rust-lang.org`, unpacked into one
   prefix the way rustup installs them, so every official binary finds its libraries where it
   expects to. The only flake input is nixpkgs.
 - **Pinned and updated every 6 hours.** `data/rust/{stable,beta,nightly}.json` hold the trimmed channel
   manifests, `data/rust/cargo.json` the fork's release, `data/node/node.json` the newest release
-  of every supported Node.js line and `data/node/vite-plus.json` the Vite+ release with its
-  dependency tree; the scheduled `update` workflow refreshes them with the latest released CLI.
+  of every supported Node.js line, `data/node/vite-plus.json` the Vite+ release with its
+  dependency tree, `data/python/python.json` the newest CPython of every supported line and
+  `data/python/uv.json` the uv release; the scheduled `update` workflow refreshes them with the
+  latest released CLI.
 - **Nightly is always complete.** The pinned nightly is the newest one that ships rustc, clippy,
   rustfmt, rust-src, llvm-tools, rust-analyzer and Cranelift on every supported host.
 - **The fork cannot update itself** inside the read-only store (`CARGO_FORK_AUTO_UPDATE=0`).
@@ -25,23 +30,28 @@ releases support.
 
 ## Outputs
 
-| Output                                | What it is                                          |
-| ------------------------------------- | --------------------------------------------------- |
-| `packages.<system>.rust` (`default`)  | stable + patched cargo                              |
-| `packages.<system>.rust-nightly`      | complete nightly with Cranelift + patched cargo     |
-| `packages.<system>.cargo`             | the patched cargo alone                             |
-| `packages.<system>.crucible`          | the CLI (`update`, `doctor`, `pin`, `init`)         |
-| `packages.<system>.crucible-doctor`   | the CLI with `doctor` and `init` (`apps.default`)   |
-| `lib.<system>.rust.toolchain`         | a toolchain from a channel, components and targets  |
-| `lib.<system>.rust.fromToolchainFile` | a toolchain from a project's `rust-toolchain.toml`  |
-| `packages.<system>.node`              | Node.js LTS + npm + Vite+                           |
-| `packages.<system>.node-current`      | the newest Node.js line + npm + Vite+               |
-| `packages.<system>.vite-plus`         | `vp` alone, on Node.js LTS                          |
-| `lib.<system>.node.toolchain`         | a toolchain from a Node.js version or range         |
-| `lib.<system>.node.fromPackageJson`   | a toolchain from a project's `package.json`         |
-| `lib.<system>.deno.toolchain`         | a Deno release from denoland/deno's GitHub releases |
-| `overlays.default`                    | `pkgs.crucible`: `.rust`, `.node`, `.cli`, ...      |
-| `homeManagerModules.default`          | `programs.crucible.{rust,node}`                     |
+| Output                                  | What it is                                          |
+| --------------------------------------- | --------------------------------------------------- |
+| `packages.<system>.rust` (`default`)    | stable + patched cargo                              |
+| `packages.<system>.rust-nightly`        | complete nightly with Cranelift + patched cargo     |
+| `packages.<system>.cargo`               | the patched cargo alone                             |
+| `packages.<system>.crucible`            | the CLI (`update`, `doctor`, `pin`, `init`)         |
+| `packages.<system>.crucible-doctor`     | the CLI with `doctor` and `init` (`apps.default`)   |
+| `lib.<system>.rust.toolchain`           | a toolchain from a channel, components and targets  |
+| `lib.<system>.rust.fromToolchainFile`   | a toolchain from a project's `rust-toolchain.toml`  |
+| `packages.<system>.node`                | Node.js LTS + npm + Vite+                           |
+| `packages.<system>.node-current`        | the newest Node.js line + npm + Vite+               |
+| `packages.<system>.vite-plus`           | `vp` alone, on Node.js LTS                          |
+| `lib.<system>.node.toolchain`           | a toolchain from a Node.js version or range         |
+| `lib.<system>.node.fromPackageJson`     | a toolchain from a project's `package.json`         |
+| `lib.<system>.deno.toolchain`           | a Deno release from denoland/deno's GitHub releases |
+| `packages.<system>.python`              | the newest CPython + pip + uv                       |
+| `packages.<system>.uv`                  | `uv` alone, on that CPython                         |
+| `lib.<system>.python.toolchain`         | a toolchain from a Python version or specifier      |
+| `lib.<system>.python.fromPythonVersion` | a toolchain from a project's `.python-version`      |
+| `lib.<system>.python.fromPyprojectToml` | a toolchain from a project's `pyproject.toml`       |
+| `overlays.default`                      | `pkgs.crucible`: `.rust`, `.node`, `.python`, ...   |
+| `homeManagerModules.default`            | `programs.crucible.{rust,node,python}`              |
 
 Every Rust toolchain also carries:
 
@@ -407,6 +417,115 @@ The release is pinned in `data/deno/deno.json` from denoland/deno's GitHub relea
 `crucible update deno` refreshes it; today it is the newest Deno 2, 2.9.8. A major or release
 that is not pinned is an evaluation error rather than a silent substitution.
 
+## Python
+
+### toolchain
+
+```nix
+crucible.lib.${system}.python.toolchain {
+  version ? "3";        # "3" (the newest pinned line), a line ("3.14"), a PEP 440 specifier
+                        # (">=3.12,<3.15", "~=3.13.2") or an exact release, pinned in
+                        # data/python/; any other release with `sha256sums`
+  uv ? true;            # include uv, set up for this Python
+  sha256sums ? null;    # a python-build-standalone release's SHA256SUMS as a file
+}
+```
+
+A version or specifier resolves offline to the newest pinned release it allows. The pins hold the
+newest release of each line python.org still fixes (3.11 to 3.15 today, the `bugfix` and
+`security` lines of its release cycle), all from one python-build-standalone build, so
+`"==3.12.4"` matches nothing and says so.
+
+For a release that is not pinned, pass the `SHA256SUMS` of a python-build-standalone build that
+has it. Every build names the CPython releases it carries in its archive names, so the file is
+enough; a `flake = false` input keeps it locked:
+
+```nix
+inputs.pbs-sums = {
+  url = "https://github.com/astral-sh/python-build-standalone/releases/download/20251014/SHA256SUMS";
+  flake = false;
+};
+# ...
+crucible.lib.${system}.python.toolchain { version = "3.14.0"; sha256sums = pbs-sums; }
+```
+
+Every toolchain carries:
+
+- `.python`: the CPython alone (python3, pip, headers, the standard library)
+- `.uv`: uv for this Python, or `null`
+- `.pythonVersion` (`"3.14"`) and `.sitePackages` (`"lib/python3.14/site-packages"`)
+
+Only the standard (GIL) builds are pinned. Freethreaded builds (`3.14t`), PyPy and GraalPy are
+not, and a project asking for one fails at evaluation time.
+
+### fromPythonVersion and fromPyprojectToml
+
+```nix
+crucible.lib.${system}.python.fromPythonVersion { file = ./.python-version; uv ? true; sha256sums ? null; }
+crucible.lib.${system}.python.fromPyprojectToml { file = ./pyproject.toml; uv ? true; sha256sums ? null; }
+```
+
+`fromPythonVersion` reads the first entry of a `.python-version` as uv and pyenv write it:
+`3.14`, `3.14.2`, `cpython@3.14`, `cpython-3.14` or a specifier. `fromPyprojectToml` reads the
+project the way uv does: the `.python-version` next to `pyproject.toml`, then
+`project.requires-python`, then the newest pinned line. A `.python-version` that
+`requires-python` does not allow is an error, as it is for uv.
+
+### devShell
+
+```nix
+devShells.default = pkgs.mkShell {
+  packages = [
+    (crucible.lib.${system}.python.fromPyprojectToml { file = ./pyproject.toml; })
+  ];
+};
+```
+
+uv normally finds or downloads the Python a project asks for and keeps its own copies under
+`~/.local/share/uv/python`. crucible's uv does not:
+
+- It runs with `UV_PYTHON` set to the toolchain's `python3`, so every `uv run`, `uv sync` and
+  `uv venv` uses that interpreter. This beats a project's `.python-version`, which is why the
+  project's toolchain should come from `fromPythonVersion` or `fromPyprojectToml`; uv still
+  refuses an interpreter that `requires-python` does not allow.
+- `UV_NO_MANAGED_PYTHON=1` keeps it off Pythons it installed itself, and
+  `UV_PYTHON_DOWNLOADS=never` stops it downloading one when a request (`uv python find 3.11`,
+  `uv run -p 3.11`) does not match.
+- The wrapper sets these as defaults, so a single command can still point elsewhere. The
+  toolchain's setup hook sets them in every shell that includes the toolchain, replacing values
+  inherited from the login shell, and unsets `UV_MANAGED_PYTHON` and `UV_PYTHON_PREFERENCE`.
+
+The CPython is marked externally managed (PEP 668): `pip install` and `uv pip install --system`
+refuse the read-only store and point at a virtual environment instead. Its sysconfig names its own
+prefix and the shell's `cc`, `c++` and `ar`, so C extensions build in a dev shell with a C
+compiler, as they would against a python.org install.
+
+### Home Manager
+
+```nix
+programs.crucible.python = {
+  enable = true;
+  # package = inputs.crucible.lib.${pkgs.stdenv.hostPlatform.system}.python.toolchain { version = "3.13"; };
+  extraPackages = [ pkgs.ruff ];
+};
+```
+
+The module installs the toolchain and puts `~/.local/bin`, where `uv tool install` puts commands,
+on PATH. It warns when `PYTHONHOME` is set (python3 would look for its standard library there),
+or a `UV_PYTHON*` or `UV_MANAGED_PYTHON` session variable overrides what crucible's uv sets.
+
+### How a toolchain is built
+
+1. `lib/python/toolchain.nix` resolves the version against `data/python/python.json`, or reads
+   the releases and their hashes from a `SHA256SUMS` you pass in.
+2. `lib/python/python.nix` unpacks the `install_only` archive as it is. On Linux, `autoPatchelf`
+   points python at the store's glibc, libgcc_s and libcrypt.so.1. sysconfig's build-machine paths (`/install`, clang, the
+   build's llvm-ar) are rewritten to this prefix and the shell's tools, as uv does when it
+   installs these builds, and an `EXTERNALLY-MANAGED` file is added.
+3. `lib/python/uv.nix` installs the `uv` and `uvx` binaries from uv's GitHub release and wraps
+   them for the toolchain's Python.
+4. A `symlinkJoin` puts python and uv together, with the setup hook.
+
 ## Templates
 
 ```sh
@@ -448,7 +567,8 @@ pkgs = import nixpkgs {
 # pkgs.crucible.rust.{stable,nightly,cargo}, pkgs.crucible.cli, pkgs.crucible.cli-doctor,
 # pkgs.crucible.rust.toolchain { ... }, pkgs.crucible.rust.fromToolchainFile { ... },
 # pkgs.crucible.node.{lts,current}, pkgs.crucible.node.toolchain { ... },
-# pkgs.crucible.node.fromPackageJson { ... }
+# pkgs.crucible.node.fromPackageJson { ... }, pkgs.crucible.python.latest,
+# pkgs.crucible.python.toolchain { ... }, pkgs.crucible.python.fromPyprojectToml { ... }
 ```
 
 ## CLI
@@ -498,6 +618,7 @@ nix run .#crucible -- update cargo --version 0.103.0-1
 nix run .#crucible -- update rust                     # stable, beta, newest complete nightly
 nix run .#crucible -- update node                     # every supported Node.js line, and Vite+
 nix run .#crucible -- update deno                     # the newest stable Deno release
+nix run .#crucible -- update python                   # every supported CPython line, and uv
 ```
 
 The fork's hashes come from each release's `SHA256SUMS`, the Rust ones from the channel
@@ -506,7 +627,11 @@ manifests, Node.js's from each release's `SHASUMS256.txt` and Vite+'s from its
 `SHASUMS256.txt` is verified against its GPG signature before its hashes are used, with the active
 Node.js release keys vendored in `data/node/release-keys.asc`. Package-manager pins come from the
 npm registry's `dist.integrity`. Which Node.js lines are supported comes from the Release working
-group's `schedule.json`. The nightly search fetches candidate dates in parallel.
+group's `schedule.json`. CPython's hashes come from the newest python-build-standalone
+build's `SHA256SUMS` and uv's from its release's `sha256.sum`, each checked against the sha256
+GitHub records for the release asset, since neither file is signed. Which CPython lines are
+supported comes from python.org's `release-cycle.json`. The nightly search fetches candidate
+dates in parallel.
 
 The `update` workflow runs every 6 hours: it downloads the latest released CLI
 (`crucible-<version>-<target>.tar.gz`, verified against the release's `SHA256SUMS` and its

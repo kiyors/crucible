@@ -5,6 +5,7 @@ rec {
   rust = import ./lib/rust { inherit pkgs; };
   node = import ./lib/node { inherit pkgs; };
   deno = import ./lib/deno { inherit pkgs; };
+  python = import ./lib/python { inherit pkgs; };
 
   # `crucible update | doctor | pin`
   cli = pkgs.callPackage ./crates/crucible/package.nix { inherit (rust.stable) rustPlatform; };

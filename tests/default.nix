@@ -7,6 +7,7 @@ import ./rust { inherit pkgs crucible; }
 // import ./node { inherit pkgs crucible; }
 // import ./init.nix { inherit pkgs crucible; }
 // import ./deno { inherit pkgs crucible; }
+// import ./python { inherit pkgs crucible; }
 // {
   # Built and unit-tested by the stable toolchain's rustPlatform, with and
   # without the `net` feature.

@@ -58,6 +58,8 @@ shellcheck scripts/linux-from-macos.sh
   - `platforms` in `lib/node/toolchain.nix` ↔ `PLATFORMS` in `crates/pins/src/update/node.rs`
   - `shasumsUrl` in `lib/node/toolchain.nix` ↔ the URL `pin::node` prints in
     `crates/pins/src/pin.rs`
+  - `platforms` in `lib/python/toolchain.nix` ↔ `PLATFORMS` in `crates/pins/src/update/python.rs`
+  - `releaseUrl` in `lib/python/toolchain.nix` ↔ `release_url` in `crates/pins/src/update/python.rs`
 - **Package builds use `.rustPlatform`** (stock cargo). The fork cannot build in the sandbox,
   because it keeps its build directory under `~/.cargo/targets`.
 - **The sysroot's real copies are deliberate** (`bin/*`, `librustc_driver`). Do not "optimize"

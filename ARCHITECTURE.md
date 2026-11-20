@@ -2,7 +2,8 @@
 
 crucible builds language toolchains for Nix from each language's own upstream release artifacts.
 It never builds them from source or goes through another overlay. It covers Rust, Node.js
-(with Vite+) and Deno, each in its own `lib/<lang>/`, `data/<lang>/` and `tests/<lang>/`. This
+(with Vite+), Deno and Python (with uv), each in its own `lib/<lang>/`, `data/<lang>/` and
+`tests/<lang>/`. This
 file explains how the pieces fit together. The README covers how to use them.
 
 ## The big picture
@@ -23,6 +24,11 @@ project files ──────────────────┴───
 
 denoland/deno releases ──────────┐
 denoland/deno GitHub digests ───┴─ crucible update ─► data/deno/deno.json ─► deno (one drv)
+release-cycle.json ─────────────┐
+python-build-standalone ────────┼─ crucible update ─► data/python/python.json ──► cpython (one drv per release)
+  SHA256SUMS                    │   python             data/python/uv.json ──────► uv ─┐
+uv sha256.sum ──────────────────┤                                                      ├► toolchain
+project files ──────────────────┴──────────► fromPythonVersion / fromPyprojectToml ───┘
 ```
 
 The design rests on two ideas:
@@ -41,7 +47,7 @@ The design rests on two ideas:
 - `flake.nix`: the public surface. `packages`, `apps`, `lib`, `checks`, `overlays`,
   `homeManagerModules` and `templates`, for the systems in `lib/common/systems.nix`. It does no
   work of its own. Everything goes through `default.nix`.
-- `default.nix`: `{ pkgs } -> { rust, node, cli, cli-doctor }`, everything crucible provides for one nixpkgs
+- `default.nix`: `{ pkgs } -> { rust, node, python, cli, cli-doctor }`, everything crucible provides for one nixpkgs
   instance. The flake, the overlay (`overlay.nix` → `pkgs.crucible`) and non-flake users all
   call it, so there is exactly one place where the pieces are wired together.
 - `lib/common/systems.nix`: the supported systems (`x86_64-linux`, `aarch64-linux`,
@@ -135,7 +141,51 @@ The design rests on two ideas:
     exact pinned release; anything else is an error rather than a silent substitution, like the
     package-manager pins.
 
-### Data (`data/rust/`, `data/node/`, `data/deno/`)
+### Python (`lib/python/`)
+
+**Why python-build-standalone.** CPython's own release artifacts are source tarballs plus
+macOS and Windows installers; python.org publishes no Linux binaries and its macOS `.pkg`
+installs into `/Library/Frameworks`, so neither unpacks into a store path. nixpkgs builds CPython
+from source, which is the thing crucible does not do. python-build-standalone (maintained by
+Astral) publishes relocatable `install_only` archives of every supported line for all three
+systems in each dated build, with a `SHA256SUMS` for the build. They are what `uv python
+install` downloads, so crucible's Python is the same binary a uv user elsewhere gets. They bundle
+OpenSSL, SQLite, Tcl/Tk and the rest, linking only glibc, libgcc_s and (up to 3.12) libcrypt on
+Linux and only system libraries on macOS, so `autoPatchelf` on Linux is the only patching the binaries need. Conda's
+builds and the `python-build` tarballs from pyenv were the alternatives: the first pulls in a
+separate package ecosystem, the second builds from source.
+
+- `default.nix`: the toolchain API for one nixpkgs instance.
+- `python.nix`: one release (an entry of `data/python/python.json`, or one read from a
+  `SHA256SUMS`), installed from its `install_only` archive. On Linux `autoPatchelf` runs.
+  sysconfig (`_sysconfigdata_*.py`, `_sysconfig_vars_*.json` from 3.14, the config `Makefile`)
+  still describes the build machine, so its `/install` prefix becomes the store path and clang,
+  clang++ and the build's llvm-ar become `cc`, `c++` and `ar`, as uv does when it installs these
+  builds; C extensions then build with the dev shell's compiler. An `EXTERNALLY-MANAGED` file
+  (PEP 668) makes pip and `uv pip install --system` refuse the store with a pointer to a venv.
+  `dontStrip`, because stripping would break the macOS signatures.
+- `uv.nix`: `unwrapped` is the `uv` and `uvx` binaries from uv's GitHub release (the glibc
+  build, `autoPatchelf`ed on Linux). `withPython` wraps both for one Python with defaults for
+  `UV_PYTHON` (that python3), `UV_NO_MANAGED_PYTHON=1` and `UV_PYTHON_DOWNLOADS=never`, the
+  current spellings: uv 0.13 hides `UV_PYTHON_PREFERENCE=only-system`, which they replace.
+- `pep440.nix`: PEP 440 specifier matching (`==`, `!=`, `~=`, `>=`, `<=`, `>`, `<`, `===`,
+  `.*`, zero padding) plus uv's bare requests ("3", "3.14"), enough to pick the newest pinned
+  release for `requires-python` offline. Pre-release specifiers are rejected.
+- `toolchain.nix`: the public API.
+  - `toolchain { version, uv, sha256sums }`
+  - `fromPythonVersion { file, uv, sha256sums }`: the first entry of `.python-version`, with uv's
+    `cpython@`/`cpython-` prefixes. Freethreaded and other implementations are rejected.
+  - `fromPyprojectToml { file, uv, sha256sums }`: `.python-version` beside it, then
+    `project.requires-python`, then "3"; a `.python-version` outside `requires-python` fails.
+  - `resolve` picks the newest pinned release a spec allows, or the newest one a `SHA256SUMS`
+    has an archive of for every system. `releaseUrl` must match `release_url` in
+    `crates/pins/src/update/python.rs`.
+  - `assemble` joins python and uv, and adds a setup hook that exports `UV_PYTHON`,
+    `UV_NO_MANAGED_PYTHON=1` and `UV_PYTHON_DOWNLOADS=never` and unsets `UV_MANAGED_PYTHON` and
+    `UV_PYTHON_PREFERENCE`. Each toolchain carries `.python`, `.uv`, `.pythonVersion` and
+    `.sitePackages`.
+
+### Data (`data/rust/`, `data/node/`, `data/deno/`, `data/python/`)
 
 Generated by `crucible update`. Do not edit by hand, and do not format.
 
@@ -159,6 +209,11 @@ Generated by `crucible update`. Do not edit by hand, and do not format.
   version, and per-system `{ url, hash }` for the `deno` executable from the release zips.
 - `node/release-keys.asc`: the active Node.js release keys, vendored so `SHASUMS256.txt.sig` can
   be checked without a system keyring. Replaced deliberately when nodejs rotates signers.
+- `python/python.json`: the python-build-standalone `build` (its date tag) and per supported line
+  (`bugfix` or `security` in python.org's `release-cycle.json`) its newest release in that
+  build: version, status, end of life and a per-system `{ url, hash }` from the build's
+  `SHA256SUMS`.
+- `python/uv.json`: the uv version and a per-system `{ url, hash }` from its `sha256.sum`.
 
 The pinned nightly is the newest one that ships every required component (Cranelift included) on
 **every** supported host, not simply the newest nightly.
@@ -218,7 +273,7 @@ process.
 
 `pins`:
 
-- `update/`: `update [all|cargo|rust|node|deno]`. It fetches and validates **every** pin before writing
+- `update/`: `update [all|cargo|rust|node|deno|python]`. It fetches and validates **every** pin before writing
   anything, then replaces each file atomically in a fixed order, under a
   `.crucible-update.lock` in the repo root. A half-written pin is worse than a stale one,
   because the flake would fail to evaluate. The nightly search fetches up to a month of dated
@@ -228,7 +283,10 @@ process.
   `vp-checksums.txt` before it is trimmed, then the package managers from npm registry metadata
   (bun's from oven-sh/bun's `SHASUMS256.txt`), and `update deno` pins the newest stable Deno
   releases from denoland/deno's GitHub API assets. Every `SHASUMS256.txt` is GPG-verified before
-  its hashes are used.
+  its hashes are used. `python` pins the newest release of every supported line from
+  the latest python-build-standalone build, then the latest uv. Neither project signs its
+  checksum file, so each is checked against the sha256 digest GitHub records for the release
+  asset before its hashes are used.
 - `pin.rs`: `pin rust <channel>` prints the `flake = false` input and the SRI hash for a
   channel, from `init`'s `channel::manifest_url`.
   `pin node <x.y.z>` does the same for a release's `SHASUMS256.txt`, after checking its GPG
@@ -252,6 +310,9 @@ active package manager with `package.json`'s `packageManager`, and warns about `
 - `modules/home-manager.nix`: `programs.crucible.node.*` installs a Node.js toolchain and,
   with `npmPrefix`, gives `npm install --global` a writable prefix. It warns when `VP_HOME` is
   set, since crucible's vp would then share another vp's config.
+- `modules/home-manager.nix`: `programs.crucible.python.*` installs a Python toolchain and puts
+  `~/.local/bin` (`uv tool install`'s commands) on PATH. It warns when `PYTHONHOME` is set, or a
+  `UV_PYTHON*`/`UV_MANAGED_PYTHON` session variable overrides what crucible's uv sets.
 - `templates/default`: a Rust project whose toolchain comes from `rust-toolchain.toml`.
 - `templates/node`: a Node.js project whose toolchain comes from `package.json`,
   `.node-version` and `packageManager` (including pnpm), with a `buildNpmPackage` build.
@@ -274,7 +335,12 @@ active package manager with `package.json`'s `packageManager`, and warns about `
   `.buildNpmPackage` and `importNpmLock`. `tests/init.nix` evaluates the golden flakes in
   `crates/init/tests/fixtures/init/` (which `init`'s cargo tests must reproduce byte for byte) against
   crucible's lib, and runs the doctor-only `init` in one of them. `tests/default.nix` also checks the Node template
-  resolves and that the doctor-only binary carries the Node checks.
+  resolves and that the doctor-only binary carries the Node checks. The Python checks run python,
+  pip and a stdlib venv on the newest line and every pinned line, take `tests/python/app` through
+  `uv sync` and `uv run` offline (uv must find the toolchain's python and refuse to download
+  another), check the setup hook beats inherited values, build and import a C extension from
+  sysconfig's own compiler settings, resolve `.python-version`, `requires-python` and
+  specifiers, build from a trimmed `SHA256SUMS`, and reject misuse at evaluation time.
 - `dev/flake.nix`: a separate flake for treefmt (nixfmt, deadnix, statix, typos, oxfmt,
   rustfmt, taplo) and git hooks (treefmt, gitleaks), kept separate so consumers never pay for
   those inputs. It also owns the Home Manager module check, since the main flake must keep
@@ -288,6 +354,8 @@ active package manager with `package.json`'s `packageManager`, and warns about `
 - **nixpkgs is the only flake input** of the main flake. Development tooling goes in `dev/`.
 - **Evaluation is offline** for pinned channels. Anything that needs the network belongs in the
   CLI and ends up in `data/`.
+- **uv never manages Python.** It runs the toolchain's python, never one it installed or
+  downloaded itself.
 - **vp never manages Node.js.** It runs on the toolchain's (or the shell's) node, from the
   store copy, without self-setup. Projects' `.node-version` files do not make it download one.
 - **The toolchain's cargo is always the fork.** Sandboxed package builds use `.stock` through

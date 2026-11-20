@@ -9,6 +9,7 @@ pub mod cargo;
 pub mod deno;
 pub mod node;
 pub mod package_managers;
+pub mod python;
 pub mod rust;
 pub mod vite_plus;
 
@@ -30,6 +31,8 @@ pub enum Scope {
     Node,
     /// Deno
     Deno,
+    /// CPython and uv
+    Python,
 }
 
 /// The files a run will write, already serialized, in write order.
@@ -43,20 +46,22 @@ pub fn run(scope: Scope, version: Option<String>, root: &Path) -> Result<()> {
     let http = crate::http::Http::new();
 
     // Plan everything first: the cargo pin, then stable, beta and nightly, then
-    // Node, Vite+, the package managers and Deno, so a fetch failure anywhere
-    // aborts before any pin changes.
+    // Node, Vite+, the package managers and Deno, then Python and uv, so a
+    // fetch failure anywhere aborts before any pin changes.
     let plan = match scope {
         Scope::All => {
             let mut plan = cargo::plan(&http, version, root)?;
             plan.extend(rust::plan(&http, root)?);
             plan.extend(node_plan(&http, root)?);
             plan.extend(deno::plan(&http, root)?);
+            plan.extend(python::plan(&http, root)?);
             plan
         }
         Scope::Cargo => cargo::plan(&http, version, root)?,
         Scope::Rust => rust::plan(&http, root)?,
         Scope::Node => node_plan(&http, root)?,
         Scope::Deno => deno::plan(&http, root)?,
+        Scope::Python => python::plan(&http, root)?,
     };
 
     for (path, bytes) in plan {

@@ -18,6 +18,7 @@ let
 
   cfg = config.programs.crucible.rust;
   nodeCfg = config.programs.crucible.node;
+  pythonCfg = config.programs.crucible.python;
   tomlFormat = pkgs.formats.toml { };
   cargoHome = "${config.home.homeDirectory}/${cfg.cargoHomeDir}";
   sessionVariables = config.home.sessionVariables;
@@ -150,6 +151,41 @@ in
     };
   };
 
+  options.programs.crucible.python = {
+    enable = mkEnableOption "a CPython toolchain from python-build-standalone, with uv";
+
+    package = mkOption {
+      type = types.package;
+      default = self.packages.${pkgs.stdenv.hostPlatform.system}.python;
+      defaultText = literalExpression "crucible.packages.\${system}.python";
+      example = literalExpression ''
+        crucible.lib.''${system}.python.toolchain {
+          version = "3.13";
+        }
+      '';
+      description = ''
+        The toolchain to install: one from crucible's `packages` or `lib.<system>.python`
+        (python3, pip and uv, the newest pinned CPython by default), or any package with a
+        `bin/python3`. Its uv uses this Python for every project, whatever the project's
+        `.python-version` says, and never downloads one of its own; a project that needs
+        another release gets it from a dev shell built with `fromPythonVersion` or
+        `fromPyprojectToml`, whose setup hook takes over.
+      '';
+    };
+
+    extraPackages = mkOption {
+      type = types.listOf types.package;
+      default = [ ];
+      example = literalExpression "[ pkgs.ruff pkgs.basedpyright ]";
+      description = ''
+        Linters, language servers and other tools installed next to the toolchain. A
+        second Python here shadows the toolchain's. Python libraries do not belong here:
+        install them into a virtual environment, or command-line tools with
+        `uv tool install`.
+      '';
+    };
+  };
+
   config = mkMerge [
     (mkIf cfg.enable {
       warnings =
@@ -211,6 +247,32 @@ in
           optional (nodeCfg.npmPrefix != null) "${config.home.homeDirectory}/${nodeCfg.npmPrefix}/bin"
           ++ optional (nodeCfg.pnpmHome != null) "${config.home.homeDirectory}/${nodeCfg.pnpmHome}/bin";
       };
+    })
+
+    (mkIf pythonCfg.enable {
+      warnings =
+        optional (sessionVariables ? PYTHONHOME) ''
+          programs.crucible.python: PYTHONHOME is set, so python3 looks for its standard
+          library there instead of next to itself, and fails to start or runs another
+          release's modules.
+        ''
+        ++
+          optional
+            (lib.any (name: sessionVariables ? ${name}) [
+              "UV_PYTHON"
+              "UV_PYTHON_DOWNLOADS"
+              "UV_MANAGED_PYTHON"
+              "UV_PYTHON_PREFERENCE"
+            ])
+            ''
+              programs.crucible.python: a UV_PYTHON* or UV_MANAGED_PYTHON session variable
+              overrides what crucible's uv sets, so uv may use or download another Python
+              than the toolchain's.
+            '';
+
+      # `uv tool install` puts its commands here.
+      home.packages = [ pythonCfg.package ] ++ pythonCfg.extraPackages;
+      home.sessionPath = [ "${config.home.homeDirectory}/.local/bin" ];
     })
   ];
 }
