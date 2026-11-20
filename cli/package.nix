@@ -25,6 +25,14 @@ rustPlatform.buildRustPackage {
       ./tests
     ];
   };
+
+  # gpg.rs includes the vendored Node.js release keys from the repo's data/.
+  # Copy them into the crate's source tree at build time so the fileset can
+  # stay cli-only and cargo still runs from the source root.
+  postPatch = ''
+    mkdir -p ../data/node
+    cp ${../data/node/release-keys.asc} ../data/node/release-keys.asc
+  '';
   cargoLock.lockFile = ./Cargo.lock;
 
   meta = {

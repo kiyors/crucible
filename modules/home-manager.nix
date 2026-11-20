@@ -10,12 +10,14 @@ let
     literalExpression
     mkEnableOption
     mkIf
+    mkMerge
     mkOption
     optional
     types
     ;
 
   cfg = config.programs.crucible.rust;
+  nodeCfg = config.programs.crucible.node;
   tomlFormat = pkgs.formats.toml { };
   cargoHome = "${config.home.homeDirectory}/${cfg.cargoHomeDir}";
   sessionVariables = config.home.sessionVariables;
@@ -95,42 +97,101 @@ in
     };
   };
 
-  config = mkIf cfg.enable {
-    warnings =
-      optional ((sessionVariables.CARGO_INCREMENTAL or null) == "0") ''
-        programs.crucible.rust: CARGO_INCREMENTAL=0 turns off the incremental caches
-        huacnlee/cargo shares between worktrees, so undoing an edit or switching
-        back to a branch rebuilds from scratch.
-      ''
-      ++ optional (sessionVariables ? CARGO_TARGET_DIR) ''
-        programs.crucible.rust: huacnlee/cargo ignores CARGO_TARGET_DIR and always
-        builds in ./target and ~/.cargo/targets.
-      ''
-      ++ optional (sessionVariables ? RUSTC_WRAPPER) ''
-        programs.crucible.rust: RUSTC_WRAPPER is set. huacnlee/cargo already shares
-        compiled dependencies between projects, so a compiler cache such as
-        sccache or kache stores everything a second time.
+  options.programs.crucible.node = {
+    enable = mkEnableOption "a Node.js toolchain from nodejs.org, with Vite+ (vp)";
+
+    package = mkOption {
+      type = types.package;
+      default = self.packages.${pkgs.stdenv.hostPlatform.system}.node;
+      defaultText = literalExpression "crucible.packages.\${system}.node";
+      example = literalExpression ''
+        crucible.lib.''${system}.node.toolchain {
+          version = "24";
+          packageManager = "pnpm@10.0.0";
+        }
       '';
+      description = ''
+        The toolchain to install: one from crucible's `packages` or `lib.<system>.node`
+        (node, npm and vp, the pinned LTS by default), or any package with a `bin/node`.
+        Its vp uses this Node.js and never downloads one of its own.
+      '';
+    };
 
-    programs.crucible.rust.settings = mkIf (cfg.gc != { }) { build.gc = cfg.gc; };
+    extraPackages = mkOption {
+      type = types.listOf types.package;
+      default = [ ];
+      example = literalExpression "[ pkgs.pnpm ]";
+      description = "Package managers and other tools installed next to the toolchain.";
+    };
 
-    home = {
-      packages = [
-        cfg.package
-      ]
-      ++ optional (cfg.rust-analyzer != null) cfg.rust-analyzer
-      ++ cfg.extraPackages;
-
-      # No RUST_SRC_PATH: rust-analyzer finds the sources through `rustc
-      # --print sysroot`, and a global value would point rust-analyzer at this
-      # release in projects that use another one (rustup, a pinned dev shell).
-      sessionVariables.CARGO_HOME = cargoHome;
-
-      sessionPath = [ "${cargoHome}/bin" ];
-
-      file."${cfg.cargoHomeDir}/config.toml" = mkIf (cfg.settings != { }) {
-        source = tomlFormat.generate "cargo-config.toml" cfg.settings;
-      };
+    npmPrefix = mkOption {
+      type = types.nullOr types.str;
+      default = null;
+      example = ".npm-global";
+      description = ''
+        Where `npm install --global` puts packages, relative to the home directory, set
+        as NPM_CONFIG_PREFIX with its {file}`bin` on PATH. By default npm installs next
+        to node, which is the read-only store, so global installs fail.
+      '';
     };
   };
+
+  config = mkMerge [
+    (mkIf cfg.enable {
+      warnings =
+        optional ((sessionVariables.CARGO_INCREMENTAL or null) == "0") ''
+          programs.crucible.rust: CARGO_INCREMENTAL=0 turns off the incremental caches
+          huacnlee/cargo shares between worktrees, so undoing an edit or switching
+          back to a branch rebuilds from scratch.
+        ''
+        ++ optional (sessionVariables ? CARGO_TARGET_DIR) ''
+          programs.crucible.rust: huacnlee/cargo ignores CARGO_TARGET_DIR and always
+          builds in ./target and ~/.cargo/targets.
+        ''
+        ++ optional (sessionVariables ? RUSTC_WRAPPER) ''
+          programs.crucible.rust: RUSTC_WRAPPER is set. huacnlee/cargo already shares
+          compiled dependencies between projects, so a compiler cache such as
+          sccache or kache stores everything a second time.
+        '';
+
+      programs.crucible.rust.settings = mkIf (cfg.gc != { }) { build.gc = cfg.gc; };
+
+      home = {
+        packages = [
+          cfg.package
+        ]
+        ++ optional (cfg.rust-analyzer != null) cfg.rust-analyzer
+        ++ cfg.extraPackages;
+
+        # No RUST_SRC_PATH: rust-analyzer finds the sources through `rustc
+        # --print sysroot`, and a global value would point rust-analyzer at this
+        # release in projects that use another one (rustup, a pinned dev shell).
+        sessionVariables.CARGO_HOME = cargoHome;
+
+        sessionPath = [ "${cargoHome}/bin" ];
+
+        file."${cfg.cargoHomeDir}/config.toml" = mkIf (cfg.settings != { }) {
+          source = tomlFormat.generate "cargo-config.toml" cfg.settings;
+        };
+      };
+    })
+
+    (mkIf nodeCfg.enable {
+      warnings = optional (sessionVariables ? VP_HOME) ''
+        programs.crucible.node: VP_HOME is set, so crucible's vp shares that root (and its
+        config.json) with any other vp. If that config manages Node.js itself, vp stops
+        with "VP_ENV_FORBIDDEN=1: Vite+ does not manage Node.js"; run `vp env off` there.
+      '';
+
+      home = {
+        packages = [ nodeCfg.package ] ++ nodeCfg.extraPackages;
+        sessionVariables = mkIf (nodeCfg.npmPrefix != null) {
+          NPM_CONFIG_PREFIX = "${config.home.homeDirectory}/${nodeCfg.npmPrefix}";
+        };
+        sessionPath = optional (
+          nodeCfg.npmPrefix != null
+        ) "${config.home.homeDirectory}/${nodeCfg.npmPrefix}/bin";
+      };
+    })
+  ];
 }

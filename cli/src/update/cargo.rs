@@ -10,7 +10,7 @@ use anyhow::{Context, Result};
 use serde::Serialize;
 use serde_json::{Map, Value};
 
-use super::{Plan, json};
+use super::{json, parse_sha256sums, Plan};
 use crate::http::Http;
 use crate::sri;
 
@@ -39,7 +39,7 @@ pub fn plan(http: &Http, version: Option<String>, root: &Path) -> Result<Plan> {
     };
     println!("huacnlee/cargo: {current} -> {version}");
 
-    let sums = parse_sums(&sha256sums(http, &version)?);
+    let sums = parse_sha256sums(&sha256sums(http, &version)?);
     let mut platforms = Map::new();
     for (system, triple) in PLATFORMS {
         let file = format!("cargo-{version}-{triple}.tar.gz");
@@ -98,54 +98,9 @@ fn sha256sums(http: &Http, version: &str) -> Result<String> {
     String::from_utf8(http.get(&url)?).with_context(|| format!("{url} is not UTF-8"))
 }
 
-/// Parse `SHA256SUMS`: `<64 hex>  <file>` or `<64 hex> *<file>`.
-fn parse_sums(text: &str) -> Vec<(String, String)> {
-    text.lines()
-        .filter_map(|line| {
-            let mut fields = line.split_whitespace();
-            let hex = fields.next()?;
-            let file = fields.next()?;
-            let file = file.strip_prefix('*').unwrap_or(file);
-            // Strict on purpose: a malformed line must not silently become a
-            // bogus hash.
-            let is_hex = hex.len() == 64
-                && hex
-                    .bytes()
-                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte));
-            if !is_hex {
-                return None;
-            }
-            Some((hex.to_string(), file.to_string()))
-        })
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn parses_both_sha256sums_separators() {
-        let text = "\
-4c9634493bfb3d6fc926a5cee14271afa2e33008a7793932148e31c4b4d543dd  cargo-0.1.0-x86_64-unknown-linux-gnu.tar.gz
-4c9634493bfb3d6fc926a5cee14271afa2e33008a7793932148e31c4b4d543dd *cargo-0.1.0-aarch64-apple-darwin.tar.gz
-not a sums line
-4C9634493BFB3D6FC926A5CEE14271AFA2E33008A7793932148E31C4B4D543DD  uppercase.tar.gz
-";
-        assert_eq!(
-            parse_sums(text),
-            [
-                (
-                    "4c9634493bfb3d6fc926a5cee14271afa2e33008a7793932148e31c4b4d543dd".to_string(),
-                    "cargo-0.1.0-x86_64-unknown-linux-gnu.tar.gz".to_string(),
-                ),
-                (
-                    "4c9634493bfb3d6fc926a5cee14271afa2e33008a7793932148e31c4b4d543dd".to_string(),
-                    "cargo-0.1.0-aarch64-apple-darwin.tar.gz".to_string(),
-                ),
-            ]
-        );
-    }
 
     #[test]
     fn builds_release_urls() {

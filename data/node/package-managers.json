@@ -1,0 +1,52 @@
+{
+  "pnpm": {
+    "12": {
+      "version": "12.21.0",
+      "platforms": {
+        "x86_64-linux": {
+          "url": "https://registry.npmjs.org/@pnpm/exe.linux-x64/-/exe.linux-x64-12.21.0.tgz",
+          "hash": "sha512-8eufCjHXspKbNS/kh8q4Q0gqJoOuvC4Q5pgos6XS8By/nAMtP+jf8F1Cw9er840kfAX+PJ/ts+A9qnLE91rvXQ=="
+        },
+        "aarch64-linux": {
+          "url": "https://registry.npmjs.org/@pnpm/exe.linux-arm64/-/exe.linux-arm64-12.21.0.tgz",
+          "hash": "sha512-4Oj/iF2TDCe2lcH0n4TupPR5sSdrNLclJB6xBElLMPCUOAvBhdf2rRlSaO5M4erJ6g4Fyy7YTXTpcmfFsKyxEA=="
+        },
+        "aarch64-darwin": {
+          "url": "https://registry.npmjs.org/@pnpm/exe.darwin-arm64/-/exe.darwin-arm64-12.21.0.tgz",
+          "hash": "sha512-F5OyMX/6zLSowpTZEQRojbCmPS1Pq+fyRaIinslsIe6Glh3qbyQ52u+Fe0eEzSaRuIbWZkXmAAXSWh6Q5Wrlgg=="
+        }
+      }
+    }
+  },
+  "yarn": {
+    "1": {
+      "version": "1.22.22",
+      "url": "https://registry.npmjs.org/yarn/-/yarn-1.22.22.tgz",
+      "hash": "sha512-prL3kGtyG7o9Z9Sv8IPfBNrWTDmXB4Qbes8A9rEzt6wkJV8mUvoirjU0Mp3GGAU06Y0XQyA3/2/RQFVuK7MTfg=="
+    },
+    "4": {
+      "version": "4.18.1",
+      "url": "https://registry.npmjs.org/@yarnpkg/cli-dist/-/cli-dist-4.18.1.tgz",
+      "hash": "sha512-EH+A4TxAtBWXKE0DGQxW9Bo9crXHLJ73mfxjTQJuv8XonNWWTpei8BQ5JjczHJNU9GROTycwMFn8iOvRIZXUcA=="
+    }
+  },
+  "bun": {
+    "1": {
+      "version": "1.4.5",
+      "platforms": {
+        "x86_64-linux": {
+          "url": "https://registry.npmjs.org/@oven/bun-linux-x64/-/bun-linux-x64-1.4.5.tgz",
+          "hash": "sha512-IWX9BELoGHAUtMonkeSaNaZwXzRk+oDw6Mk+HBFXd3KHYIBNBsIGRupMZPcgNoDbJpLu6gAJjIoIVPZtt1aJ1g=="
+        },
+        "aarch64-linux": {
+          "url": "https://registry.npmjs.org/@oven/bun-linux-aarch64/-/bun-linux-aarch64-1.4.5.tgz",
+          "hash": "sha512-4BXmsSKnjOrlGWqZV4x/oWa7AVoR+B6lCXddMzOAXBIm3t50eslg9wb66gmtW1AamEQ1l1CDvmmruysEhqOWMg=="
+        },
+        "aarch64-darwin": {
+          "url": "https://registry.npmjs.org/@oven/bun-darwin-aarch64/-/bun-darwin-aarch64-1.4.5.tgz",
+          "hash": "sha512-4MIFXHmctH2EhAxLXm2/qxNtv17dFtLJylvaOCsrgq6KSqHTs6eW5YSrJjRbJxYUJaR901fsN8JfZOa+CsWpWQ=="
+        }
+      }
+    }
+  }
+}

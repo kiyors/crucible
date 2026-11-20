@@ -37,6 +37,7 @@ enum Command {
         #[arg(value_enum, default_value = "all")]
         what: Scope,
         /// Use this huacnlee/cargo version instead of the latest release
+        /// (`update cargo` only)
         #[arg(long)]
         version: Option<String>,
         /// Repository root holding data/
@@ -64,6 +65,11 @@ enum Pin {
     Rust {
         /// A rustup channel: stable, 1.99, nightly-2026-11-01, ...
         channel: String,
+    },
+    /// The flake input and sha256 for a Node.js release's SHASUMS256.txt
+    Node {
+        /// An exact release: 22.11.0, v24.1.0, ...
+        version: String,
     },
 }
 
@@ -98,6 +104,11 @@ fn run() -> Result<ExitCode> {
         #[cfg(feature = "net")]
         Some(Command::Pin(Pin::Rust { channel })) => {
             pin::run(&channel)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        #[cfg(feature = "net")]
+        Some(Command::Pin(Pin::Node { version })) => {
+            pin::node(&version)?;
             Ok(ExitCode::SUCCESS)
         }
     }

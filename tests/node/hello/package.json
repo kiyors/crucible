@@ -1,0 +1,10 @@
+{
+  "name": "hello",
+  "version": "0.1.0",
+  "bin": {
+    "hello": "index.js"
+  },
+  "dependencies": {
+    "is-number": "7.0.0"
+  }
+}

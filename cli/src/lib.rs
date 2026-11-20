@@ -3,11 +3,15 @@
 
 pub mod doctor;
 #[cfg(feature = "net")]
+pub mod gpg;
+#[cfg(feature = "net")]
 pub mod http;
 #[cfg(feature = "net")]
 pub mod manifest;
 #[cfg(feature = "net")]
 pub mod pin;
+#[cfg(feature = "net")]
+pub mod pnpm_lock;
 #[cfg(feature = "net")]
 pub mod sri;
 #[cfg(feature = "net")]

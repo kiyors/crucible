@@ -6,13 +6,16 @@
 //! worse than a stale one because the flake would fail to evaluate.
 
 pub mod cargo;
+pub mod node;
+pub mod package_managers;
 pub mod rust;
+pub mod vite_plus;
 
 use std::fs;
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use clap::ValueEnum;
 use serde::Serialize;
 
@@ -22,6 +25,8 @@ pub enum Scope {
     All,
     Cargo,
     Rust,
+    /// Node.js and Vite+
+    Node,
 }
 
 /// The files a run will write, already serialized, in write order.
@@ -34,22 +39,56 @@ pub fn run(scope: Scope, version: Option<String>, root: &Path) -> Result<()> {
     let _lock = Lock::acquire(root)?;
     let http = crate::http::Http::new();
 
-    // Plan everything first: the cargo pin, then stable, beta and nightly, so a
-    // fetch failure anywhere aborts before any pin changes.
+    // Plan everything first: the cargo pin, then stable, beta and nightly, then
+    // Node, Vite+ and the package managers, so a fetch failure anywhere aborts
+    // before any pin changes.
     let plan = match scope {
         Scope::All => {
             let mut plan = cargo::plan(&http, version, root)?;
             plan.extend(rust::plan(&http, root)?);
+            plan.extend(node_plan(&http, root)?);
             plan
         }
         Scope::Cargo => cargo::plan(&http, version, root)?,
         Scope::Rust => rust::plan(&http, root)?,
+        Scope::Node => node_plan(&http, root)?,
     };
 
     for (path, bytes) in plan {
         write_atomic(&path, &bytes)?;
     }
     Ok(())
+}
+
+fn node_plan(http: &crate::http::Http, root: &Path) -> Result<Plan> {
+    let mut plan = node::plan(http, root)?;
+    plan.extend(vite_plus::plan(http, root)?);
+    plan.extend(package_managers::plan(http, root)?);
+    Ok(plan)
+}
+
+/// Parse a `SHA256SUMS`-style file (the fork's `SHA256SUMS`, Node's
+/// `SHASUMS256.txt`, Vite+'s `vp-checksums.txt`): `<64 hex>  <file>` or
+/// `<64 hex> *<file>`.
+pub(crate) fn parse_sha256sums(text: &str) -> Vec<(String, String)> {
+    text.lines()
+        .filter_map(|line| {
+            let mut fields = line.split_whitespace();
+            let hex = fields.next()?;
+            let file = fields.next()?;
+            let file = file.strip_prefix('*').unwrap_or(file);
+            // Strict on purpose: a malformed line must not silently become a
+            // bogus hash.
+            let is_hex = hex.len() == 64
+                && hex
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte));
+            if !is_hex {
+                return None;
+            }
+            Some((hex.to_string(), file.to_string()))
+        })
+        .collect()
 }
 
 /// A run-wide exclusive lock, created next to the pins.
@@ -133,6 +172,29 @@ mod tests {
         ));
         fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[test]
+    fn parses_both_sha256sums_separators() {
+        let text = "\
+4c9634493bfb3d6fc926a5cee14271afa2e33008a7793932148e31c4b4d543dd  cargo-0.1.0-x86_64-unknown-linux-gnu.tar.gz
+4c9634493bfb3d6fc926a5cee14271afa2e33008a7793932148e31c4b4d543dd *cargo-0.1.0-aarch64-apple-darwin.tar.gz
+not a sums line
+4C9634493BFB3D6FC926A5CEE14271AFA2E33008A7793932148E31C4B4D543DD  uppercase.tar.gz
+";
+        assert_eq!(
+            parse_sha256sums(text),
+            [
+                (
+                    "4c9634493bfb3d6fc926a5cee14271afa2e33008a7793932148e31c4b4d543dd".to_string(),
+                    "cargo-0.1.0-x86_64-unknown-linux-gnu.tar.gz".to_string(),
+                ),
+                (
+                    "4c9634493bfb3d6fc926a5cee14271afa2e33008a7793932148e31c4b4d543dd".to_string(),
+                    "cargo-0.1.0-aarch64-apple-darwin.tar.gz".to_string(),
+                ),
+            ]
+        );
     }
 
     #[test]

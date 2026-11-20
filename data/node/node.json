@@ -1,0 +1,72 @@
+{
+  "lts": "26",
+  "current": "26",
+  "releases": {
+    "22": {
+      "version": "22.23.5",
+      "date": "2026-11-11",
+      "lts": "Jod",
+      "end": "2027-04-30",
+      "npm": "10.9.9",
+      "modules": "127",
+      "platforms": {
+        "x86_64-linux": {
+          "url": "https://nodejs.org/dist/v22.23.5/node-v22.23.5-linux-x64.tar.xz",
+          "hash": "sha256-zeuGcKDIH1G03ErGGRn5sa2RezBL+CIeuTlXBmPSQPg="
+        },
+        "aarch64-linux": {
+          "url": "https://nodejs.org/dist/v22.23.5/node-v22.23.5-linux-arm64.tar.xz",
+          "hash": "sha256-K6u561Jkhg1UCEn0sGSm+9683DI2V9nTgs4j0xP9Xgk="
+        },
+        "aarch64-darwin": {
+          "url": "https://nodejs.org/dist/v22.23.5/node-v22.23.5-darwin-arm64.tar.xz",
+          "hash": "sha256-0MaMMhFhuyxkg+/qmjQwEN6o5ef2DXPGp+uhQAFtZi8="
+        }
+      }
+    },
+    "24": {
+      "version": "24.22.3",
+      "date": "2026-11-10",
+      "lts": "Krypton",
+      "end": "2028-04-30",
+      "npm": "11.19.1",
+      "modules": "137",
+      "platforms": {
+        "x86_64-linux": {
+          "url": "https://nodejs.org/dist/v24.22.3/node-v24.22.3-linux-x64.tar.xz",
+          "hash": "sha256-TysXWm1TpcYXqA26JnYjigaIzvKMbaTro1x9hE5m/Ps="
+        },
+        "aarch64-linux": {
+          "url": "https://nodejs.org/dist/v24.22.3/node-v24.22.3-linux-arm64.tar.xz",
+          "hash": "sha256-blGiraAPABHMJm9l2YkitAPXrYj4CcoqphWl/hzm6Gw="
+        },
+        "aarch64-darwin": {
+          "url": "https://nodejs.org/dist/v24.22.3/node-v24.22.3-darwin-arm64.tar.xz",
+          "hash": "sha256-HWQTbIpD1kjRs7rRB5ekyZWxygMtK96Hmd5Ds38Fj+U="
+        }
+      }
+    },
+    "26": {
+      "version": "26.13.1",
+      "date": "2026-11-10",
+      "lts": "Lithium",
+      "end": "2029-04-30",
+      "npm": "11.20.0",
+      "modules": "147",
+      "platforms": {
+        "x86_64-linux": {
+          "url": "https://nodejs.org/dist/v26.13.1/node-v26.13.1-linux-x64.tar.xz",
+          "hash": "sha256-XAY+Rrqw+8HBfMRF1/8SnL3NBHG+btg7arhk+BQ7yGQ="
+        },
+        "aarch64-linux": {
+          "url": "https://nodejs.org/dist/v26.13.1/node-v26.13.1-linux-arm64.tar.xz",
+          "hash": "sha256-ieGFMTjbUei4LT6YupwNPylWoo5eVeobfhLSWq6S1d0="
+        },
+        "aarch64-darwin": {
+          "url": "https://nodejs.org/dist/v26.13.1/node-v26.13.1-darwin-arm64.tar.xz",
+          "hash": "sha256-r2IC9TcKOlIJ6F3FQ3WN/Z9EyHJmJqI2cwzWA6Z6hVk="
+        }
+      }
+    }
+  }
+}

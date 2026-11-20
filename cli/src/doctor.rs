@@ -29,6 +29,10 @@ pub fn run() -> Result<ExitCode> {
     check_cc(&mut checks);
     check_toolchain_file(&mut checks, &cwd, rustc.as_deref());
     check_targets_dir(&mut checks);
+    let node = check_node(&mut checks);
+    check_node_env(&mut checks);
+    check_node_version_file(&mut checks, &cwd, node.as_deref());
+    check_package_json(&mut checks, &cwd);
 
     Ok(if checks.errors == 0 {
         ExitCode::SUCCESS
@@ -389,12 +393,7 @@ fn same_path(a: &Path, b: &Path) -> bool {
 /// The toolchain file rustup would use: the nearest `rust-toolchain.toml` or
 /// `rust-toolchain` in `dir` or one of its ancestors.
 fn find_toolchain_file(dir: &Path) -> Option<PathBuf> {
-    dir.ancestors().find_map(|dir| {
-        ["rust-toolchain.toml", "rust-toolchain"]
-            .into_iter()
-            .map(|name| dir.join(name))
-            .find(|path| path.is_file())
-    })
+    find_nearest_file(dir, &["rust-toolchain.toml", "rust-toolchain"])
 }
 
 /// A toolchain file names the release the project expects; if the shell's
@@ -480,6 +479,239 @@ fn check_targets_dir(checks: &mut Checks) {
         Ok(size) => checks.info(format!("{} holds {}", dir.display(), human_size(size))),
         Err(err) => checks.warn(format!("cannot size {}: {err}", dir.display())),
     }
+}
+
+/// The first node on PATH is the one projects run. Crucible's toolchain is
+/// authoritative in a dev shell; outside one, another node wins and vp may
+/// download its own. Nodes further down PATH are only a hazard when the first
+/// disappears, so they are a warning, not an error.
+fn check_node(checks: &mut Checks) -> Option<String> {
+    let nodes = executables("node");
+    let Some(first) = nodes.first() else {
+        checks.info("no node on PATH; Node.js checks skipped".to_string());
+        return None;
+    };
+    match Command::new(first).arg("--version").output() {
+        Ok(output) if output.status.success() => {
+            let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            checks.ok(format!("{} is node {version}", first.display()));
+            for other in &nodes[1..] {
+                checks.warn(format!(
+                    "another node is on PATH: {} (the first one, {}, wins)",
+                    other.display(),
+                    first.display()
+                ));
+            }
+            Some(version)
+        }
+        Ok(output) => {
+            checks.error(format!(
+                "{} --version failed: {}",
+                first.display(),
+                String::from_utf8_lossy(&output.stderr).trim()
+            ));
+            None
+        }
+        Err(err) => {
+            checks.error(format!("cannot run {}: {err}", first.display()));
+            None
+        }
+    }
+}
+
+/// State that leaks between projects or makes vp ignore the toolchain's
+/// Node.js. Crucible's setup hook clears the two vp variables in a dev shell;
+/// outside one, a stale value changes what vp does.
+fn check_node_env(checks: &mut Checks) {
+    match env_value("VP_HOME") {
+        Some(value) => checks.warn(format!(
+            "VP_HOME={value}; a standalone vp install shares its config with this one, and a \
+             managed-Node config stops vp with VP_ENV_FORBIDDEN=1"
+        )),
+        None => checks.ok("VP_HOME is not set".to_string()),
+    }
+
+    // The setup hook exports 1; 0 lets vp fetch a Node.js of its own.
+    match env_value("VP_ENV_FORBIDDEN") {
+        Some(value) if value == "1" => checks.ok("VP_ENV_FORBIDDEN=1".to_string()),
+        Some(value) => checks.warn(format!(
+            "VP_ENV_FORBIDDEN={value}; crucible's vp needs 1 to use the Node.js on PATH"
+        )),
+        None => checks.info(
+            "VP_ENV_FORBIDDEN is not set; vp may manage its own Node.js outside a dev shell"
+                .to_string(),
+        ),
+    }
+
+    match env_value("NODE_PATH") {
+        Some(value) => checks.warn(format!(
+            "NODE_PATH={value}; it adds modules to every project from outside its own node_modules"
+        )),
+        None => checks.ok("NODE_PATH is not set".to_string()),
+    }
+
+    // npm installs globally into its own prefix, which is in the read-only
+    // store for a Nix toolchain; NPM_CONFIG_PREFIX is the supported escape.
+    let prefix = env_value("NPM_CONFIG_PREFIX").or_else(|| env_value("npm_config_prefix"));
+    match prefix {
+        Some(value) if value.starts_with("/nix/store") => checks.warn(format!(
+            "npm's global prefix is {value}, inside the read-only Nix store; \
+             npm install --global will fail"
+        )),
+        Some(value) => checks.ok(format!("npm's global prefix is {value}")),
+        None => checks.info("npm's global prefix is its own (read-only) store path".to_string()),
+    }
+}
+
+/// `.node-version` and `.nvmrc` are the pins version managers read. Compare
+/// the nearest one with the active node, the same way a rust-toolchain file is
+/// compared with rustc.
+fn check_node_version_file(checks: &mut Checks, cwd: &Path, node: Option<&str>) {
+    let Some(path) = find_nearest_file(cwd, &[".node-version", ".nvmrc"]) else {
+        checks.ok("no .node-version or .nvmrc here or in a parent directory".to_string());
+        return;
+    };
+    let text = match fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(err) => {
+            checks.error(format!("cannot read {}: {err}", path.display()));
+            return;
+        }
+    };
+    let Some(pin) = first_version_line(&text) else {
+        checks.error(format!("{} names no version", path.display()));
+        return;
+    };
+    match version_matches(&pin, node.unwrap_or_default()) {
+        Some(true) => checks.ok(format!(
+            "{} pins {pin}, which matches node {}",
+            path.display(),
+            node.unwrap_or_default()
+        )),
+        Some(false) => checks.error(format!(
+            "{} pins {pin}, but node is {}",
+            path.display(),
+            node.unwrap_or_default()
+        )),
+        // Aliases such as `lts/*` and `node` are resolved by the toolchain,
+        // not by a version we can compare here.
+        None => checks.info(format!(
+            "{} pins {pin}, which is an alias; not compared with node",
+            path.display()
+        )),
+    }
+}
+
+/// packageManager is corepack's pin for the project's package manager. A
+/// different one on PATH means the lockfile and the shell disagree.
+fn check_package_json(checks: &mut Checks, cwd: &Path) {
+    let Some(path) = find_nearest_file(cwd, &["package.json"]) else {
+        checks.ok("no package.json here or in a parent directory".to_string());
+        return;
+    };
+    let json: serde_json::Value = match fs::read_to_string(&path)
+        .map_err(anyhow::Error::from)
+        .and_then(|text| serde_json::from_str(&text).map_err(anyhow::Error::from))
+    {
+        Ok(json) => json,
+        Err(err) => {
+            checks.error(format!("cannot parse {}: {err}", path.display()));
+            return;
+        }
+    };
+    let Some(spec) = json.get("packageManager").and_then(|v| v.as_str()) else {
+        checks.ok(format!("{} sets no packageManager", path.display()));
+        return;
+    };
+    let Some((name, wanted)) = parse_package_manager(spec) else {
+        checks.error(format!(
+            "{} sets packageManager {spec}, which is not <name>@<version>",
+            path.display()
+        ));
+        return;
+    };
+    let output = match Command::new(&name).arg("--version").output() {
+        Ok(output) => output,
+        Err(err) => {
+            checks.warn(format!("cannot run {name} from PATH: {err}"));
+            return;
+        }
+    };
+    if !output.status.success() {
+        checks.warn(format!(
+            "{name} --version failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+        return;
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let actual = stdout.trim();
+    if version_matches(&wanted, actual) == Some(true) {
+        checks.ok(format!("{name} {actual} matches {spec}"));
+    } else {
+        checks.warn(format!(
+            "{name} on PATH is {actual}, but {} pins {spec} (lockfile drift or a shim)",
+            path.display()
+        ));
+    }
+}
+
+/// The nearest file with one of `names`, searched from `dir` upwards.
+fn find_nearest_file(dir: &Path, names: &[&str]) -> Option<PathBuf> {
+    dir.ancestors().find_map(|dir| {
+        names
+            .iter()
+            .map(|name| dir.join(name))
+            .find(|path| path.is_file())
+    })
+}
+
+/// The first meaningful line of a version-manager file: comments and blank
+/// lines are common in `.nvmrc`.
+fn first_version_line(text: &str) -> Option<String> {
+    text.lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(str::to_owned)
+}
+
+/// `pnpm@12.21.0+sha512.<digest>` -> ("pnpm", "12.21.0"). The digest is a
+/// corepack integrity suffix, not part of the version.
+fn parse_package_manager(spec: &str) -> Option<(String, String)> {
+    let (name, version) = spec.rsplit_once('@')?;
+    if name.is_empty() || version.is_empty() {
+        return None;
+    }
+    // Corepack's spec is exact, but tolerate the range syntax devEngines uses
+    // so doctor does not warn about a pin it cannot compare.
+    let version = version
+        .split('+')
+        .next()
+        .unwrap_or(version)
+        .trim_start_matches(|c: char| matches!(c, 'v' | '^' | '~' | '>' | '=' | ' '))
+        .to_string();
+    Some((name.to_string(), version))
+}
+
+/// Whether `actual` is the version `wanted` names. A partial pin (`22`,
+/// `22.14`) matches any node with that prefix; a full pin must be exact.
+/// Aliases and ranges return None: they need real semver, which doctor avoids.
+fn version_matches(wanted: &str, actual: &str) -> Option<bool> {
+    let wanted = wanted.trim().trim_start_matches('v');
+    let actual = actual.trim().trim_start_matches('v');
+    if wanted.is_empty() || actual.is_empty() {
+        return None;
+    }
+    let parts: Vec<&str> = wanted.split('.').collect();
+    if parts.len() > 3
+        || parts
+            .iter()
+            .any(|p| p.is_empty() || !p.chars().all(|c| c.is_ascii_digit()))
+    {
+        return None;
+    }
+    let actual_parts: Vec<&str> = actual.split('.').collect();
+    Some(parts.len() <= actual_parts.len() && parts == &actual_parts[..parts.len()])
 }
 
 fn env_value(name: &str) -> Option<String> {
@@ -652,5 +884,47 @@ export RUSTC_WRAPPER_LOG=\"debug\"
         assert!(is_numbered("1.99.0"));
         assert!(!is_numbered("stable"));
         assert!(!is_numbered("nightly-2026-11-01"));
+    }
+
+    #[test]
+    fn reads_the_first_real_line_of_a_version_file() {
+        assert_eq!(
+            first_version_line("# the line this project runs\n\n  v22.14.0  \n22\n"),
+            Some("v22.14.0".to_string())
+        );
+        assert_eq!(first_version_line("# only a comment\n"), None);
+    }
+
+    #[test]
+    fn parses_corepack_package_manager_specs() {
+        assert_eq!(
+            parse_package_manager("pnpm@12.21.0+sha512.abcdef"),
+            Some(("pnpm".to_string(), "12.21.0".to_string()))
+        );
+        assert_eq!(
+            parse_package_manager("yarn@4.18.1"),
+            Some(("yarn".to_string(), "4.18.1".to_string()))
+        );
+        assert_eq!(
+            parse_package_manager("pnpm@^12.21.0"),
+            Some(("pnpm".to_string(), "12.21.0".to_string()))
+        );
+        assert_eq!(parse_package_manager("pnpm"), None);
+        assert_eq!(
+            parse_package_manager("@scope@1.2.3"),
+            Some(("@scope".to_string(), "1.2.3".to_string()))
+        );
+    }
+
+    #[test]
+    fn compares_partial_and_exact_node_pins() {
+        assert_eq!(version_matches("22", "v22.23.5"), Some(true));
+        assert_eq!(version_matches("22.14", "v22.14.0"), Some(true));
+        assert_eq!(version_matches("22.14", "v22.23.5"), Some(false));
+        assert_eq!(version_matches("22.14.0", "v22.14.1"), Some(false));
+        assert_eq!(version_matches("22.14.0", "22.14.0"), Some(true));
+        assert_eq!(version_matches("lts/*", "v22.23.5"), None);
+        assert_eq!(version_matches("^22", "v22.23.5"), None);
+        assert_eq!(version_matches("22", ""), None);
     }
 }

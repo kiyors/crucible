@@ -3,9 +3,9 @@
 //! `static.rust-lang.org` and the fork's `SHA256SUMS` publish bare hex, and the
 //! flake only ever reads SRI, so convert here instead of shelling out to `nix`.
 
-use anyhow::{Result, bail};
-use base64::Engine;
+use anyhow::{bail, Result};
 use base64::engine::general_purpose::STANDARD;
+use base64::Engine;
 use sha2::{Digest, Sha256};
 
 /// The SRI hash of `bytes`, as `sha256-<base64>`.

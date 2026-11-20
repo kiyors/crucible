@@ -1,5 +1,5 @@
 {
-  description = "Language toolchains for Nix, straight from upstream releases: Rust with huacnlee/cargo.";
+  description = "Language toolchains for Nix, straight from upstream releases: Rust with huacnlee/cargo, Node.js with Vite+.";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -19,13 +19,21 @@
       packages = forAllSystems (
         system:
         let
-          inherit (crucible.${system}) rust cli cli-doctor;
+          inherit (crucible.${system})
+            rust
+            node
+            cli
+            cli-doctor
+            ;
         in
         {
           default = rust.stable;
           rust = rust.stable;
           rust-nightly = rust.nightly;
           inherit (rust) cargo;
+          node = node.lts;
+          node-current = node.current;
+          vite-plus = node.lts.vite-plus;
           crucible = cli;
           crucible-doctor = cli-doctor;
         }
@@ -46,6 +54,9 @@
         rust = {
           inherit (crucible.${system}.rust) toolchain fromToolchainFile defaultComponents;
         };
+        node = {
+          inherit (crucible.${system}.node) toolchain fromPackageJson;
+        };
       });
 
       checks = forAllSystems (
@@ -63,6 +74,11 @@
       templates.default = {
         path = ./templates/default;
         description = "A Rust project whose toolchain comes from rust-toolchain.toml";
+      };
+
+      templates.node = {
+        path = ./templates/node;
+        description = "A Node.js project with Vite+ and pnpm, pinned by package.json";
       };
     };
 }

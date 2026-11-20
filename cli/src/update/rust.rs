@@ -6,9 +6,9 @@
 
 use std::path::Path;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 
-use super::{Plan, json};
+use super::{json, Plan};
 use crate::http::{Http, HttpError};
 use crate::manifest::Manifest;
 
@@ -271,17 +271,15 @@ mod tests {
 
     #[test]
     fn gaps_and_incomplete_dates_alone_mean_no_pick() {
-        assert!(
-            pick_nightly(vec![
-                ("2026-11-10".to_string(), NightlyOutcome::Missing),
-                (
-                    "2026-11-09".to_string(),
-                    NightlyOutcome::Incomplete(vec!["rustc/x".to_string()]),
-                ),
-            ])
-            .unwrap()
-            .is_none()
-        );
+        assert!(pick_nightly(vec![
+            ("2026-11-10".to_string(), NightlyOutcome::Missing),
+            (
+                "2026-11-09".to_string(),
+                NightlyOutcome::Incomplete(vec!["rustc/x".to_string()]),
+            ),
+        ])
+        .unwrap()
+        .is_none());
     }
 
     #[test]

@@ -1,6 +1,8 @@
 # Node / JS toolchain from upstream metadata — research
 
-Verified 2026-11-19 on aarch64-darwin; commands/URLs shown.
+Verified 2026-11-19 on aarch64-darwin; commands/URLs shown. Implementation notes updated
+2026-11-20 to match what crucible actually ships (see "What shipped" below) — this file started
+as research, so a few of the proposals under "Recommended design" were revised during the build.
 
 ## 1. Node.js
 
@@ -10,6 +12,8 @@ Verified 2026-11-19 on aarch64-darwin; commands/URLs shown.
   lts=Lithium), `v24.22.3` (Krypton); `v27.0.0-alpha.*` is `lts:false`.
 - Hashes are per version in `https://nodejs.org/dist/v26.13.1/SHASUMS256.txt`, GPG-signed
   (`.sig`/`.asc`, keys at `github.com/nodejs/release-keys`); nixpkgs verifies this in `update.nix`.
+  Crucible now verifies the detached `.sig` too, with the active keys vendored in
+  `data/node/release-keys.asc` (pure Rust, no system `gpgv`), before any pin is written.
 - `files[]` ≠ artifact name: it says `osx-arm64-tar`, the file is `node-v26.13.1-darwin-arm64.tar.xz`.
   Map: `x86_64-linux→linux-x64`, `aarch64-linux→linux-arm64`, `aarch64-darwin→darwin-arm64`.
   `.tar.xz` exists for all three (checked v18–v26).
@@ -32,17 +36,21 @@ Verified 2026-11-19 on aarch64-darwin; commands/URLs shown.
   24–32 MB; `digest` present (`sha256:6c5913a4…`; downloaded, shasum matched). Tarball is a 50 MB
   Node SEA + `dist/`; interpreter `/lib/ld-linux-aarch64.so.1`, NEEDED
   `libgcc_s libpthread libm libdl libc` → patch on NixOS. Registry alternative:
-  `pnpm-12.21.0.tgz` (`sha512-Zv2CeO4o…`, `bin.pnpm` JS, needs Node).
+  `pnpm-12.21.0.tgz` (`sha512-Zv2CeO4o…`, `bin.pnpm` JS, needs Node). Crucible uses neither: the
+  native `@pnpm/exe.<os>-<cpu>` packages have a simple `package/pnpm` layout and their registry
+  `dist.integrity`, so no tarball is downloaded and no launch script is needed.
 - **yarn berry** (`gh api repos/yarnpkg/berry/releases/latest` → `@yarnpkg/cli/4.18.1`):
   **0 assets**, no digest. Use npm `@yarnpkg/cli-dist@4.18.1` (`sha512-EH+A4TxA…`,
   `bin.yarn = bin/yarn.js`) with Node. nixpkgs bootstraps it from the repo with node+yarn.
+  Crucible pins that registry tarball for yarn 4, and the `yarn` tarball for classic 1.
 - **bun** (`gh api repos/oven-sh/bun/releases/latest` → `bun-v1.4.5`): assets
   `bun-{linux-x64,linux-aarch64,linux-aarch64-musl,darwin-x64,darwin-aarch64,…}[,-baseline][,-profile].zip`
   - `SHASUMS256.txt`; `digest` present (`sha256:18656a3b…`, matched). Zip holds only
     `bun-linux-aarch64/bun` (107 MB; 49 MB zipped); interpreter `/lib/ld-linux-aarch64.so.1`,
     NEEDED `libc libpthread libdl libm` → patch. nixpkgs' `bun` does zip + `autoPatchelfHook`.
 - `digest` is **not retroactive**: `null` for pnpm v9.0.0 and bun v1.0.0 assets. Verify by
-  download/SHASUMS.
+  download/SHASUMS. This is why crucible's pins use the npm registry's `dist.integrity` instead
+  of GitHub digests: it exists for every version and needs no tarball download.
 - **corepack**: removed in Node ≥25 (`bundlesCorepack = !lib.versionAtLeast version "25.0.0"`,
   nixpkgs `nodejs.nix`; v26 tarball has none). nixpkgs ships only `corepack_22/24`.
 
@@ -58,9 +66,9 @@ Verified 2026-11-19 on aarch64-darwin; commands/URLs shown.
 - `engines.node`/`engines.npm`: semver ranges, advisory.
 - `.nvmrc`: one version or alias (`lts/*`, `node`), `#` comments, parent lookup (nvm README).
   `.node-version`: same shape, read by nodenv/asdf/volta (nodenv README).
-- Precedence: `packageManager` > `devEngines.packageManager`; `.node-version`/`.nvmrc` >
-  `engines.node` > pinned LTS. Ranges resolve against the pinned index (highest match, `lts/*` =
-  newest `lts`), never the network; no match = eval error.
+- Precedence as shipped: `devEngines.runtime` > `.node-version` > `.nvmrc` > `engines.node` >
+  pinned LTS; `packageManager` > `devEngines.packageManager`. Ranges resolve against the pinned
+  index (highest match, `lts/*` = newest `lts`), never the network; no match = eval error.
 
 ## 4. Ecosystem options
 
@@ -73,17 +81,32 @@ Verified 2026-11-19 on aarch64-darwin; commands/URLs shown.
 | nixpkgs `bun`                                       | shows binaries are acceptable / version lag, patch work                      |
 | community flakes (`nix-openclaw`, `microscope-dev`) | exact, fast / ad-hoc, partial platforms, no signature checks                 |
 
-## 5. What `doctor` should catch
+## 5. What `doctor` catches
 
-- `npm config get prefix` in `/nix/store` or unwritable → `npm i -g` fails; `NPM_CONFIG_PREFIX`
-  silently overrides it (set in this environment).
-- `readlink -f $(command -v pnpm)` → corepack dist: a shim, not the pinned pnpm; corepack is absent
-  on Node 26.
-- `pnpm --version` ≠ `packageManager` (lockfile drift, pnpm 10 vs 12).
-- Multiple `node` on PATH (three here), `node_modules/.bin` precedence, `NODE_OPTIONS`/`NODE_PATH`.
-- ABI/glibc: `process.versions.modules` vs prebuilt addons, musl vs glibc.
+Shipped: the active `node` against the nearest `.node-version`/`.nvmrc`, the active package
+manager against `package.json`'s `packageManager`, `VP_HOME`, `VP_ENV_FORBIDDEN`, `NODE_PATH`,
+an npm prefix under `/nix/store`, multiple nodes on PATH, and `node_modules/.bin` precedence
+(through PATH order). Still research only, not checked: `node_modules/.bin` shadowing a binary by
+name, `NODE_OPTIONS`, and ABI/glibc mismatches (`process.versions.modules` vs prebuilt addons,
+musl vs glibc). `NPM_CONFIG_PREFIX` is reported (an info line when unset, which is the
+read-only-store default); corepack shims are caught indirectly by the `packageManager` version
+comparison.
 
-## Recommended design
+## What shipped
+
+- Pins: `data/node/node.json` (one newest stable per supported line, from `index.json` +
+  `SHASUMS256.txt`), `data/node/vite-plus.json` (vp archives + lockfile graph), and
+  `data/node/package-managers.json` (pnpm/yarn/bun exact releases, from npm registry integrity).
+- Trust: every `SHASUMS256.txt` is GPG-verified during `update`/`pin` against
+  `data/node/release-keys.asc`; the pinned hash is still checked again by Nix at fetch time.
+- Package managers: native `@pnpm/exe.*` / `@oven/bun-*` tarballs and `@yarnpkg/cli-dist` /
+  `yarn` are fetched and installed by `lib/node/package-manager.nix`, run by the toolchain's
+  node; nixpkgs' major-version packages remain the fallback for unpinned majors.
+- `fromPackageJson` resolves the version and package manager as in §3, including `.node-version`
+  and `.nvmrc`. A Node template and doctor checks round out the user-facing side.
+- Verification: aarch64-darwin and aarch64-linux were built; x86_64-linux was evaluated only.
+
+## Recommended design (the original proposal, kept for context)
 
 - `data/node.json`: trimmed index entries + per-system `{url, hash}` from SHASUMS, keyed by version
   (`lts`, `modules`, `npm` kept). `data/{pnpm,yarn,bun,corepack}.json`: version, `{url, hash}` per
@@ -100,9 +123,10 @@ Verified 2026-11-19 on aarch64-darwin; commands/URLs shown.
 
 ## Not verified
 
-No aarch64-Linux builder: patchelf findings are static, no runtime test of patched node/pnpm/bun.
-NixOS npm-prefix behaviour untested there. Yarn asset history checked only recently.
-Corepack-as-npm-package digest unchecked.
+The original static patchelf findings were confirmed on aarch64-linux in an Apple container: all
+Node checks pass there, including patched node and vp's native addons. NixOS npm-prefix behaviour
+is still untested on a real machine. Yarn asset history was checked only recently, and
+corepack-as-npm-package integrity was not checked (corepack is gone from Node 25+ anyway).
 
 ## Summary
 

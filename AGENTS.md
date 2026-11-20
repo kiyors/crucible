@@ -47,6 +47,8 @@ nix shell .#rust -c sh -c 'cd cli && cargo test'  # CLI unit tests
 - **Two copies must stay in sync**:
   - `lib/common/systems.nix` ↔ `HOSTS` in `cli/src/manifest.rs` (same systems, same order)
   - `manifestUrl` in `lib/rust/toolchain.nix` ↔ `manifest_url` in `cli/src/pin.rs`
+  - `platforms` in `lib/node/toolchain.nix` ↔ `PLATFORMS` in `cli/src/update/node.rs`
+  - `shasumsUrl` in `lib/node/toolchain.nix` ↔ the URL `pin::node` prints in `cli/src/pin.rs`
 - **Package builds use `.rustPlatform`** (stock cargo). The fork cannot build in the sandbox,
   because it keeps its build directory under `~/.cargo/targets`.
 - **The sysroot's real copies are deliberate** (`bin/*`, `librustc_driver`). Do not "optimize"
@@ -58,8 +60,8 @@ nix shell .#rust -c sh -c 'cd cli && cargo test'  # CLI unit tests
   `nativeBuildInputs`.
 - Store copies are read-only, so `chmod u+w` before `patchelf` or editing them.
 - POSIX regex in `builtins.match`: `[=` inside a bracket expression starts an equivalence class.
-- For Node later: patchelf ≥ 0.19 sorts headers, which crashes the official `node` binary. Use
-  `--no-sort`.
+- patchelf ≥ 0.19 sorts headers, which crashes the official `node` binary, so `lib/node/node.nix`
+  passes `--no-sort`, but only where patchelf knows it (nixpkgs' stdenv still has 0.15).
 
 ## Shell gotchas (the maintainer's machine)
 

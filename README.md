@@ -6,13 +6,16 @@ source or through another overlay, and pinned from the files projects already ha
 - **Rust**: toolchains from the official rust-lang.org channel manifests, with
   [huacnlee/cargo](https://github.com/huacnlee/cargo) as their cargo: a Cargo fork whose projects
   and git worktrees share one build directory that it keeps under a size limit.
+- **Node.js**: the official nodejs.org builds, with [Vite+](https://viteplus.dev) (`vp`) next to
+  them, set up to use that Node.js instead of downloading its own.
 
 - **No intermediaries.** Components come straight from `static.rust-lang.org`, unpacked into one
   prefix the way rustup installs them, so every official binary finds its libraries where it
   expects to. The only flake input is nixpkgs.
 - **Pinned and updated daily.** `data/rust/{stable,beta,nightly}.json` hold the trimmed channel
-  manifests and `data/rust/cargo.json` the fork's release; a scheduled workflow refreshes them
-  with the repo's own CLI.
+  manifests, `data/rust/cargo.json` the fork's release, `data/node/node.json` the newest release
+  of every supported Node.js line and `data/node/vite-plus.json` the Vite+ release with its
+  dependency tree; a scheduled workflow refreshes them with the repo's own CLI.
 - **Nightly is always complete.** The pinned nightly is the newest one that ships rustc, clippy,
   rustfmt, rust-src, llvm-tools, rust-analyzer and Cranelift on every supported host.
 - **The fork cannot update itself** inside the read-only store (`CARGO_FORK_AUTO_UPDATE=0`).
@@ -31,10 +34,15 @@ releases support.
 | `packages.<system>.crucible-doctor`   | the CLI with `doctor` alone (`apps.default`)       |
 | `lib.<system>.rust.toolchain`         | a toolchain from a channel, components and targets |
 | `lib.<system>.rust.fromToolchainFile` | a toolchain from a project's `rust-toolchain.toml` |
-| `overlays.default`                    | `pkgs.crucible`: `.rust`, `.cli`, `.cli-doctor`    |
-| `homeManagerModules.default`          | `programs.crucible.rust`                           |
+| `packages.<system>.node`              | Node.js LTS + npm + Vite+                          |
+| `packages.<system>.node-current`      | the newest Node.js line + npm + Vite+              |
+| `packages.<system>.vite-plus`         | `vp` alone, on Node.js LTS                         |
+| `lib.<system>.node.toolchain`         | a toolchain from a Node.js version or range        |
+| `lib.<system>.node.fromPackageJson`   | a toolchain from a project's `package.json`        |
+| `overlays.default`                    | `pkgs.crucible`: `.rust`, `.node`, `.cli`, ...     |
+| `homeManagerModules.default`          | `programs.crucible.{rust,node}`                    |
 
-Every toolchain also carries:
+Every Rust toolchain also carries:
 
 - `.stock`: the same components with the channel's own cargo
 - `.rustPlatform`: `makeRustPlatform` over `.stock`, for `buildRustPackage`
@@ -247,13 +255,144 @@ one copy of it: a second toolchain on the same release (another target, another 
 a project's `rust-toolchain.toml`) adds about 150 MB instead of 700 MB, and nothing is unpacked
 twice.
 
-## Template
+## Node.js
 
-```sh
-nix flake init -t github:kiyors/crucible
+### toolchain
+
+```nix
+crucible.lib.${system}.node.toolchain {
+  version ? "lts";        # "lts", "current", "lts/<codename>", a line ("24"), an npm range
+                          # ("^22.12.0 || >=24") or an exact release, pinned in data/node/;
+                          # any other exact release ("24.11.0") with `shasums` or `sha256`
+  vitePlus ? true;        # include vp, set up for this Node.js
+  packageManager ? null;  # "pnpm@12.21.0", "yarn@4.5.0", "bun@1.2.0": that exact release when
+                          # pinned in data/node/package-managers.json, else nixpkgs' build of that
+                          # major; all run by this Node.js. "npm@..." needs nothing
+  shasums ? null;         # the release's SHASUMS256.txt as a file (a `flake = false` input)
+  sha256 ? null;          # or that file's hash, fetched at evaluation time
+}
 ```
 
-A `flake.nix` with a dev shell and a package, a `rust-toolchain.toml` and an `.envrc`.
+A range resolves offline to the newest pinned release it allows. The pins hold the newest release
+of each line the Node.js release schedule still supports (22, 24 and 26 today), so `"~22.11"`
+matches nothing and says so: for that, pin the exact release.
+
+`nix run github:kiyors/crucible#crucible -- pin node 24.11.0` prints the `SHASUMS256.txt` input
+and `sha256` for a release, the counterpart of `pin rust`; it verifies the file's GPG signature
+first.
+
+Every toolchain carries:
+
+- `.node`: the Node.js alone (node, npm, npx, and corepack before Node.js 25)
+- `.vite-plus`: vp for this Node.js, or `null`
+- `.packageManager`: the package manager it includes, or `null`
+- `.buildNpmPackage`: nixpkgs' `buildNpmPackage` on this Node.js
+
+### fromPackageJson
+
+```nix
+crucible.lib.${system}.node.fromPackageJson {
+  file = ./package.json;
+  vitePlus ? true;
+  shasums ? null;
+  sha256 ? null;
+}
+```
+
+Reads the Node.js version from `devEngines.runtime` (the entry named `node`), then the project's
+`.node-version` or `.nvmrc` (in that order), then `engines.node`, then falls back to the pinned
+LTS. The version-manager files are explicit pins, so they beat `engines.node`'s advisory range.
+The package manager comes from `packageManager`, then `devEngines.packageManager`, the order
+corepack uses.
+
+Package managers run on the toolchain's Node.js. The newest release of each supported major is
+pinned in `data/node/package-managers.json` from the npm registry's own integrity hashes, so
+`packageManager = "pnpm@12.21.0"` is exactly 12.21.0. An unpinned major falls back to nixpkgs
+(`pnpm_12`, `yarn-berry_4`, ...), which keeps one release per major; a major nixpkgs lacks is an
+evaluation error. npm ships with Node.js and needs no separate pin.
+
+### devShell
+
+```nix
+devShells.default = pkgs.mkShell {
+  packages = [
+    (crucible.lib.${system}.node.fromPackageJson { file = ./package.json; })
+  ];
+};
+```
+
+`vp` normally manages Node.js itself: it downloads the version a project's `.node-version` or
+`engines` asks for into its own data directory and runs that instead of the Node.js on PATH.
+crucible's vp does not:
+
+- It runs with `VP_ENV_FORBIDDEN=1`, so it never downloads or runs a managed Node.js or package
+  manager. The toolchain's setup hook also sets it in every shell that includes the toolchain,
+  replacing a value inherited from the login shell, and unsets `VP_HOME`.
+- It keeps its state in `~/.local/share/crucible/vite-plus` (its own `VP_HOME`, apart from any
+  standalone vp install), where its first run writes a `config.json` that puts system tools first,
+  as `vp env off` would. Vite+ 1.7 reads Node.js from PATH only with that config.
+- The store copy is marked as set up, so vp's first run installs no shims and edits no shell
+  profiles.
+
+Projects still install `vite-plus` as a dev dependency, as with any vp; vp uses that local copy
+when it is there and its own otherwise.
+
+### Package builds
+
+`.buildNpmPackage` is nixpkgs' builder on the toolchain's Node.js. With `importNpmLock`, the
+dependencies are fetched by their `package-lock.json` integrity hashes, so there is no
+`npmDepsHash` to update:
+
+```nix
+(crucible.lib.${system}.node.toolchain { }).buildNpmPackage {
+  pname = "my-app";
+  version = "0.1.0";
+  src = ./.;
+  npmDeps = pkgs.importNpmLock { npmRoot = ./.; };
+  npmConfigHook = pkgs.importNpmLock.npmConfigHook;
+}
+```
+
+pnpm projects can use nixpkgs' `fetchPnpmDeps` and `pnpmConfigHook` with the toolchain's
+`.packageManager` as `pnpm`.
+
+### Home Manager
+
+```nix
+programs.crucible.node = {
+  enable = true;
+  # package = inputs.crucible.lib.${pkgs.stdenv.hostPlatform.system}.node.toolchain { version = "24"; };
+  extraPackages = [ pkgs.pnpm ];
+  npmPrefix = ".npm-global";  # npm install -g goes here instead of the read-only store
+};
+```
+
+### How a toolchain is built
+
+1. `lib/node/toolchain.nix` resolves the version against `data/node/node.json`, or reads the
+   release and its hashes from a `SHASUMS256.txt` you pass in.
+2. `lib/node/node.nix` unpacks the official tarball as it is. On Linux, `autoPatchelf` points
+   node at the store's glibc and libstdc++, with `--no-sort` wherever patchelf has it (patchelf
+   0.19 and later sort program headers, which breaks the official node). npm's scripts get this
+   node in their shebangs.
+3. `lib/node/vite-plus.nix` installs the `vp` binary from its GitHub release and lays out the
+   JavaScript packages it runs (vite-plus, Vite, Vitest, Oxlint, ...) from the release's own
+   pnpm lockfile, one fetch per package by its registry integrity hash, the way pnpm's isolated
+   linker arranges `node_modules`. That copy is shared by every toolchain; each one wraps it for
+   its Node.js.
+4. A `symlinkJoin` puts node, vp and the package manager together, with the setup hook.
+
+## Templates
+
+```sh
+nix flake init -t github:kiyors/crucible            # Rust
+nix flake init -t github:kiyors/crucible#node       # Node.js + Vite+ + pnpm
+```
+
+The Rust one has a `flake.nix` with a dev shell and a package, a `rust-toolchain.toml` and an
+`.envrc`. The Node one resolves its toolchain from `package.json`, `.node-version` and
+`packageManager` (including pnpm), and builds a package through `buildNpmPackage` with
+`importNpmLock`.
 
 ## Overlay
 
@@ -264,7 +403,9 @@ pkgs = import nixpkgs {
 };
 
 # pkgs.crucible.rust.{stable,nightly,cargo}, pkgs.crucible.cli, pkgs.crucible.cli-doctor,
-# pkgs.crucible.rust.toolchain { ... }, pkgs.crucible.rust.fromToolchainFile { ... }
+# pkgs.crucible.rust.toolchain { ... }, pkgs.crucible.rust.fromToolchainFile { ... },
+# pkgs.crucible.node.{lts,current}, pkgs.crucible.node.toolchain { ... },
+# pkgs.crucible.node.fromPackageJson { ... }
 ```
 
 ## CLI
@@ -274,6 +415,7 @@ pkgs = import nixpkgs {
 ```sh
 nix run github:kiyors/crucible                             # doctor: is cargo the fork, and is anything working against it?
 nix run github:kiyors/crucible#crucible -- pin rust 1.99   # the rust-manifest input and sha256 for a channel
+nix run github:kiyors/crucible#crucible -- pin node 24.11.0 # the SHASUMS256.txt input and sha256 for a release
 ```
 
 The bare `nix run` builds a doctor-only binary (`packages.<system>.crucible-doctor`, cargo
@@ -284,6 +426,12 @@ builds faster. `#crucible` is the full CLI.
 rustup proxies on PATH, `CARGO_INCREMENTAL=0`, `RUSTC_WRAPPER` caches, `CARGO_TARGET_DIR`, a
 `RUST_SRC_PATH` from another release, and a `rust-toolchain.toml` that disagrees with `rustc`. It
 exits non-zero when cargo is not the fork. It is what `crucible` runs with no command.
+
+For Node.js it checks the active `node` against the nearest `.node-version` or `.nvmrc`, the
+active package manager against `package.json`'s `packageManager`, and warns about state that leaks
+between projects or makes vp ignore the toolchain's Node: `VP_HOME`, a `VP_ENV_FORBIDDEN` other
+than 1, `NODE_PATH`, and an npm prefix inside the read-only store. A missing Node.js is an `info`
+line, not an error: `doctor` is useful in Rust-only projects too.
 
 Two hints cover problems that live outside the toolchain:
 
@@ -302,10 +450,16 @@ nix run .#crucible -- update                          # everything
 nix run .#crucible -- update cargo                    # latest huacnlee/cargo release
 nix run .#crucible -- update cargo --version 0.103.0-1
 nix run .#crucible -- update rust                     # stable, beta, newest complete nightly
+nix run .#crucible -- update node                     # every supported Node.js line, and Vite+
 ```
 
-The fork's hashes come from each release's `SHA256SUMS` and the Rust ones from the channel
-manifests, so nothing is downloaded. The nightly search fetches candidate dates in parallel. The
+The fork's hashes come from each release's `SHA256SUMS`, the Rust ones from the channel
+manifests, Node.js's from each release's `SHASUMS256.txt` and Vite+'s from its
+`vp-checksums.txt` and its pnpm lockfile, so nothing is downloaded but metadata. Every
+`SHASUMS256.txt` is verified against its GPG signature before its hashes are used, with the active
+Node.js release keys vendored in `data/node/release-keys.asc`. Package-manager pins come from the
+npm registry's `dist.integrity`. Which Node.js lines are supported comes from the Release working
+group's `schedule.json`. The nightly search fetches candidate dates in parallel. The
 `update` workflow runs this and `nix flake update` daily and opens a pull request.
 
 Pull requests opened with the default `GITHUB_TOKEN` do not start other workflows, so `check`
