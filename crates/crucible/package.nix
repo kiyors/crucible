@@ -20,14 +20,19 @@ rustPlatform.buildRustPackage {
 
   # The workspace root is the repo root, so the source is cut down to what
   # cargo reads: a README or Nix edit must not rebuild the CLI. gpg.rs
-  # includes the vendored Node.js release keys from data/.
+  # includes the vendored Node.js release keys from data/, and init's tests
+  # check it still shares its pieces with templates/*/flake.nix.
   src = lib.fileset.toSource {
     inherit root;
     fileset = lib.fileset.unions [
       (root + "/Cargo.toml")
       (root + "/Cargo.lock")
       (root + "/data/node/release-keys.asc")
+      (root + "/templates/default/flake.nix")
+      (root + "/templates/node/flake.nix")
       (lib.fileset.fileFilter (file: !(file.hasExt "nix" || file.hasExt "md")) (root + "/crates"))
+      # init's golden flakes are Nix files the filter above would drop.
+      (root + "/crates/init/tests/fixtures")
     ];
   };
   cargoLock.lockFile = root + "/Cargo.lock";
@@ -49,6 +54,8 @@ rustPlatform.buildRustPackage {
         manifest.package.name
         "--package"
         "doctor"
+        "--package"
+        "init"
       ];
 
   meta = {

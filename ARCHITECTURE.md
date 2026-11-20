@@ -153,7 +153,7 @@ so every CI run also proves that the toolchain packages a real crate. Its source
 cut down to the Cargo manifests, `crates/` without Nix or Markdown, and
 `data/node/release-keys.asc`, so editing docs or Nix does not rebuild the CLI.
 
-There are four crates. The first cut is the one that matters to users, what the doctor-only
+There are five crates. The first cut is the one that matters to users, what the doctor-only
 build compiles; the second follows the one layering the network code already has.
 
 - `crates/crucible`: the `crucible` binary, only clap and dispatch. Its default `net` feature
@@ -163,6 +163,13 @@ build compiles; the second follows the one layering the network code already has
   package builds and tests with `--package`, so that build never compiles `pins` or `upstream`.
 - `crates/doctor`: `doctor` alone. It may not reach the network, and its dependencies
   (`serde_json`, `toml`) are all the doctor-only build adds to the binary.
+- `crates/init`: `init [--force]`, which writes a `flake.nix` with a dev shell from the current
+  directory's `rust-toolchain(.toml)` and `package.json`, with a `rust-manifest` input for
+  channels the pins do not cover. Its text is a trimmed copy of `templates/*/flake.nix` (a test
+  checks the shared pieces still match), already nixfmt-formatted, and its `SYSTEMS` follow
+  `lib/common/systems.nix`. It needs no network, so it is in the doctor-only build. Its
+  `channel.rs` holds the rustup channel rules: `manifest_url` mirrors `manifestUrl` in
+  `toolchain.nix` and `pins`' `pin` uses it too, so there is one copy.
 - `crates/upstream`: downloading, verifying and parsing upstream release metadata. Its modules
   depend on nothing else in the workspace, and they hold the whole TLS, GPG and hashing stack.
 - `crates/pins`: `update` and `pin`, the two commands that turn that metadata into pins (in
@@ -202,7 +209,7 @@ process.
   `vp-checksums.txt` before it is trimmed, then the package managers from npm registry metadata.
   Every `SHASUMS256.txt` is GPG-verified before its hashes are used.
 - `pin.rs`: `pin rust <channel>` prints the `flake = false` input and the SRI hash for a
-  channel. Its URL rules mirror `manifestUrl` in `toolchain.nix`, and the two must stay in sync.
+  channel, from `init`'s `channel::manifest_url`.
   `pin node <x.y.z>` does the same for a release's `SHASUMS256.txt`, after checking its GPG
   signature and that it lists a tarball for every system.
 
@@ -241,7 +248,9 @@ active package manager with `package.json`'s `packageManager`, and warns about `
   check the setup hook beats inherited values, resolve `fromPackageJson` (devEngines,
   `.node-version`/`.nvmrc`, engines, packageManager with pnpm on the toolchain's node), build from
   a `SHASUMS256.txt`, reject misuse at evaluation time, and build `tests/node/hello` with
-  `.buildNpmPackage` and `importNpmLock`. `tests/default.nix` also checks the Node template
+  `.buildNpmPackage` and `importNpmLock`. `tests/init.nix` evaluates the golden flakes in
+  `cli/tests/fixtures/init/` (which `init`'s cargo tests must reproduce byte for byte) against
+  crucible's lib, and runs the doctor-only `init` in one of them. `tests/default.nix` also checks the Node template
   resolves and that the doctor-only binary carries the Node checks.
 - `dev/flake.nix`: a separate flake for treefmt (nixfmt, deadnix, statix, typos, oxfmt,
   rustfmt, taplo) and git hooks (treefmt, gitleaks), kept separate so consumers never pay for

@@ -1,0 +1,16 @@
+[package]
+name = "init"
+description = "`crucible init`: write a starter flake.nix for a project"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# Like doctor, nothing here may reach the network: init is part of the
+# doctor-only build. `channel` lives here too, so `pin` reads the same
+# manifest URL rules without init depending on the network code.
+[dependencies]
+anyhow.workspace = true
+serde_json.workspace = true
+toml.workspace = true

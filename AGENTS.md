@@ -52,9 +52,9 @@ shellcheck scripts/linux-from-macos.sh
 - **Nix evaluation stays offline.** Network fetches belong in the CLI, and their results go into
   `data/`.
 - **Two copies must stay in sync**:
-  - `lib/common/systems.nix` ↔ `HOSTS` in `crates/upstream/src/manifest.rs` (same systems, same
-    order)
-  - `manifestUrl` in `lib/rust/toolchain.nix` ↔ `manifest_url` in `crates/pins/src/pin.rs`
+  - `lib/common/systems.nix` ↔ `HOSTS` in `crates/upstream/src/manifest.rs` and `SYSTEMS` in
+    `crates/init/src/lib.rs` (same systems, same order)
+  - `manifestUrl` in `lib/rust/toolchain.nix` ↔ `manifest_url` in `crates/init/src/channel.rs`
   - `platforms` in `lib/node/toolchain.nix` ↔ `PLATFORMS` in `crates/pins/src/update/node.rs`
   - `shasumsUrl` in `lib/node/toolchain.nix` ↔ the URL `pin::node` prints in
     `crates/pins/src/pin.rs`

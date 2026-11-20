@@ -18,7 +18,9 @@ use pins::{pin, update, update::Scope};
 )]
 #[cfg_attr(
     not(feature = "net"),
-    command(about = "Diagnose a toolchain environment (doctor-only build)")
+    command(
+        about = "Diagnose a toolchain environment or start a flake (build without network commands)"
+    )
 )]
 struct Cli {
     // Optional so a bare `nix run github:kiyors/crucible` diagnoses the
@@ -45,6 +47,13 @@ enum Command {
     },
     /// Check that the fork is what cargo resolves to
     Doctor,
+    /// Write a flake.nix whose dev shell uses this directory's
+    /// rust-toolchain.toml and package.json
+    Init {
+        /// Replace an existing flake.nix
+        #[arg(long)]
+        force: bool,
+    },
     /// Print what a project needs to pin a toolchain version
     #[cfg(feature = "net")]
     #[command(subcommand)]
@@ -85,6 +94,10 @@ fn main() -> ExitCode {
 fn run() -> Result<ExitCode> {
     match Cli::parse().command {
         None | Some(Command::Doctor) => doctor::run(),
+        Some(Command::Init { force }) => {
+            init::run(&std::env::current_dir()?, force)?;
+            Ok(ExitCode::SUCCESS)
+        }
         #[cfg(not(feature = "net"))]
         Some(Command::Missing(args)) => anyhow::bail!(
             "`{}` is not in this doctor-only build; run `nix run github:kiyors/crucible#crucible -- {}`",

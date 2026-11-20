@@ -18,4 +18,5 @@ net = ["dep:pins"]
 anyhow.workspace = true
 clap.workspace = true
 doctor.workspace = true
+init.workspace = true
 pins = { workspace = true, optional = true }

@@ -13,6 +13,7 @@ publish = false
 # crate needs on top of these are added where it opts in.
 [workspace.dependencies]
 doctor = { path = "crates/doctor" }
+init = { path = "crates/init" }
 pins = { path = "crates/pins" }
 upstream = { path = "crates/upstream" }
 

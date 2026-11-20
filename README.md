@@ -30,8 +30,8 @@ releases support.
 | `packages.<system>.rust` (`default`)  | stable + patched cargo                             |
 | `packages.<system>.rust-nightly`      | complete nightly with Cranelift + patched cargo    |
 | `packages.<system>.cargo`             | the patched cargo alone                            |
-| `packages.<system>.crucible`          | the CLI (`update`, `doctor`, `pin`)                |
-| `packages.<system>.crucible-doctor`   | the CLI with `doctor` alone (`apps.default`)       |
+| `packages.<system>.crucible`          | the CLI (`update`, `doctor`, `pin`, `init`)        |
+| `packages.<system>.crucible-doctor`   | the CLI with `doctor` and `init` (`apps.default`)  |
 | `lib.<system>.rust.toolchain`         | a toolchain from a channel, components and targets |
 | `lib.<system>.rust.fromToolchainFile` | a toolchain from a project's `rust-toolchain.toml` |
 | `packages.<system>.node`              | Node.js LTS + npm + Vite+                          |
@@ -401,6 +401,24 @@ The Rust one has a `flake.nix` with a dev shell and a package, a `rust-toolchain
 `packageManager` (including pnpm), and builds a package through `buildNpmPackage` with
 `importNpmLock`.
 
+For a project that already exists, `crucible init` writes just the `flake.nix`:
+
+```sh
+nix run github:kiyors/crucible -- init          # in the project's directory
+nix run github:kiyors/crucible -- init --force  # replace an existing flake.nix
+```
+
+It looks in the current directory for `rust-toolchain.toml` (or `rust-toolchain`) and
+`package.json`, and writes a dev shell, for every supported system, that takes Rust from
+`fromToolchainFile` and Node.js from `fromPackageJson` (which reads `.node-version` or `.nvmrc`
+next to it). A channel crucible does not pin, such as `"1.99"` or `"nightly-2026-11-01"`, gets the
+`rust-manifest` input described under [fromToolchainFile](#fromtoolchainfile). It refuses to
+replace an existing `flake.nix` without `--force`, needs no network, and prints what to run next:
+`git add` for the new files when the project is a git repository (a flake sees only tracked
+files), `nix develop`, and `use flake` for direnv when `direnv` is on PATH. A `.nvmrc` or
+`.node-version` without a `package.json` is left out with a note, because `fromPackageJson` needs
+the `package.json`.
+
 ## Overlay
 
 ```nix
@@ -422,13 +440,15 @@ toolchain:
 
 ```sh
 nix run github:kiyors/crucible                             # doctor: is cargo the fork, and is anything working against it?
+nix run github:kiyors/crucible -- init                     # a flake.nix for this project, see Templates
 nix run github:kiyors/crucible#crucible -- pin rust 1.99   # the rust-manifest input and sha256 for a channel
 nix run github:kiyors/crucible#crucible -- pin node 24.11.0 # the SHASUMS256.txt input and sha256 for a release
 ```
 
 The bare `nix run` builds a doctor-only binary (`packages.<system>.crucible-doctor`, cargo
 feature `net` off), which leaves out the HTTP and TLS stack that `update` and `pin` need and so
-builds faster. `#crucible` is the full CLI.
+builds faster. It runs `doctor` with no command, and also has `init`, which needs no network
+either. `#crucible` is the full CLI.
 
 `doctor` checks that the first `cargo` on PATH is the fork, and warns about other cargos and
 rustup proxies on PATH, `CARGO_INCREMENTAL=0`, `RUSTC_WRAPPER` caches, `CARGO_TARGET_DIR`, a
