@@ -1,0 +1,105 @@
+name: release
+
+# Publish the CLI as prebuilt binaries for a release tag, as a GitHub Release
+# with SHA256SUMS and an attestation (the update workflow verifies both).
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write
+  actions: read
+
+jobs:
+  build:
+    # Artifacts are uploaded from here; nothing else needs the token.
+    permissions:
+      actions: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            runs-on: ubuntu-latest
+            setup: |
+              sudo apt-get update
+              sudo apt-get install -y musl-tools
+              rustup target add x86_64-unknown-linux-musl
+          - target: aarch64-unknown-linux-musl
+            runs-on: ubuntu-24.04-arm
+            setup: |
+              sudo apt-get update
+              sudo apt-get install -y musl-tools
+              rustup target add aarch64-unknown-linux-musl
+          - target: aarch64-apple-darwin
+            runs-on: macos-14
+            setup: |
+              rustup target add aarch64-apple-darwin
+          - target: x86_64-apple-darwin
+            runs-on: macos-14
+            setup: |
+              rustup target add x86_64-apple-darwin
+    runs-on: ${{ matrix.runs-on }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install the target toolchain
+        run: ${{ matrix.setup }}
+
+      # Written with cargo from the repo root: `cargo build --release
+      # -p crucible --locked`, plus `--target` for every cross build.
+      - name: Build
+        run: cargo build --release -p crucible --locked --target ${{ matrix.target }}
+
+      - id: package
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          tarball="crucible-${version}-${{ matrix.target }}.tar.gz"
+          tar -czf "$tarball" -C "target/${{ matrix.target }}/release" crucible
+          echo "tarball=$tarball" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: crucible-${{ matrix.target }}
+          path: ${{ steps.package.outputs.tarball }}
+
+  release:
+    needs: build
+    if: github.ref_type == 'tag'
+    permissions:
+      contents: write
+      id-token: write
+      actions: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: "crucible-*"
+          merge-multiple: true
+          path: dist
+      - name: Write SHA256SUMS
+        run: (cd dist && sha256sum ./*.tar.gz > SHA256SUMS)
+      - name: Create the release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "release $GITHUB_REF_NAME already exists"
+          else
+            gh release create "$GITHUB_REF_NAME" --notes "Prebuilt CLI binaries and SHA256SUMS."
+          fi
+      - name: Upload the assets
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+      - name: Attest the binaries
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/*
