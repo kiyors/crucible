@@ -12,10 +12,10 @@ source or through another overlay, and pinned from the files projects already ha
 - **No intermediaries.** Components come straight from `static.rust-lang.org`, unpacked into one
   prefix the way rustup installs them, so every official binary finds its libraries where it
   expects to. The only flake input is nixpkgs.
-- **Pinned and updated daily.** `data/rust/{stable,beta,nightly}.json` hold the trimmed channel
+- **Pinned and updated every 6 hours.** `data/rust/{stable,beta,nightly}.json` hold the trimmed channel
   manifests, `data/rust/cargo.json` the fork's release, `data/node/node.json` the newest release
   of every supported Node.js line and `data/node/vite-plus.json` the Vite+ release with its
-  dependency tree; a scheduled workflow refreshes them with the repo's own CLI.
+  dependency tree; the scheduled `update` workflow refreshes them with the latest released CLI.
 - **Nightly is always complete.** The pinned nightly is the newest one that ships rustc, clippy,
   rustfmt, rust-src, llvm-tools, rust-analyzer and Cranelift on every supported host.
 - **The fork cannot update itself** inside the read-only store (`CARGO_FORK_AUTO_UPDATE=0`).
@@ -467,13 +467,20 @@ manifests, Node.js's from each release's `SHASUMS256.txt` and Vite+'s from its
 `SHASUMS256.txt` is verified against its GPG signature before its hashes are used, with the active
 Node.js release keys vendored in `data/node/release-keys.asc`. Package-manager pins come from the
 npm registry's `dist.integrity`. Which Node.js lines are supported comes from the Release working
-group's `schedule.json`. The nightly search fetches candidate dates in parallel. The
-`update` workflow runs this and `nix flake update` daily and opens a pull request.
+group's `schedule.json`. The nightly search fetches candidate dates in parallel.
 
-Pull requests opened with the default `GITHUB_TOKEN` do not start other workflows, so `check`
-waits for a manual run. To have it run on its own, create a GitHub App (or a fine-grained PAT with
-`contents` and `pull-requests` write), store it as a secret and pass it to `create-pull-request`
-as `token`.
+The `update` workflow runs every 6 hours: it downloads the latest released CLI
+(`crucible-<version>-<target>.tar.gz`, verified against the release's `SHA256SUMS` and its
+attestation with `gh attestation verify`), runs `crucible update`, and when `data/` changed,
+runs the check workflow's builds on x86_64-linux, aarch64-linux and macOS, then opens or
+updates the `bot/crucible-update` PR. Before the first release it falls back to
+`nix run .#crucible -- update` with the repo's own CLI.
+
+Pull requests opened by this workflow use the default `GITHUB_TOKEN`, which does not start
+other workflows, so `check` does not run on them; the update workflow runs the checks in its
+`checks` job instead. To have `check` start other workflows on its own, create a GitHub App
+(or a fine-grained PAT with `contents` and `pull-requests` write), store it as a secret and
+pass it to `create-pull-request` as `token`.
 
 ## Development
 

@@ -1,16 +1,22 @@
 name: update
 
+# The scheduled pin refresh: run `crucible update` with the latest released
+# CLI (falling back to `nix run .#crucible` before the first release exists),
+# and when data/ changed, run the check workflow's builds on x86_64-linux,
+# aarch64-linux and macOS on the refreshed data, then open or update the
+# bot/crucible-update PR.
+
 on:
   schedule:
-    - cron: "17 3 * * *"
+    - cron: "17 */6 * * *"
   workflow_dispatch:
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
   actions: read
 
 concurrency:
+  # A new run waits for the current one instead of overlapping it.
   group: update
   cancel-in-progress: false
 
@@ -18,42 +24,168 @@ jobs:
   update:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    outputs:
+      data_changed: ${{ steps.changed.outputs.data_changed }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: ./.github/actions/setup-nix
+      - name: Download the latest released CLI
+        id: download
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/cli"
+          mkdir -p "$work"
+          tag="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName 2>/dev/null || true)"
+          if [ -z "${tag:-}" ] || [ "$tag" = "null" ]; then
+            echo "no release found; using nix run .#crucible -- update instead"
+            echo "mode=nix" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          asset="crucible-${tag#v}-x86_64-unknown-linux-musl.tar.gz"
+          gh release download --repo "$GITHUB_REPOSITORY" --tag "$tag" \
+            --pattern "$asset" --pattern SHA256SUMS --dir "$work"
+          [ -f "$work/$asset" ] || {
+            echo "error: release $tag has no $asset" >&2
+            exit 1
+          }
+          [ -f "$work/SHA256SUMS" ] || {
+            echo "error: release $tag has no SHA256SUMS" >&2
+            exit 1
+          }
+          # Verify the tarball against the sums the release publishes.
+          expected="$(grep -F "$asset" "$work/SHA256SUMS" | awk '{print $1}' || true)"
+          if [ -z "${expected:-}" ]; then
+            echo "error: SHA256SUMS has no entry for $asset" >&2
+            exit 1
+          fi
+          actual="$(sha256sum "$work/$asset" | awk '{print $1}')"
+          if [ "$expected" != "$actual" ]; then
+            echo "error: sha256 mismatch for $asset: expected $expected, got $actual" >&2
+            exit 1
+          fi
+          # And the attestation the release workflow added.
+          gh attestation verify "$work/$asset" --repo "$GITHUB_REPOSITORY"
+          mkdir "$work/bin"
+          tar -xzf "$work/$asset" -C "$work/bin"
+          "$work/bin/crucible" update
+          echo "mode=released" >> "$GITHUB_OUTPUT"
 
-      - name: Update huacnlee/cargo and the pinned Rust channels
-        id: update
+      - name: Update the pins with the repo's own CLI
+        if: steps.download.outputs.mode == 'nix'
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           nix run .#crucible -- update
+
+      # Share the refreshed data with the jobs below; they run on the same
+      # tree, so apply the patch after checkout.
+      - id: changed
+        run: |
+          git add -A data
+          if [ -n "$(git diff --cached --name-only HEAD -- data)" ]; then
+            git diff --cached --binary > "$RUNNER_TEMP/data.patch"
+            echo "data_changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "data_changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: steps.changed.outputs.data_changed == 'true'
+        with:
+          name: data
+          path: ${{ runner.temp }}/data.patch
+
+  checks:
+    needs: update
+    if: needs.update.outputs.data_changed == 'true'
+    strategy:
+      # A platform-specific failure should not cancel the other platforms;
+      # see check.yaml.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup-nix
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          # setup-nix's Hestia cache is the persistent one; this warms the
+          # per-run evaluation cache between runs.
+          path: ${{ runner.os == 'macOS' && '/Users/runner/.cache/nix' || '/home/runner/.cache/nix' }}
+          key: nix-${{ matrix.os }}-${{ hashFiles('flake.lock') }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: data
+          path: ${{ runner.temp }}/data
+      - name: Apply the data refresh
+        run: git apply "$RUNNER_TEMP/data/data.patch"
+      - name: Build cargo
+        run: nix build -L .#cargo
+      - name: Check version
+        run: |
+          version=$(jq -r .version data/rust/cargo.json)
+          output=$(./result/bin/cargo -V)
+          echo "Detected version: $output"
+          if ! echo "$output" | grep -F "huacnlee/cargo $version"; then
+            echo "Error: expected huacnlee/cargo $version"
+            exit 1
+          fi
+      - name: Build toolchains and run checks
+        run: nix flake check -L
+
+  open-pr:
+    needs: [update, checks]
+    if: >-
+      always()
+      && needs.update.outputs.data_changed == 'true'
+      && needs.checks.result == 'success'
+    permissions:
+      contents: write
+      pull-requests: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: data
+          path: ${{ runner.temp }}/data
+      - name: Apply the data refresh
+        run: git apply "$RUNNER_TEMP/data/data.patch"
+      - id: versions
+        run: |
           {
             echo "cargo=$(jq -r .version data/rust/cargo.json)"
             echo "stable=$(jq -r .version data/rust/stable.json)"
+            echo "beta=$(jq -r .version data/rust/beta.json)"
             echo "nightly=$(jq -r '.version + " " + .date' data/rust/nightly.json)"
           } >> "$GITHUB_OUTPUT"
-
-      - name: Update flake.lock
-        run: nix flake update
-
-      - name: Build cargo and the default toolchain
-        run: nix build -L .#cargo .#rust
-
-      - name: Open a pull request
-        uses: peter-evans/create-pull-request@3ffccacd46053766916f087ce41d627c0b8cf2d1 # v8.1.3
+      - uses: peter-evans/create-pull-request@3ffccacd46053766916f087ce41d627c0b8cf2d1 # v8.1.3
         with:
-          branch: update/sources
+          branch: bot/crucible-update
           delete-branch: true
-          commit-message: "update: cargo ${{ steps.update.outputs.cargo }}, rust ${{ steps.update.outputs.stable }}"
-          title: "update: cargo ${{ steps.update.outputs.cargo }}, rust ${{ steps.update.outputs.stable }}"
+          commit-message: |
+            update: cargo ${{ steps.versions.outputs.cargo }}, rust ${{ steps.versions.outputs.stable }}
+          title: |
+            update: cargo ${{ steps.versions.outputs.cargo }}, rust ${{ steps.versions.outputs.stable }}
           body: |
-            - [huacnlee/cargo v${{ steps.update.outputs.cargo }}](https://github.com/huacnlee/cargo/releases/tag/v${{ steps.update.outputs.cargo }})
-            - stable: ${{ steps.update.outputs.stable }}
-            - nightly: ${{ steps.update.outputs.nightly }}
+            Refreshed by the scheduled update workflow, which runs every 6 hours.
 
-            The check workflow builds a crate with every toolchain on Linux and macOS before this can merge.
+            - huacnlee/cargo v${{ steps.versions.outputs.cargo }}
+            - stable: ${{ steps.versions.outputs.stable }}
+            - beta: ${{ steps.versions.outputs.beta }}
+            - nightly: ${{ steps.versions.outputs.nightly }}
+
+            Pull requests opened by this workflow use the default `GITHUB_TOKEN`,
+            which does not start other workflows, so the checks ran in this
+            workflow's `checks` job instead of the `check` workflow. To have
+            `check` run on its own, create a GitHub App (or a fine-grained PAT
+            with `contents` and `pull-requests` write), store it as a secret
+            and pass it to create-pull-request as `token`.
           add-paths: |
-            data
-            flake.lock
+            data/**/*.json
