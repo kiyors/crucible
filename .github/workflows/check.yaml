@@ -1,15 +1,73 @@
 name: check
 on:
   pull_request:
+    paths:
+      - "*.md"
+      - "**/*.md"
+      - ".github/**"
+      - "cli/**"
+      - "data/**"
+      - "dev/**"
+      - "docs/**"
+      - "lib/**"
+      - "modules/**"
+      - "overlay.nix"
+      - "templates/**"
+      - "tests/**"
+      - "default.nix"
+      - "flake.lock"
+      - "flake.nix"
   push:
     branches:
       - main
+    paths:
+      - "*.md"
+      - "**/*.md"
+      - ".github/**"
+      - "cli/**"
+      - "data/**"
+      - "dev/**"
+      - "docs/**"
+      - "lib/**"
+      - "modules/**"
+      - "overlay.nix"
+      - "templates/**"
+      - "tests/**"
+      - "default.nix"
+      - "flake.lock"
+      - "flake.nix"
+
+concurrency:
+  # Cancel overlapping runs on PRs; on main, the latest run finishes.
+  group: check-${{ github.event_name == 'pull_request' && github.ref || format('push-{0}', github.ref) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
   actions: read
 
 jobs:
+  determine:
+    runs-on: ubuntu-latest
+    outputs:
+      heavy: ${{ steps.determine.outputs.heavy }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - id: determine
+        run: |
+          heavy=false
+          if [ "${{ github.event_name }}" = "push" ]; then
+            heavy=true
+          else
+            while IFS= read -r file; do
+              case "$file" in
+                *.md|docs/*) ;;
+                *) heavy=true ;;
+              esac
+            done < <(git diff --name-only "${{ github.event.pull_request.base.sha }}" HEAD)
+          fi
+          echo "heavy=$heavy" >> "$GITHUB_OUTPUT"
+
   fmt-check:
     runs-on: ubuntu-latest
     steps:
@@ -21,6 +79,8 @@ jobs:
         run: cd dev && nix flake check -L
 
   build-and-test:
+    needs: determine
+    if: needs.determine.outputs.heavy == 'true'
     strategy:
       # a platform-specific failure should not cancel the other platforms,
       # otherwise their results are unknown until the first one is fixed
@@ -31,6 +91,12 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup-nix
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          # setup-nix's Hestia cache is the persistent one; this warms the
+          # per-run evaluation cache between runs.
+          path: ${{ runner.os == 'macOS' && '/Users/runner/.cache/nix' || '/home/runner/.cache/nix' }}
+          key: nix-${{ matrix.os }}-${{ hashFiles('flake.lock') }}
       - name: Build cargo
         run: nix build -L .#cargo
       - name: Check version
