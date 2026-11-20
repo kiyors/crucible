@@ -417,7 +417,8 @@ pkgs = import nixpkgs {
 
 ## CLI
 
-`crucible` is a small Rust program in `cli/`, built with this flake's own toolchain:
+`crucible` is a small Rust program, a Cargo workspace in `crates/`, built with this flake's own
+toolchain:
 
 ```sh
 nix run github:kiyors/crucible                             # doctor: is cargo the fork, and is anything working against it?
@@ -480,5 +481,5 @@ as `token`.
 direnv allow          # or: nix develop ./dev
 nix flake check -L    # builds a crate with every toolchain
 cd dev && nix fmt
-cd cli && cargo test  # in a shell with the default toolchain
+nix shell .#rust.stock -c cargo test --workspace  # the CLI's tests, from the repo root
 ```

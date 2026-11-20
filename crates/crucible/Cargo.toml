@@ -1,0 +1,42 @@
+[package]
+name = "crucible"
+description = "Refresh crucible's pinned toolchains and diagnose the environment that uses them"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+default = ["net"]
+# `update` and `pin`, and everything they download and hash with. Without it
+# the binary is `doctor` alone, which skips compiling ring's C and rustls for
+# a bare `nix run github:kiyors/crucible`.
+net = [
+  "dep:base64",
+  "dep:indexmap",
+  "dep:pgp",
+  "dep:serde",
+  "dep:serde_yaml_ng",
+  "dep:sha2",
+  "dep:ureq",
+]
+
+[dependencies]
+anyhow.workspace = true
+base64 = { workspace = true, optional = true }
+clap.workspace = true
+indexmap = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+# `doctor` reads package.json even in the doctor-only build, so this one is
+# not behind `net` (the doctor binary still leaves out ring and rustls).
+serde_json.workspace = true
+pgp = { workspace = true, optional = true }
+serde_yaml_ng = { workspace = true, optional = true }
+sha2 = { workspace = true, optional = true }
+toml.workspace = true
+ureq = { workspace = true, optional = true }
+
+[[test]]
+name = "trim"
+required-features = ["net"]

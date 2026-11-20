@@ -15,7 +15,7 @@ use pgp::composed::{Deserializable, DetachedSignature, SignedPublicKey};
 use pgp::types::VerifyingKey;
 
 /// The active Node.js release keys, from nodejs/release-keys.
-const RELEASE_KEYS: &str = include_str!("../../data/node/release-keys.asc");
+const RELEASE_KEYS: &str = include_str!("../../../data/node/release-keys.asc");
 
 const BEGIN: &str = "-----BEGIN PGP PUBLIC KEY BLOCK-----";
 const END: &str = "-----END PGP PUBLIC KEY BLOCK-----";

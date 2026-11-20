@@ -6,7 +6,7 @@ rec {
   node = import ./lib/node { inherit pkgs; };
 
   # `crucible update | doctor | pin`
-  cli = pkgs.callPackage ./cli/package.nix { inherit (rust.stable) rustPlatform; };
+  cli = pkgs.callPackage ./crates/crucible/package.nix { inherit (rust.stable) rustPlatform; };
   # `crucible doctor` alone, quicker to build for `nix run` on a cold cache.
   cli-doctor = cli.override { net = false; };
 }

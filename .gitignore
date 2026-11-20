@@ -5,3 +5,4 @@ result-*
 /fenix/
 /nix-vite-plus/
 .crucible-update.lock
+/target/

@@ -1,0 +1,32 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88"
+license = "MIT"
+publish = false
+
+# Every version lives here once, so the crates cannot drift apart. Features a
+# crate needs on top of these are added where it opts in.
+[workspace.dependencies]
+anyhow = "1"
+base64 = "0.22"
+clap = { version = "4.5", features = ["derive"] }
+# Ordered maps, so a manifest's package order survives into data/rust/*.json.
+indexmap = { version = "2", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+# The channel manifest is big and its package order is part of the output, so
+# both parsers must keep insertion order.
+serde_json = { version = "1", features = ["preserve_order"] }
+# Verify nodejs.org's SHASUMS256.txt.sig without a system gpgv. No default
+# features: the bzip2 one is the only C dependency.
+pgp = { version = "0.21", default-features = false }
+# Vite+ publishes its dependency tree as a pnpm lockfile, which is YAML.
+serde_yaml_ng = "0.10"
+sha2 = "0.10"
+toml = { version = "0.8", features = ["preserve_order"] }
+# Default features give us rustls, and a synchronous API keeps the binary small.
+ureq = "2"

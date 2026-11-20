@@ -10,7 +10,10 @@ nix flake check -L --keep-going           # every check for this machine's syste
 nix flake check --all-systems --no-build  # everything evaluates on all three systems
 cd dev && nix fmt -- --fail-on-change     # formatting, deadnix, statix, typos
 cd dev && nix flake check                 # git hooks (treefmt, gitleaks)
-nix shell .#rust -c sh -c 'cd cli && cargo test'  # CLI unit tests
+# The CLI is a Cargo workspace at the repo root (crates/*):
+nix shell .#rust.stock -c cargo test --workspace                         # unit tests
+nix shell .#rust.stock -c cargo clippy --workspace --all-targets         # lints
+nix shell .#rust.stock -c cargo build -p crucible --no-default-features  # doctor-only build
 ```
 
 - **New files must be `git add`ed** before Nix can see them. An untracked file looks like a
@@ -19,6 +22,8 @@ nix shell .#rust -c sh -c 'cd cli && cargo test'  # CLI unit tests
   Run the `--all-systems --no-build` evaluation at least, and say which systems you actually
   built.
 - macOS sandbox builds print an `xcrun` warning. It is old and harmless.
+- Use `.#rust.stock` (stock cargo) for the cargo commands. The fork shares one build directory
+  between every worktree of the repo, so parallel worktrees race on it.
 
 ## Conventions
 
@@ -40,15 +45,15 @@ nix shell .#rust -c sh -c 'cd cli && cargo test'  # CLI unit tests
 ## Rules that are easy to break
 
 - **Never edit `data/**/*.json` by hand.** `crucible update` writes them, and treefmt excludes
-  them, as it does `cli/tests/fixtures/*.json`. Reformatting them would churn every update.
+  them, as it does `crates/*/tests/fixtures/*.json`. Reformatting them would churn every update.
 - **The main flake has one input, nixpkgs.** Development tools go in `dev/flake.nix`.
 - **Nix evaluation stays offline.** Network fetches belong in the CLI, and their results go into
   `data/`.
 - **Two copies must stay in sync**:
-  - `lib/common/systems.nix` ↔ `HOSTS` in `cli/src/manifest.rs` (same systems, same order)
-  - `manifestUrl` in `lib/rust/toolchain.nix` ↔ `manifest_url` in `cli/src/pin.rs`
-  - `platforms` in `lib/node/toolchain.nix` ↔ `PLATFORMS` in `cli/src/update/node.rs`
-  - `shasumsUrl` in `lib/node/toolchain.nix` ↔ the URL `pin::node` prints in `cli/src/pin.rs`
+  - `lib/common/systems.nix` ↔ `HOSTS` in `crates/crucible/src/manifest.rs` (same systems, same order)
+  - `manifestUrl` in `lib/rust/toolchain.nix` ↔ `manifest_url` in `crates/crucible/src/pin.rs`
+  - `platforms` in `lib/node/toolchain.nix` ↔ `PLATFORMS` in `crates/crucible/src/update/node.rs`
+  - `shasumsUrl` in `lib/node/toolchain.nix` ↔ the URL `pin::node` prints in `crates/crucible/src/pin.rs`
 - **Package builds use `.rustPlatform`** (stock cargo). The fork cannot build in the sandbox,
   because it keeps its build directory under `~/.cargo/targets`.
 - **The sysroot's real copies are deliberate** (`bin/*`, `librustc_driver`). Do not "optimize"
@@ -81,7 +86,7 @@ container exec nixlinux sh -c 'cd /src && nix flake check -L --keep-going'
 ```
 
 Mount a copy made with `rsync -a --delete --exclude fenix --exclude nix-vite-plus --exclude
-cli/target --exclude result` rather than the working tree itself. Only CI covers x86_64-linux.
+/target --exclude result` rather than the working tree itself. Only CI covers x86_64-linux.
 
 ## Out of scope
 

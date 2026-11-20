@@ -67,7 +67,7 @@
               rustfmt.enable = true;
               taplo.enable = true;
             };
-            # treefmt-nix defaults rustfmt to edition 2024, but the CLI crate
+            # treefmt-nix defaults rustfmt to edition 2024, but the CLI workspace
             # is 2021: the two editions sort imports differently, so `nix fmt`
             # and `cargo fmt` would keep undoing each other.
             programs.rustfmt.edition = "2021";
@@ -77,9 +77,9 @@
               # Armored key data is base64: a "typo fix" silently corrupts it.
               "data/node/release-keys.asc"
               # Exact expected output of the trimmer, and a GPG signature.
-              "cli/tests/fixtures/*.json"
-              "cli/tests/fixtures/*.sig"
-              "cli/tests/fixtures/shasums-*.txt"
+              "crates/*/tests/fixtures/*.json"
+              "crates/*/tests/fixtures/*.sig"
+              "crates/*/tests/fixtures/shasums-*.txt"
             ];
           };
 
