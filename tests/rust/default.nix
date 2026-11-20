@@ -134,6 +134,17 @@ in
     cargo clippy --offline --quiet -- -D warnings
   '';
 
+  # A manifest from another release series is a mistake in the flake input,
+  # not something to build silently.
+  rust-manifest-errors =
+    assert rejected (
+      rust.fromToolchainFile {
+        file = ./rust-toolchain-1.99.toml;
+        manifest = ./channel-rust-1.100.toml;
+      }
+    );
+    pkgs.runCommand "crucible-check-rust-manifest-errors" { } "touch $out";
+
   # The stock-cargo sibling builds packages in the sandbox.
   rust-platform = rust.stable.rustPlatform.buildRustPackage {
     pname = "hello";

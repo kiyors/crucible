@@ -1,0 +1,4 @@
+# A minimal channel manifest for the mismatch check. `resolveManifest` reads
+# pkg.rustc.version before it compares the manifest with the channel.
+[pkg.rustc]
+version = "1.100.0 (012345678 2026-11-01)"

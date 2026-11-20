@@ -21,6 +21,7 @@
 }:
 let
   inherit (lib)
+    elemAt
     filter
     importJSON
     importTOML
@@ -72,6 +73,25 @@ let
     in
     m // { version = lib.head (lib.splitString " " m.pkg.rustc.version); };
 
+  # A numbered channel ("1.99" or "1.99.0") names one release series. When a
+  # manifest is passed in, check it belongs to that series: a stale
+  # rust-manifest input would otherwise build a different release than the
+  # rust-toolchain.toml that rustup and CI read. stable/beta/nightly are
+  # aliases, so there is no series to compare them with.
+  manifestMatches =
+    channel: manifest:
+    let
+      m = builtins.match "([0-9]+\\.[0-9]+)(\\.[0-9]+)?(-.*)?" channel;
+      series = elemAt m 0;
+      patch = elemAt m 1;
+    in
+    if m == null then
+      true
+    else if patch == null then
+      lib.hasPrefix "${series}." manifest.version
+    else
+      manifest.version == "${series}${patch}";
+
   # `manifest` is a channel-rust-*.toml file, for example a `flake = false`
   # input, which `nix flake update` refreshes; `sha256` pins one fetched at
   # evaluation time. The pinned channels need neither.
@@ -81,21 +101,35 @@ let
       manifest ? null,
       sha256 ? null,
     }:
-    if manifest != null then
-      importManifest manifest
-    else if sha256 != null then
-      importManifest (
-        builtins.fetchurl {
-          url = manifestUrl channel;
-          inherit sha256;
-        }
-      )
+    let
+      file =
+        if manifest != null then
+          manifest
+        else if sha256 != null then
+          builtins.fetchurl {
+            url = manifestUrl channel;
+            inherit sha256;
+          }
+        else
+          null;
+      resolved =
+        if file != null then
+          importManifest file
+        else
+          pinned.${channel} or (throw ''
+            crucible: channel "${channel}" is not pinned (stable, beta, nightly), so it needs
+            ${manifestUrl channel}
+            as `manifest` (a `flake = false` input) or its `sha256` (nix-prefetch-url <url>).
+          '');
+    in
+    if file == null || manifestMatches channel resolved then
+      resolved
     else
-      pinned.${channel} or (throw ''
-        crucible: channel "${channel}" is not pinned (stable, beta, nightly), so it needs
-        ${manifestUrl channel}
-        as `manifest` (a `flake = false` input) or its `sha256` (nix-prefetch-url <url>).
-      '');
+      throw ''
+        crucible: the manifest given is Rust ${resolved.version}, which is not the "${channel}" channel.
+        Pass the channel's own channel-rust-${channel}.toml, or change `channel` in the
+        rust-toolchain.toml that names it.
+      '';
 
   # Components a toolchain cannot work without. cargo is not among them: the
   # fork is always added, and `.stock` swaps in the channel's own.

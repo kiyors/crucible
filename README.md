@@ -146,7 +146,9 @@ update` then moves you to the newest patch release of the series, with no hash t
 }
 ```
 
-`channel = "stable"`, `"beta"` and `"nightly"` need neither `manifest` nor `sha256`.
+`channel = "stable"`, `"beta"` and `"nightly"` need neither `manifest` nor `sha256`. For a
+numbered channel, crucible checks the manifest's version against that series, so a stale
+`rust-manifest` input fails at evaluation instead of building a different release.
 
 ### Leaving things out
 
