@@ -123,6 +123,7 @@
                       programs.crucible.node = {
                         enable = true;
                         npmPrefix = ".npm-global";
+                        pnpmHome = ".local/share/pnpm";
                       };
                     }
                   ];
@@ -130,6 +131,8 @@
               in
               assert hm.config.home.sessionVariables.CARGO_HOME == "/home/tester/.cargo";
               assert hm.config.home.sessionVariables.NPM_CONFIG_PREFIX == "/home/tester/.npm-global";
+              assert hm.config.home.sessionVariables.PNPM_HOME == "/home/tester/.local/share/pnpm";
+              assert lib.elem "/home/tester/.local/share/pnpm/bin" hm.config.home.sessionPath;
               assert lib.any (
                 package: package == inputs.crucible.packages.${system}.rust
               ) hm.config.home.packages;

@@ -368,8 +368,9 @@ pnpm projects can use nixpkgs' `fetchPnpmDeps` and `pnpmConfigHook` with the too
 programs.crucible.node = {
   enable = true;
   # package = inputs.crucible.lib.${pkgs.stdenv.hostPlatform.system}.node.toolchain { version = "24"; };
-  extraPackages = [ pkgs.pnpm ];
+  extraPackages = [ pkgs.typescript ];
   npmPrefix = ".npm-global";  # npm install -g goes here instead of the read-only store
+  pnpmHome = ".local/share/pnpm";  # PNPM_HOME, with $PNPM_HOME/bin (pnpm 12's global bins) on PATH
 };
 ```
 

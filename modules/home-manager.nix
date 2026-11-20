@@ -107,7 +107,7 @@ in
       example = literalExpression ''
         crucible.lib.''${system}.node.toolchain {
           version = "24";
-          packageManager = "pnpm@10.0.0";
+          packageManager = "pnpm@10";
         }
       '';
       description = ''
@@ -120,8 +120,11 @@ in
     extraPackages = mkOption {
       type = types.listOf types.package;
       default = [ ];
-      example = literalExpression "[ pkgs.pnpm ]";
-      description = "Package managers and other tools installed next to the toolchain.";
+      example = literalExpression "[ pkgs.typescript ]";
+      description = ''
+        Package managers and other tools installed next to the toolchain. A second
+        Node.js or package manager here shadows the toolchain's.
+      '';
     };
 
     npmPrefix = mkOption {
@@ -132,6 +135,17 @@ in
         Where `npm install --global` puts packages, relative to the home directory, set
         as NPM_CONFIG_PREFIX with its {file}`bin` on PATH. By default npm installs next
         to node, which is the read-only store, so global installs fail.
+      '';
+    };
+
+    pnpmHome = mkOption {
+      type = types.nullOr types.str;
+      default = null;
+      example = ".local/share/pnpm";
+      description = ''
+        Where pnpm keeps its global packages, relative to the home directory, set as
+        PNPM_HOME with its {file}`bin` on PATH. pnpm 12 puts globally installed binaries
+        in `$PNPM_HOME/bin`, so that directory is the one to add, not `$PNPM_HOME` itself.
       '';
     };
   };
@@ -185,12 +199,17 @@ in
 
       home = {
         packages = [ nodeCfg.package ] ++ nodeCfg.extraPackages;
-        sessionVariables = mkIf (nodeCfg.npmPrefix != null) {
-          NPM_CONFIG_PREFIX = "${config.home.homeDirectory}/${nodeCfg.npmPrefix}";
-        };
-        sessionPath = optional (
-          nodeCfg.npmPrefix != null
-        ) "${config.home.homeDirectory}/${nodeCfg.npmPrefix}/bin";
+        sessionVariables = mkMerge [
+          (mkIf (nodeCfg.npmPrefix != null) {
+            NPM_CONFIG_PREFIX = "${config.home.homeDirectory}/${nodeCfg.npmPrefix}";
+          })
+          (mkIf (nodeCfg.pnpmHome != null) {
+            PNPM_HOME = "${config.home.homeDirectory}/${nodeCfg.pnpmHome}";
+          })
+        ];
+        sessionPath =
+          optional (nodeCfg.npmPrefix != null) "${config.home.homeDirectory}/${nodeCfg.npmPrefix}/bin"
+          ++ optional (nodeCfg.pnpmHome != null) "${config.home.homeDirectory}/${nodeCfg.pnpmHome}/bin";
       };
     })
   ];
