@@ -1,7 +1,8 @@
 # One exact package-manager release from data/node/package-managers.json,
-# installed from the tarball npm publishes for it and run by this toolchain's
-# Node.js. Native pnpm and bun ship a standalone binary per system; yarn is a
-# JavaScript package and needs the toolchain's node to execute it.
+# installed from the archive upstream ships for it and run by this toolchain's
+# Node.js. Native pnpm releases ship a standalone binary per system; bun ships
+# one zip per platform from oven-sh/bun's GitHub release; yarn is a JavaScript
+# package and needs the toolchain's node to execute it.
 {
   lib,
   stdenv,
@@ -9,6 +10,7 @@
   autoPatchelfHook,
   makeWrapper,
   nodejs, # the toolchain's Node.js, passed by toolchain.nix
+  unzip,
   name, # pnpm | bun | yarn
   major,
   pin, # the matching entry of data/node/package-managers.json
@@ -22,7 +24,7 @@ let
     else
       pin;
   src = fetchurl { inherit (source) url hash; };
-  # pnpm's exe and bun are standalone binaries; yarn's bin has this name too.
+  # pnpm's exe; yarn's bin has this name too.
   exe = name;
 in
 stdenv.mkDerivation {
@@ -33,12 +35,20 @@ stdenv.mkDerivation {
   # paths below name it, instead of letting mkDerivation cd into it.
   sourceRoot = ".";
 
-  nativeBuildInputs = [ makeWrapper ] ++ lib.optionals isLinux [ autoPatchelfHook ];
+  nativeBuildInputs = [
+    makeWrapper
+    unzip
+  ]
+  ++ lib.optionals isLinux [ autoPatchelfHook ];
   # The native binaries link glibc (and libstdc++ for pnpm).
   buildInputs = lib.optionals isLinux [ stdenv.cc.cc.lib ];
 
   dontConfigure = true;
   dontBuild = true;
+  # bun's GitHub zip is unpacked by installPhase itself, as the executable
+  # it holds sits at the zip's root; pnpm and yarn stay on the auto-unpack,
+  # since their npm tarballs extract as archives.
+  dontUnpack = name == "bun";
 
   installPhase = ''
     runHook preInstall
@@ -51,8 +61,12 @@ stdenv.mkDerivation {
         wrapProgram $out/bin/pnpm --prefix PATH : ${lib.makeBinPath [ nodejs ]}
       ''
     else if name == "bun" then
+      # bun is not an npm package: GitHub's release ships a zip per platform,
+      # holding the executable as bun-<platform>/bun.
       ''
-        install -m 0755 package/bin/bun $out/bin/bun
+        mkdir -p $out/bun
+        unzip -qq $src -d $out/bun
+        install -m 0755 $out/bun/bun-*/bun $out/bin/bun
         wrapProgram $out/bin/bun --prefix PATH : ${lib.makeBinPath [ nodejs ]}
       ''
     else

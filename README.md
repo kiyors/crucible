@@ -25,22 +25,23 @@ releases support.
 
 ## Outputs
 
-| Output                                | What it is                                         |
-| ------------------------------------- | -------------------------------------------------- |
-| `packages.<system>.rust` (`default`)  | stable + patched cargo                             |
-| `packages.<system>.rust-nightly`      | complete nightly with Cranelift + patched cargo    |
-| `packages.<system>.cargo`             | the patched cargo alone                            |
-| `packages.<system>.crucible`          | the CLI (`update`, `doctor`, `pin`, `init`)        |
-| `packages.<system>.crucible-doctor`   | the CLI with `doctor` and `init` (`apps.default`)  |
-| `lib.<system>.rust.toolchain`         | a toolchain from a channel, components and targets |
-| `lib.<system>.rust.fromToolchainFile` | a toolchain from a project's `rust-toolchain.toml` |
-| `packages.<system>.node`              | Node.js LTS + npm + Vite+                          |
-| `packages.<system>.node-current`      | the newest Node.js line + npm + Vite+              |
-| `packages.<system>.vite-plus`         | `vp` alone, on Node.js LTS                         |
-| `lib.<system>.node.toolchain`         | a toolchain from a Node.js version or range        |
-| `lib.<system>.node.fromPackageJson`   | a toolchain from a project's `package.json`        |
-| `overlays.default`                    | `pkgs.crucible`: `.rust`, `.node`, `.cli`, ...     |
-| `homeManagerModules.default`          | `programs.crucible.{rust,node}`                    |
+| Output                                | What it is                                          |
+| ------------------------------------- | --------------------------------------------------- |
+| `packages.<system>.rust` (`default`)  | stable + patched cargo                              |
+| `packages.<system>.rust-nightly`      | complete nightly with Cranelift + patched cargo     |
+| `packages.<system>.cargo`             | the patched cargo alone                             |
+| `packages.<system>.crucible`          | the CLI (`update`, `doctor`, `pin`, `init`)         |
+| `packages.<system>.crucible-doctor`   | the CLI with `doctor` and `init` (`apps.default`)   |
+| `lib.<system>.rust.toolchain`         | a toolchain from a channel, components and targets  |
+| `lib.<system>.rust.fromToolchainFile` | a toolchain from a project's `rust-toolchain.toml`  |
+| `packages.<system>.node`              | Node.js LTS + npm + Vite+                           |
+| `packages.<system>.node-current`      | the newest Node.js line + npm + Vite+               |
+| `packages.<system>.vite-plus`         | `vp` alone, on Node.js LTS                          |
+| `lib.<system>.node.toolchain`         | a toolchain from a Node.js version or range         |
+| `lib.<system>.node.fromPackageJson`   | a toolchain from a project's `package.json`         |
+| `lib.<system>.deno.toolchain`         | a Deno release from denoland/deno's GitHub releases |
+| `overlays.default`                    | `pkgs.crucible`: `.rust`, `.node`, `.cli`, ...      |
+| `homeManagerModules.default`          | `programs.crucible.{rust,node}`                     |
 
 Every Rust toolchain also carries:
 
@@ -270,6 +271,7 @@ crucible.lib.${system}.node.toolchain {
   packageManager ? null;  # "pnpm@12" (the pinned 12.x), a range ("pnpm@^10"), an exact
                           # pinned release ("pnpm@12.21.0"), or a package built from
                           # another release; all run by this Node.js. "npm@..." needs nothing
+                          # "bun@1" is pinned from oven-sh/bun's GitHub release; it needs no nixpkgs.
   shasums ? null;         # the release's SHASUMS256.txt as a file (a `flake = false` input)
   sha256 ? null;          # or that file's hash, fetched at evaluation time
 }
@@ -309,13 +311,16 @@ The package manager comes from `packageManager`, then `devEngines.packageManager
 corepack uses. An explicit `packageManager` argument overrides both.
 
 Package managers run on the toolchain's Node.js. The newest release of each supported major is
-pinned in `data/node/package-managers.json` from the npm registry's own integrity hashes, so
+pinned in `data/node/package-managers.json`: pnpm and yarn from the npm registry's own
+integrity hashes, bun from oven-sh/bun's `SHASUMS256.txt`, one zip per platform. So
 `packageManager = "pnpm@12"` selects the pinned 12.x (12.21.0 today) and
-`packageManager = "pnpm@12.21.0"` is exactly that release. A range is used only when the pinned
-release, or nixpkgs' build of that major (`pnpm_12`, `yarn-berry_4`, ...), satisfies it. An exact
-release that neither has is an evaluation error rather than a silent substitution: pass a package
-built from that release as `packageManager` (or `fromPackageJson`'s `packageManager` argument),
-or use the major. npm ships with Node.js and needs no separate pin.
+`packageManager = "pnpm@12.21.0"` is exactly that release. `packageManager = "bun@1"` resolves
+to the pinned bun: every supported major has one, so it never depends on nixpkgs' one bun. A
+range is used only when the pinned release, or nixpkgs' build of that major (`pnpm_12`,
+`yarn-berry_4`, ...), satisfies it. An exact release that neither has is an evaluation error
+rather than a silent substitution: pass a package built from that release as `packageManager`
+(or `fromPackageJson`'s `packageManager` argument), or use the major. npm ships with Node.js and
+needs no separate pin.
 
 ### devShell
 
@@ -388,6 +393,19 @@ programs.crucible.node = {
    linker arranges `node_modules`. That copy is shared by every toolchain; each one wraps it for
    its Node.js.
 4. A `symlinkJoin` puts node, vp and the package manager together, with the setup hook.
+
+## Deno
+
+```nix
+crucible.lib.${system}.deno.toolchain {
+  version ? "latest";  # the newest pinned release; "2", or an exact pinned release
+}
+```
+
+The toolchain carries `.deno`, the executable from the denoland/deno release, and `.version`.
+The release is pinned in `data/deno/deno.json` from denoland/deno's GitHub releases, and
+`crucible update deno` refreshes it; today it is the newest Deno 2, 2.9.8. A major or release
+that is not pinned is an evaluation error rather than a silent substitution.
 
 ## Templates
 
@@ -479,6 +497,7 @@ nix run .#crucible -- update cargo                    # latest huacnlee/cargo re
 nix run .#crucible -- update cargo --version 0.103.0-1
 nix run .#crucible -- update rust                     # stable, beta, newest complete nightly
 nix run .#crucible -- update node                     # every supported Node.js line, and Vite+
+nix run .#crucible -- update deno                     # the newest stable Deno release
 ```
 
 The fork's hashes come from each release's `SHA256SUMS`, the Rust ones from the channel

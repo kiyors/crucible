@@ -1,10 +1,12 @@
-//! `update node` also pins exact package-manager releases from npm's registry.
+//! `update node` pins exact package-manager releases from npm's registry, and
+//! bun from oven-sh/bun's GitHub releases.
 //!
-//! The native pnpm and bun packages ship one tarball per system and the yarn
-//! packages one JavaScript tarball for every system. A registry packument lists
-//! every release with its tarball URL and sha512 integrity, so only metadata is
-//! downloaded here: the Nix side fetches and unpacks the tarballs with those
-//! hashes.
+//! The native pnpm packages ship one tarball per system and bun one zip per
+//! platform; the yarn packages one JavaScript tarball for every system. A
+//! registry packument lists every pnpm release with its tarball URL and sha512
+//! integrity, and bun's release page lists its zips with their sha256, so only
+//! metadata is downloaded here: the Nix side fetches and unpacks the archives
+//! with those hashes.
 
 use std::path::Path;
 
@@ -12,10 +14,13 @@ use anyhow::{bail, Context, Result};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
-use super::{json, Plan};
+use super::{json, parse_sha256sums, Plan};
 use crate::http::Http;
+use crate::sri;
 
 const REGISTRY: &str = "https://registry.npmjs.org";
+const BUN_RELEASES: &str = "https://api.github.com/repos/oven-sh/bun/releases?per_page=100";
+const BUN_RELEASES_DOWNLOAD: &str = "https://github.com/oven-sh/bun/releases/download";
 
 /// Nix system -> npm package holding that system's native binary, in
 /// `lib/common/systems.nix` order.
@@ -24,10 +29,11 @@ const PNPM_PLATFORMS: [(&str, &str); 3] = [
     ("aarch64-linux", "@pnpm%2Fexe.linux-arm64"),
     ("aarch64-darwin", "@pnpm%2Fexe.darwin-arm64"),
 ];
-const BUN_PLATFORMS: [(&str, &str); 3] = [
-    ("x86_64-linux", "@oven%2Fbun-linux-x64"),
-    ("aarch64-linux", "@oven%2Fbun-linux-aarch64"),
-    ("aarch64-darwin", "@oven%2Fbun-darwin-aarch64"),
+/// Nix system -> bun release zip, in `lib/common/systems.nix` order.
+const BUN_ASSETS: [(&str, &str); 3] = [
+    ("x86_64-linux", "bun-linux-x64.zip"),
+    ("aarch64-linux", "bun-linux-aarch64.zip"),
+    ("aarch64-darwin", "bun-darwin-aarch64.zip"),
 ];
 /// Yarn runs on Node.js, so one tarball covers every system. 1 is classic, 4
 /// is Berry (`@yarnpkg/cli-dist`); both are installed by the same Nix module.
@@ -90,7 +96,7 @@ struct Source {
 pub fn plan(http: &Http, root: &Path) -> Result<Plan> {
     let pins = Pins {
         pnpm: native_pins(http, "pnpm", &PNPM_PLATFORMS, &PNPM_MAJORS)?,
-        bun: native_pins(http, "bun", &BUN_PLATFORMS, &BUN_MAJORS)?,
+        bun: bun_pins(http)?,
         yarn: js_pins(http, "yarn", &YARN_MAJORS)?,
     };
     Ok(vec![(
@@ -144,6 +150,69 @@ fn native_pins(
         );
     }
     Ok(pins)
+}
+
+/// One bun major: the newest stable release of that major, with that same
+/// version's zip and digest for every supported system, from the release's
+/// `SHASUMS256.txt`. bun is not an npm package: it ships one zip per
+/// platform, and GitHub lists them with their sha256.
+fn bun_pins(http: &Http) -> Result<IndexMap<String, NativePin>> {
+    let releases: Vec<BunRelease> = serde_json::from_slice(&http.get(BUN_RELEASES)?)
+        .context("failed to parse the bun release list")?;
+    let mut pins = IndexMap::new();
+    for major in BUN_MAJORS {
+        let release = newest_stable(&releases, major)?;
+        let tag = release.tag_name.clone();
+        let version = tag.trim_start_matches("bun-v").to_string();
+        let sums = parse_sha256sums(&shasums(http, &tag)?);
+        let mut platforms = IndexMap::new();
+        for (system, asset) in BUN_ASSETS {
+            let hex = sums
+                .iter()
+                .find(|(_, entry)| entry.as_str() == asset)
+                .map(|(hex, _)| hex.clone())
+                .with_context(|| format!("{tag}'s SHASUMS256.txt has no {asset}"))?;
+            platforms.insert(
+                system.to_string(),
+                Source {
+                    url: format!("{BUN_RELEASES_DOWNLOAD}/{tag}/{asset}"),
+                    hash: sri::from_hex(&hex)?,
+                },
+            );
+        }
+        println!("bun {major}: {version}");
+        pins.insert(major.to_string(), NativePin { version, platforms });
+    }
+    Ok(pins)
+}
+
+/// One bun release, as the release list API reports it.
+#[derive(Debug, Deserialize)]
+struct BunRelease {
+    tag_name: String,
+    prerelease: bool,
+    draft: bool,
+}
+
+/// The newest stable bun release of `major`: the first of that major,
+/// newest first, that is neither a draft nor a prerelease.
+fn newest_stable<'a>(releases: &'a [BunRelease], major: &str) -> Result<&'a BunRelease> {
+    let prefix = format!("bun-v{major}.");
+    releases
+        .iter()
+        .find(|release| {
+            !release.draft && !release.prerelease && release.tag_name.starts_with(&prefix)
+        })
+        .with_context(|| format!("GitHub has no stable bun {major} release"))
+}
+
+/// `bun`'s `SHASUMS256.txt`, as the release page publishes it.
+fn shasums(http: &Http, tag: &str) -> Result<String> {
+    let url = format!("{BUN_RELEASES_DOWNLOAD}/{tag}/SHASUMS256.txt");
+    let body = http
+        .get(&url)
+        .with_context(|| format!("GET {url} failed"))?;
+    String::from_utf8(body).with_context(|| format!("{url} is not UTF-8"))
 }
 
 /// One JavaScript package manager: the newest stable release of each major,

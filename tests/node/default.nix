@@ -146,6 +146,12 @@ in
     assert (pinnedPm "bun" "1").version == pmPins.bun."1".version;
     assert (pinnedPm "yarn" "1").version == pmPins.yarn."1".version;
     assert (pinnedPm "yarn" "4").version == pmPins.yarn."4".version;
+    # bun@1.x never depends on nixpkgs' one bun: every supported major is
+    # pinned, with a hash for every system of lib/common/systems.nix.
+    assert (builtins.attrNames pmPins.bun) == [ "1" ];
+    assert builtins.elem "x86_64-linux" (builtins.attrNames pmPins.bun."1".platforms);
+    assert builtins.elem "aarch64-linux" (builtins.attrNames pmPins.bun."1".platforms);
+    assert builtins.elem "aarch64-darwin" (builtins.attrNames pmPins.bun."1".platforms);
     # A major with no pin comes from nixpkgs; the range must contain it.
     assert (node.toolchain { packageManager = "pnpm@10"; }).packageManager.pname == "pnpm";
     # fromPackageJson's packageManager argument overrides the file's spec.

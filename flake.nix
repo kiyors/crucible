@@ -57,6 +57,11 @@
         node = {
           inherit (crucible.${system}.node) toolchain fromPackageJson;
         };
+        # Deno 2 is the line with a pin today, so `toolchain { }` and
+        # `toolchain { version = "2"; }` give the same release.
+        deno = {
+          inherit (crucible.${system}.deno) toolchain;
+        };
       });
 
       checks = forAllSystems (
