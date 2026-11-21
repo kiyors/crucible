@@ -12,6 +12,7 @@ on:
 permissions:
   contents: write
   id-token: write
+  attestations: write
   actions: read
 
 jobs:
@@ -74,6 +75,8 @@ jobs:
     permissions:
       contents: write
       id-token: write
+      # attest-build-provenance stores the attestation through the API.
+      attestations: write
       actions: read
     runs-on: ubuntu-latest
     timeout-minutes: 10
