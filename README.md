@@ -52,8 +52,8 @@ releases support.
 | `packages.<system>.rust` (`default`)    | stable + patched cargo                                           |
 | `packages.<system>.rust-nightly`        | complete nightly with Cranelift + patched cargo                  |
 | `packages.<system>.cargo`               | the patched cargo alone                                          |
-| `packages.<system>.crucible`            | the CLI (`update`, `doctor`, `pin`, `init`)                      |
-| `packages.<system>.crucible-doctor`     | the CLI with `doctor` and `init` (`apps.default`)                |
+| `packages.<system>.crucible`            | the CLI (`update`, `doctor`, `pin`, `init`, `add`)               |
+| `packages.<system>.crucible-doctor`     | the CLI with `doctor` and `init`, for CI                         |
 | `lib.<system>.rust.toolchain`           | a toolchain from a channel, components and targets               |
 | `lib.<system>.rust.fromToolchainFile`   | a toolchain from a project's `rust-toolchain.toml`               |
 | `packages.<system>.node`                | Node.js LTS + npm + Vite+                                        |
@@ -806,33 +806,52 @@ reads the bundled `lib.*.d.ts` files from beside its real path and panics withou
 ## Templates
 
 ```sh
-nix flake init -t github:kiyors/crucible            # Rust
-nix flake init -t github:kiyors/crucible#node       # Node.js + Vite+ + pnpm
-nix flake init -t github:kiyors/crucible#python     # Python + uv
-nix flake init -t github:kiyors/crucible#go         # Go
-nix flake init -t github:kiyors/crucible#zig        # Zig
+nix flake init -t github:kiyors/crucible            # Rust (the `default` template)
+nix flake init -t github:kiyors/crucible#bun        # Bun
+nix flake init -t github:kiyors/crucible#c-cpp      # C/C++
 nix flake init -t github:kiyors/crucible#deno       # Deno
+nix flake init -t github:kiyors/crucible#elixir     # Elixir
+nix flake init -t github:kiyors/crucible#elm        # Elm
+nix flake init -t github:kiyors/crucible#empty      # Empty
+nix flake init -t github:kiyors/crucible#go         # Go
+nix flake init -t github:kiyors/crucible#hashi      # HashiCorp tools
+nix flake init -t github:kiyors/crucible#java       # Java
+nix flake init -t github:kiyors/crucible#jupyter    # Jupyter
+nix flake init -t github:kiyors/crucible#kotlin     # Kotlin
+nix flake init -t github:kiyors/crucible#laravel    # Laravel
+nix flake init -t github:kiyors/crucible#nim        # Nim
+nix flake init -t github:kiyors/crucible#node       # Node.js
+nix flake init -t github:kiyors/crucible#nix        # Nix
+nix flake init -t github:kiyors/crucible#odin       # Odin
+nix flake init -t github:kiyors/crucible#php        # PHP
+nix flake init -t github:kiyors/crucible#python     # Python + uv
+nix flake init -t github:kiyors/crucible#rust       # Rust
+nix flake init -t github:kiyors/crucible#scala      # Scala
+nix flake init -t github:kiyors/crucible#shell      # Shell
+nix flake init -t github:kiyors/crucible#swift      # Swift
+nix flake init -t github:kiyors/crucible#uv         # Python (uv)
+nix flake init -t github:kiyors/crucible#zig        # Zig
 ```
 
-The Rust one has a `flake.nix` with a dev shell and a package, a `rust-toolchain.toml` and an
-`.envrc`. The Node one resolves its toolchain from `package.json`, `.node-version` and
-`packageManager` (including pnpm), and builds a package through `buildNpmPackage` with
-`importNpmLock`. Each of the others has a dev shell and a hello-world package:
-
-- **python**: `fromPyprojectToml` reads `.python-version` and `requires-python`; the package
-  runs `main.py` on the toolchain's Python (a project with dependencies builds them from
-  `uv.lock`, for example with uv2nix).
-- **go**: `fromGoMod` reads `go.mod`; the package is the toolchain's `.buildGoModule` with no
-  `vendorHash`, since the module has no dependencies.
-- **zig**: `fromBuildZigZon` reads `.minimum_zig_version`; the package runs `zig build`.
-- **deno**: `deno.toolchain { }`, because `deno.json` names no Deno version (see [Deno](#deno));
-  the package runs `main.ts` with `deno run`.
+The templates live in [`templates/`](templates). The Rust one (the `default` template) has a
+`flake.nix` with a dev shell and a package, a `rust-toolchain.toml` and an `.envrc`; each of the
+others is a dev shell for its language, and `c` and `cpp` are aliases for `c-cpp`.
 
 For a project that already exists, `crucible init` writes just the `flake.nix`:
 
 ```sh
 nix run github:kiyors/crucible -- init          # in the project's directory
 nix run github:kiyors/crucible -- init --force  # replace an existing flake.nix
+```
+
+`crucible init <directory> [template]` instead starts a new project: the directory is made
+and the template added to it, from the [nix-templates repo](nix-templates). Template names are
+the ones that repo supports, e.g. `node`, `python`, `rust`. `crucible add [template]` adds a
+template to the project in the current directory; both commands default the template to `empty`.
+
+```sh
+crucible init my-project node   # a new project in my-project/ from the node template
+crucible add python             # the python template in the current project
 ```
 
 It looks in the current directory for each language's project files and writes one dev shell,
@@ -889,10 +908,9 @@ nix run github:kiyors/crucible#crucible -- pin go 1.25.3   # the per-system hash
 nix run github:kiyors/crucible#crucible -- pin python 3.14.0 # the SHA256SUMS input for a Python release
 ```
 
-The bare `nix run` builds a doctor-only binary (`packages.<system>.crucible-doctor`, cargo
-feature `net` off), which leaves out the HTTP and TLS stack that `update` and `pin` need and so
-builds faster. It runs `doctor` with no command, and also has `init`, which needs no network
-either. `#crucible` is the full CLI.
+The bare `nix run` builds the full CLI (`packages.<system>.crucible`, everything included). The
+doctor-only build (`packages.<system>.crucible-doctor`, cargo feature `net` off) stays for CI;
+it leaves out the HTTP and TLS stack that `update` and `pin` need, so it builds faster.
 
 `doctor` checks that the first `cargo` on PATH is the fork, and warns about other cargos and
 rustup proxies on PATH, `CARGO_INCREMENTAL=0`, `RUSTC_WRAPPER` caches, `CARGO_TARGET_DIR`, a

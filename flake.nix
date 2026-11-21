@@ -48,14 +48,14 @@
         }
       );
 
-      # `nix run github:kiyors/crucible` runs `doctor`, from a build without
-      # the network commands: most people run it once, on a cold cache.
-      # `update` and `pin` stay one `#crucible` away.
+      # `nix run github:kiyors/crucible` is the full CLI: `update` and `pin`
+      # are in. The doctor-only `crucible-doctor` build stays for CI, where it
+      # is the one build without the network commands.
       apps = forAllSystems (system: {
         default = {
           type = "app";
-          program = nixpkgs.lib.getExe crucible.${system}.cli-doctor;
-          meta.description = "Diagnose a toolchain setup for huacnlee/cargo";
+          program = nixpkgs.lib.getExe crucible.${system}.cli;
+          meta.description = "the full CLI, with `update` and `pin`";
         };
       });
 
@@ -104,27 +104,133 @@
 
       templates.node = {
         path = ./templates/node;
-        description = "A Node.js project with Vite+ and pnpm, pinned by package.json";
+        description = "A Nix-flake-based Node.js development environment";
       };
 
       templates.python = {
         path = ./templates/python;
-        description = "A Python project with uv, pinned by pyproject.toml and .python-version";
+        description = "A Nix-flake-based Python development environment";
       };
 
       templates.go = {
         path = ./templates/go;
-        description = "A Go module whose toolchain comes from go.mod";
+        description = "A Nix-flake-based Go development environment";
       };
 
       templates.zig = {
         path = ./templates/zig;
-        description = "A Zig project whose toolchain comes from build.zig.zon";
+        description = "A Nix-flake-based Zig development environment";
       };
 
       templates.deno = {
         path = ./templates/deno;
-        description = "A Deno project on the newest pinned Deno release";
+        description = "A Nix-flake-based Deno development environment";
+      };
+
+      templates.bun = {
+        path = ./templates/bun;
+        description = "A Nix-flake-based Bun development environment";
+      };
+
+      templates.c-cpp = {
+        path = ./templates/c-cpp;
+        description = "A Nix-flake-based C/C++ development environment";
+      };
+
+      templates.elixir = {
+        path = ./templates/elixir;
+        description = "A Nix-flake-based Elixir development environment";
+      };
+
+      templates.elm = {
+        path = ./templates/elm;
+        description = "A Nix-flake-based Elm development environment";
+      };
+
+      templates.empty = {
+        path = ./templates/empty;
+        description = "An empty flake template that you can adapt to your own environment";
+      };
+
+      templates.hash = {
+        path = ./templates/hashi;
+        description = "A Nix-flake-based development environment for Terraform, Packer, and Nomad";
+      };
+
+      templates.java = {
+        path = ./templates/java;
+        description = "A Nix-flake-based Java development environment";
+      };
+
+      templates.jupyter = {
+        path = ./templates/jupyter;
+        description = "A Nix-flake-based Jupyter development environment";
+      };
+
+      templates.kotlin = {
+        path = ./templates/kotlin;
+        description = "A Nix-flake-based Kotlin development environment";
+      };
+
+      templates.laravel = {
+        path = ./templates/laravel;
+        description = "A Nix-flake-based PHP/laravel development environment";
+      };
+
+      templates.nim = {
+        path = ./templates/nim;
+        description = "A Nix-flake-based Nim development environment";
+      };
+
+      templates.nix = {
+        path = ./templates/nix;
+        description = "A Nix-flake-based Nix development environment";
+      };
+
+      templates.odin = {
+        path = ./templates/odin;
+        description = "A Nix-flake-based Odin development environment";
+      };
+
+      templates.php = {
+        path = ./templates/php;
+        description = "A Nix-flake-based PHP development environment";
+      };
+
+      templates.rust = {
+        path = ./templates/rust;
+        description = "A Nix-flake-based Rust development environment";
+      };
+
+      templates.scala = {
+        path = ./templates/scala;
+        description = "A Nix-flake-based Scala development environment";
+      };
+
+      templates.shell = {
+        path = ./templates/shell;
+        description = "A Nix-flake-based Shell development environment";
+      };
+
+      templates.swift = {
+        path = ./templates/swift;
+        description = "A Nix-flake-based Swift development environment";
+      };
+
+      templates.uv = {
+        path = ./templates/uv;
+        description = "Combined Python (uv) and Node.js development environment";
+      };
+
+      # Aliases for c-cpp, like the nix-templates repo has
+      templates.c = {
+        path = ./templates/c-cpp;
+        description = "A Nix-flake-based C/C++ development environment";
+      };
+
+      templates.cpp = {
+        path = ./templates/c-cpp;
+        description = "A Nix-flake-based C/C++ development environment";
       };
     };
 }

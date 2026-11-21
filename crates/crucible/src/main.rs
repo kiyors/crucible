@@ -1,11 +1,12 @@
 //! `crucible`: the repo's updater, environment doctor and channel pin helper.
 
-#[cfg(feature = "net")]
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+
+mod templates;
 
 #[cfg(feature = "net")]
 use pins::{pin, update, update::Scope};
@@ -48,11 +49,21 @@ enum Command {
     /// Check that the fork is what cargo resolves to
     Doctor,
     /// Write a flake.nix whose dev shell uses this directory's
-    /// rust-toolchain.toml and package.json
+    /// rust-toolchain.toml and package.json; with a directory, create a new
+    /// project there from a template instead
     Init {
         /// Replace an existing flake.nix
         #[arg(long)]
         force: bool,
+        /// Create a new project in this directory, from the template
+        directory: Option<PathBuf>,
+        /// Template name from the nix-templates repo (default: empty)
+        template: Option<String>,
+    },
+    /// Add a template to the project in the current directory
+    Add {
+        /// Template name from the nix-templates repo (default: empty)
+        template: Option<String>,
     },
     /// Print what a project needs to pin a toolchain version
     #[cfg(feature = "net")]
@@ -104,8 +115,25 @@ fn main() -> ExitCode {
 fn run() -> Result<ExitCode> {
     match Cli::parse().command {
         None | Some(Command::Doctor) => doctor::run(),
-        Some(Command::Init { force }) => {
-            init::run(&std::env::current_dir()?, force)?;
+        Some(Command::Init {
+            force,
+            directory,
+            template,
+        }) => {
+            if let Some(directory) = directory {
+                templates::init(&directory, template.as_deref())?;
+            } else {
+                if template.is_some() {
+                    anyhow::bail!(
+                        "a template needs a directory: `crucible init <directory> [template]`"
+                    );
+                }
+                init::run(&std::env::current_dir()?, force)?;
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        Some(Command::Add { template }) => {
+            templates::add(template.as_deref())?;
             Ok(ExitCode::SUCCESS)
         }
         #[cfg(not(feature = "net"))]

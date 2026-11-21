@@ -542,7 +542,7 @@ pub fn run(dir: &Path, force: bool) -> Result<()> {
     }
     if shells(&project).is_empty() {
         anyhow::bail!(
-            "found no rust-toolchain.toml, rust-toolchain, package.json, deno.json, deno.jsonc, pyproject.toml, .python-version, go.mod or build.zig.zon in {}; add one and run init again, or start from a template: nix flake init -t github:kiyors/crucible",
+            "found no rust-toolchain.toml, rust-toolchain, package.json, deno.json, deno.jsonc, pyproject.toml, .python-version, go.mod or build.zig.zon in {}; add one and run init again, or start a new project: `crucible init <directory>`",
             dir.display()
         );
     }
