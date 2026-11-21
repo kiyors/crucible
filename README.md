@@ -702,8 +702,11 @@ crucible.lib.${system}.zig.fromBuildZigZon { file = ./build.zig.zon; }
 ```
 
 Reads `.minimum_zig_version` from the project's `build.zig.zon` (the string form Zig writes
-since 0.13, or the tuple form before it) and returns the toolchain for it. A version that is
-not pinned is the same error as above.
+since 0.13, or the tuple form before it) and returns the toolchain for it. Like Zig itself, it
+reads the version as the oldest release that will do: `"0.15.0"` gets the pinned 0.15 release, and
+keeps working as the update moves the pin to each new patch. It never moves to another line,
+since Zig changes its language between 0.x lines, so a minimum newer than its line's pin, or on
+a line that is not pinned, is an evaluation error.
 
 ### devShell
 

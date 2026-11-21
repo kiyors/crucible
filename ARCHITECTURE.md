@@ -232,8 +232,9 @@ separate package ecosystem, the second builds from source.
     evaluation error; `crucible update zig` pins the newest patch of every minor line in
     ziglang.org's `index.json`.
   - `fromBuildZigZon { file }`: reads `.minimum_zig_version` from `build.zig.zon` (the
-    string form Zig writes since 0.13, or the tuple form before it) and returns the
-    toolchain for it.
+    string form Zig writes since 0.13, or the tuple form before it) as a minimum: the pinned
+    release of its line satisfies it when it is the same or newer. It never moves to another
+    line, since Zig changes its language between 0.x lines.
   - `assemble` joins the zig executable with a `symlinkJoin`; each toolchain carries
     `.version` and `.zig`.
 

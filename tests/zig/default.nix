@@ -9,6 +9,14 @@ let
   pins = lib.importJSON ../../data/zig/zig.json;
   stable = pins.releases.${pins.stable};
 
+  # build.zig.zon files written from the pins, so these checks follow the
+  # update instead of breaking when it moves a pin. builtins.toFile needs no
+  # build, so reading them back is not import-from-derivation.
+  zon =
+    name: minimum:
+    builtins.toFile "build.zig.zon" ".{ .name = .${name}, .minimum_zig_version = \"${minimum}\" }\n";
+  fromZon = name: minimum: zig.fromBuildZigZon { file = zon name minimum; };
+
   # A toolchain is rejected at evaluation time when building it throws.
   rejected = toolchain: !(builtins.tryEval toolchain.drvPath).success;
 
@@ -51,16 +59,19 @@ in
     assert ok;
     pkgs.runCommand "crucible-check-zig-lines" { } "touch $out";
 
-  # `fromBuildZigZon` reads .minimum_zig_version and resolves it to a pin.
+  # `fromBuildZigZon` reads .minimum_zig_version as the oldest release that
+  # will do, met by the pinned release of its line.
   zig-from-build-zig-zon =
     let
-      # The fixtures name the newest pin of the newest line; update them
-      # when `crucible update zig` moves it.
+      # Both fixtures name 0.17.1, which a newer 0.17 patch still meets.
       stringForm = zig.fromBuildZigZon { file = ./hello/build.zig.zon; };
       tupleForm = zig.fromBuildZigZon { file = ./tuple/build.zig.zon; };
     in
-    assert stringForm.version == stable.version;
-    assert tupleForm.version == stable.version;
+    assert stringForm.version == pins.releases."0.17".version;
+    assert tupleForm.version == pins.releases."0.17".version;
+    assert (fromZon "older" "${pins.stable}.0").version == stable.version;
+    assert (fromZon "exact" stable.version).version == stable.version;
+    assert (fromZon "oldline" "0.15.0").version == pins.releases."0.15".version;
     pkgs.runCommand "crucible-check-zig-from-build-zig-zon" { } "touch $out";
 
   # Mistakes that would otherwise fail later, or not at all.
@@ -70,6 +81,9 @@ in
     # Master's line is not pinned, and a garbage spec is nothing.
     assert rejected (zig.toolchain { version = "0.18"; });
     assert rejected (zig.toolchain { version = "banana"; });
+    # A minimum newer than its line's pin, or on a line that is not pinned.
+    assert rejected (fromZon "newer" "${pins.stable}.999");
+    assert rejected (fromZon "unpinned" "0.999.0");
     # A release without .minimum_zig_version: pass `version` instead.
     assert rejected (zig.fromBuildZigZon { file = ./no-minimum/build.zig.zon; });
     # A line without a build on this system is an error here.

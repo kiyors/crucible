@@ -7,6 +7,7 @@
 let
   inherit (builtins)
     attrValues
+    compareVersions
     head
     match
     readFile
@@ -103,10 +104,26 @@ let
     assemble { release = resolve { inherit version; }; };
 
   # Reads `.minimum_zig_version` from a project's build.zig.zon and returns
-  # the toolchain for it.
+  # the toolchain for it. It is the oldest release that will do, so the
+  # pinned release of its line satisfies it when it is the same or newer, and
+  # a build.zig.zon keeps working as the update moves the pin to each new
+  # patch. Another line does not: Zig changes its language between 0.x lines.
   fromBuildZigZon =
     { file }:
-    toolchain { version = minimumZigVersion file; };
+    let
+      minimum = minimumZigVersion file;
+      line = lib.versions.majorMinor minimum;
+      pinnedLine = pinned.releases.${line} or null;
+    in
+    if pinnedLine == null then
+      throw (notPinned minimum)
+    else if compareVersions pinnedLine.version minimum < 0 then
+      throw ''
+        crucible: ${toString file} needs Zig ${minimum}, which is newer than the pinned
+        ${pinnedLine.version}. Update crucible, or lower .minimum_zig_version.
+      ''
+    else
+      assemble { release = pinnedLine; };
 in
 {
   inherit toolchain fromBuildZigZon;
