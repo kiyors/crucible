@@ -4,10 +4,19 @@
 //! Every check mirrors something the README warns about: other `cargo` binaries
 //! earlier or later on PATH, rustup's proxies, settings the fork ignores,
 //! caches that end up storing everything twice, a shell older than the last
-//! Home Manager switch, and a C compiler that cannot build some crates.
+//! Home Manager switch, and a C compiler that cannot build some crates. The
+//! other languages (Node.js here, Python, Go, Zig and Deno in their own
+//! modules) compare the active toolchain with the project's pins and look for
+//! the settings lib/<lang> and the Home Manager module warn about.
 
-use std::collections::HashSet;
+mod deno;
+mod go;
+mod python;
+mod zig;
+
+use std::collections::{HashMap, HashSet};
 use std::env;
+use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
@@ -33,6 +42,13 @@ pub fn run() -> Result<ExitCode> {
     check_node_env(&mut checks);
     check_node_version_file(&mut checks, &cwd, node.as_deref());
     check_package_json(&mut checks, &cwd);
+    // Each of these is silent when neither its executable nor its project
+    // files are here, so a Rust-only project sees no Python or Go lines.
+    let env = Env::process();
+    python::check(&mut checks, &cwd, &env);
+    go::check(&mut checks, &cwd, &env);
+    zig::check(&mut checks, &cwd, &env);
+    deno::check(&mut checks, &cwd, &env);
 
     Ok(if checks.errors == 0 {
         ExitCode::SUCCESS
@@ -44,28 +60,104 @@ pub fn run() -> Result<ExitCode> {
 #[derive(Default)]
 struct Checks {
     errors: u32,
+    /// Every line printed, for the tests to read back.
+    #[cfg(test)]
+    lines: Vec<String>,
 }
 
 impl Checks {
-    fn ok(&self, message: String) {
-        Self::line("ok", &message);
+    fn ok(&mut self, message: String) {
+        self.line("ok", &message);
     }
 
-    fn warn(&self, message: String) {
-        Self::line("warn", &message);
+    fn warn(&mut self, message: String) {
+        self.line("warn", &message);
     }
 
-    fn info(&self, message: String) {
-        Self::line("info", &message);
+    fn info(&mut self, message: String) {
+        self.line("info", &message);
     }
 
     fn error(&mut self, message: String) {
         self.errors += 1;
-        Self::line("error", &message);
+        self.line("error", &message);
     }
 
-    fn line(level: &str, message: &str) {
-        println!("{level:<5} {message}");
+    fn line(&mut self, level: &str, message: &str) {
+        let line = format!("{level:<5} {message}");
+        println!("{line}");
+        #[cfg(test)]
+        self.lines.push(line);
+    }
+}
+
+/// PATH and the variables the language checks read. The process's own in
+/// `run`; the tests pass theirs instead of changing the real environment,
+/// which other tests share.
+struct Env {
+    path: OsString,
+    /// None reads the process environment.
+    vars: Option<HashMap<String, String>>,
+}
+
+impl Env {
+    fn process() -> Self {
+        Env {
+            path: env::var_os("PATH").unwrap_or_default(),
+            vars: None,
+        }
+    }
+
+    /// A variable's value; an empty one counts as unset, as in `env_value`.
+    fn var(&self, name: &str) -> Option<String> {
+        match &self.vars {
+            None => env_value(name),
+            Some(vars) => vars.get(name).filter(|value| !value.is_empty()).cloned(),
+        }
+    }
+
+    fn executables(&self, name: &str) -> Vec<PathBuf> {
+        executables_in(name, &self.path)
+    }
+
+    /// Whether `dir` is on PATH, as itself or through a symlink.
+    fn on_path(&self, dir: &Path) -> bool {
+        let real = fs::canonicalize(dir).ok();
+        env::split_paths(&self.path)
+            .any(|entry| entry == dir || real.is_some() && fs::canonicalize(&entry).ok() == real)
+    }
+}
+
+/// What `exe args` prints on stdout, trimmed, with `envs` added to its
+/// environment. A toolchain that cannot say its version will not build
+/// anything either, so a failure is an error.
+fn stdout_of(
+    checks: &mut Checks,
+    exe: &Path,
+    args: &[&str],
+    envs: &[(&str, &str)],
+) -> Option<String> {
+    match Command::new(exe)
+        .args(args)
+        .envs(envs.iter().copied())
+        .output()
+    {
+        Ok(output) if output.status.success() => {
+            Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
+        }
+        Ok(output) => {
+            checks.error(format!(
+                "{} {} failed: {}",
+                exe.display(),
+                args.join(" "),
+                String::from_utf8_lossy(&output.stderr).trim()
+            ));
+            None
+        }
+        Err(err) => {
+            checks.error(format!("cannot run {}: {err}", exe.display()));
+            None
+        }
     }
 }
 
@@ -491,32 +583,12 @@ fn check_node(checks: &mut Checks) -> Option<String> {
         checks.info("no node on PATH; Node.js checks skipped".to_string());
         return None;
     };
-    match Command::new(first).arg("--version").output() {
-        Ok(output) if output.status.success() => {
-            let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            checks.ok(format!("{} is node {version}", first.display()));
-            for other in &nodes[1..] {
-                checks.warn(format!(
-                    "another node is on PATH: {} (the first one, {}, wins)",
-                    other.display(),
-                    first.display()
-                ));
-            }
-            Some(version)
-        }
-        Ok(output) => {
-            checks.error(format!(
-                "{} --version failed: {}",
-                first.display(),
-                String::from_utf8_lossy(&output.stderr).trim()
-            ));
-            None
-        }
-        Err(err) => {
-            checks.error(format!("cannot run {}: {err}", first.display()));
-            None
-        }
+    let version = stdout_of(checks, first, &["--version"], &[])?;
+    checks.ok(format!("{} is node {version}", first.display()));
+    for message in shadowed("node", &nodes) {
+        checks.warn(message);
     }
+    Some(version)
 }
 
 /// State that leaks between projects or makes vp ignore the toolchain's
@@ -927,6 +999,16 @@ fn version_matches(wanted: &str, actual: &str) -> Option<bool> {
     Some(any)
 }
 
+/// Whether `actual` is `minimum` or newer: go.mod's directives and
+/// build.zig.zon's `.minimum_zig_version` name the oldest release that will
+/// do. None when doctor cannot decide, as for version_matches.
+fn at_least(minimum: &str, actual: &str) -> Option<bool> {
+    if minimum.contains(char::is_whitespace) {
+        return None;
+    }
+    version_matches(&format!(">={minimum}"), actual)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Op {
     Ge,
@@ -1160,8 +1242,64 @@ fn human_size(bytes: u64) -> String {
     }
 }
 
+/// Fixtures the tests of every language share.
+#[cfg(test)]
+mod test_support {
+    use super::*;
+
+    /// A fresh directory for one test, so parallel tests do not collide.
+    pub fn scratch(test: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("crucible-doctor-{test}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    pub fn write_executable(path: &Path, contents: &[u8]) {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, contents).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+    }
+
+    /// An Env with only `dirs` on PATH and only `vars` set.
+    pub fn fake_env(dirs: &[&Path], vars: &[(&str, &str)]) -> Env {
+        Env {
+            path: env::join_paths(dirs).unwrap(),
+            vars: Some(
+                vars.iter()
+                    .map(|(name, value)| (name.to_string(), value.to_string()))
+                    .collect(),
+            ),
+        }
+    }
+
+    /// Run one language's check and return what it printed.
+    pub fn run_check(check: impl FnOnce(&mut Checks)) -> (Vec<String>, u32) {
+        let mut checks = Checks::default();
+        check(&mut checks);
+        (checks.lines, checks.errors)
+    }
+
+    /// Whether one of `lines` contains `text`, with the lines in the panic
+    /// message when it does not.
+    #[track_caller]
+    pub fn assert_line(lines: &[String], text: &str) {
+        assert!(
+            lines.iter().any(|line| line.contains(text)),
+            "no line contains {text:?}:\n{}",
+            lines.join("\n")
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use super::test_support::*;
     use super::*;
 
     #[test]
@@ -1355,25 +1493,6 @@ export RUSTC_WRAPPER_LOG=\"debug\"
         assert_eq!(version_matches("^10", "10.0.0-rc.1"), None);
         assert_eq!(version_matches("~>10", "10.4.1"), None);
         assert_eq!(version_matches("1.x.3", "1.0.3"), None);
-    }
-
-    /// A fresh directory for one test, so parallel tests do not collide.
-    fn scratch(test: &str) -> PathBuf {
-        let dir =
-            std::env::temp_dir().join(format!("crucible-doctor-{test}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        dir
-    }
-
-    fn write_executable(path: &Path, contents: &[u8]) {
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(path, contents).unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
-        }
     }
 
     #[test]

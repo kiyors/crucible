@@ -800,7 +800,8 @@ either. `#crucible` is the full CLI.
 `doctor` checks that the first `cargo` on PATH is the fork, and warns about other cargos and
 rustup proxies on PATH, `CARGO_INCREMENTAL=0`, `RUSTC_WRAPPER` caches, `CARGO_TARGET_DIR`, a
 `RUST_SRC_PATH` from another release, and a `rust-toolchain.toml` that disagrees with `rustc`. It
-exits non-zero when cargo is not the fork. It is what `crucible` runs with no command.
+exits non-zero when cargo is not the fork, and on any other `error` line, such as a toolchain
+that a project's pin rules out. It is what `crucible` runs with no command.
 
 For Node.js it checks the active `node` against the nearest `.node-version` or `.nvmrc`, and warns
 about state that leaks between projects or makes vp ignore the toolchain's Node: `VP_HOME`, a
@@ -824,6 +825,33 @@ the first `devEngines.packageManager` entry with a name and a version, the order
 Each warning says what to do: use crucible's `packageManager = "pnpm@<major>"` in
 `lib.<system>.node.toolchain`, pass a package built from the release you need, or remove the extra
 copy.
+
+The other languages get the same treatment, each one only when its executable or its project file
+is there, so a Rust-only project sees no Python or Go lines. A project file without the
+executable is a warning that names the function to add (`fromPyprojectToml`, `fromGoMod`,
+`fromBuildZigZon`, `deno.toolchain`) or the `programs.crucible.<lang>` option, and a second copy
+further down PATH is warned about as above.
+
+- **Python and uv.** The active `python3` is compared with the nearest `.python-version` (read as
+  `fromPythonVersion` reads it) and with `requires-python` in the nearest `pyproject.toml`, both
+  as PEP 440; a `3.14t` entry also needs `python3` to be a freethreaded build. `doctor` warns about `PYTHONHOME`, a `UV_PYTHON` that is not the `python3` on PATH
+  (or, when unset, a uv wrapper that defaults it to another toolchain's python3), a
+  `UV_PYTHON_DOWNLOADS` other than `never`, and any `UV_MANAGED_PYTHON` or
+  `UV_PYTHON_PREFERENCE`. A uv that sets no `UV_PYTHON` at all is not crucible's, and gets an
+  `info` line. The OS's own `/usr/bin/python3` further down PATH is not reported, since it cannot
+  be removed.
+- **Go.** `go version` is compared with go.mod's (or go.work's) `go` and `toolchain` directives,
+  read as minimums as `fromGoMod` reads them. An older go than the `go` directive is an error,
+  since it refuses the module; an older one than the `toolchain` directive is a warning. It warns
+  about `GOROOT`, a `GOTOOLCHAIN` other than `local` (from the environment, a `go env -w` file, or
+  the GOROOT's `go.env`, which says which go is not crucible's), and a `go install` directory
+  (`GOBIN`, or GOPATH's `bin`) missing from PATH. Every go command doctor runs has
+  `GOTOOLCHAIN=local`, so it never downloads a toolchain.
+- **Zig.** `zig version` is compared with build.zig.zon's `.minimum_zig_version`. An older zig
+  is an error; a newer 0.x line is a warning, since Zig changes its language and build API
+  between them.
+- **Deno.** `deno --version` is reported but not compared: `deno.json` has no field for the Deno
+  release a project needs.
 
 Two hints cover problems that live outside the toolchain:
 

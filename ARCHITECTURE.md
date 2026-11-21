@@ -376,6 +376,20 @@ warned about like extra cargos. Which node a package manager runs on is read fro
 `.<name>-wrapped` target), never from scanning a bundled script, whose strings mention node paths
 that say nothing about how it runs.
 
+The other languages live in their own modules (`python.rs`, `go.rs`, `zig.rs`, `deno.rs`), each
+silent when neither its executable nor its project file is found. They read PATH and variables
+through `Env`, which the tests replace with their own so they never touch the process
+environment, and share `find_nearest_file`, `shadowed`, `stdout_of` and `at_least` (a minimum,
+through `version_matches`). Python compares `python3` with `.python-version` and
+`requires-python` through `pep440_matches`, the clauses `lib/python/pep440.nix` reads (and
+asks `python3` for `Py_GIL_DISABLED` when the entry ends in "t"), and
+checks the `UV_*` variables uv's setup hook overwrites, reading the default `UV_PYTHON` from
+crucible's makeWrapper script when the variable is unset. Go compares `go version` with the
+`go` and `toolchain` directives as minimums, resolves `GOTOOLCHAIN` the way go does
+(environment, `GOENV` file, the GOROOT's `go.env`), and runs every go command with
+`GOTOOLCHAIN=local` so none of them downloads a toolchain. Zig compares `zig version` with
+`.minimum_zig_version`. Deno only reports the version: `deno.json` pins none.
+
 ### Integration
 
 - `modules/home-manager.nix`: `programs.crucible.rust.*`. It installs a toolchain, sets
@@ -419,7 +433,7 @@ that say nothing about how it runs.
   `.buildNpmPackage` and `importNpmLock`. `tests/init.nix` evaluates the golden flakes in
   `crates/init/tests/fixtures/init/` (which `init`'s cargo tests must reproduce byte for byte) against
   crucible's lib, and runs the doctor-only `init` in one of them. `tests/default.nix` also checks the Node template
-  resolves and that the doctor-only binary carries the Node checks. The Python checks run python,
+  resolves and that the doctor-only binary carries the Node, Python, Go, Zig and Deno checks. The Python checks run python,
   pip and a stdlib venv on the newest line and every pinned line, take `tests/python/app` through
   `uv sync` and `uv run` offline (uv must find the toolchain's python and refuse to download
   another), check the setup hook beats inherited values, build and import a C extension from
