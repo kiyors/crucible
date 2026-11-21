@@ -24,15 +24,24 @@ fi
 
 # Mount a copy rather than the working tree itself, so --delete cannot touch
 # anything under the directory being edited.
-copy="$(mktemp -d "${TMPDIR:-/tmp}/crucible-nix.XXXXXX")"
+# One fixed copy, refreshed on every run: the VM mounts it once, so a fresh
+# temporary directory per run would leave a reused VM checking a stale copy.
+copy="${XDG_CACHE_HOME:-$HOME/.cache}/crucible/nixlinux-src"
+mkdir -p "$copy" || exit 1
 rsync -a --delete \
     --exclude fenix \
     --exclude nix-vite-plus \
     --exclude /target \
     --exclude result \
-    "$PWD/" "$copy/"
+    "$PWD/" "$copy/" || exit 1
 
-# Reuse the nixlinux VM when it already runs or is stopped, else start it.
+# Reuse the nixlinux VM only when it mounts that copy; one made by hand or by
+# an older version of this script mounts something else, so replace it.
+if container inspect nixlinux >/dev/null 2>&1 &&
+    ! container inspect nixlinux | grep -q "\"source\" *: *\"$copy\""; then
+    container stop nixlinux >/dev/null 2>&1
+    container delete nixlinux >/dev/null || exit 1
+fi
 if ! container exec nixlinux true 2>/dev/null; then
     container start nixlinux 2>/dev/null ||
         container run -d --name nixlinux --memory 8G --cpus 6 \
