@@ -25,6 +25,7 @@
             python
             go
             zig
+            tsrs
             cli
             cli-doctor
             ;
@@ -41,6 +42,7 @@
           inherit (python.latest) uv;
           go = go.stable;
           zig = zig.toolchain { };
+          tsrs = tsrs.toolchain { };
           crucible = cli;
           crucible-doctor = cli-doctor;
         }
@@ -77,6 +79,9 @@
         };
         zig = {
           inherit (crucible.${system}.zig) toolchain fromBuildZigZon;
+        };
+        tsrs = {
+          inherit (crucible.${system}.tsrs) toolchain;
         };
       });
 

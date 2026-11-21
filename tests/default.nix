@@ -10,6 +10,7 @@ import ./rust { inherit pkgs crucible; }
 // import ./python { inherit pkgs crucible; }
 // import ./go { inherit pkgs crucible; }
 // import ./zig { inherit pkgs crucible; }
+// import ./tsrs { inherit pkgs crucible; }
 // {
   # Built and unit-tested by the stable toolchain's rustPlatform, with and
   # without the `net` feature.

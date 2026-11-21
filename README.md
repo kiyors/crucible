@@ -14,6 +14,9 @@ source or through another overlay, and pinned from the files projects already ha
 - **Deno**: the official denoland/deno release builds.
 - **Go**: the official go.dev builds, set up so `go` never downloads another toolchain.
 - **Zig**: the official ziglang.org releases, pinned from ziglang.org's own `index.json`.
+- **tsrs**: [oxc-project/tsrs](https://github.com/oxc-project/tsrs), the Rust port of the
+  TypeScript 7 compiler and language server, as the native executable from its npm packages,
+  without the Node.js launcher.
 
 - **No intermediaries.** Every toolchain is built from its project's own release archives, not
   from source. Rust's components come straight from `static.rust-lang.org`, joined into one
@@ -31,6 +34,7 @@ source or through another overlay, and pinned from the files projects already ha
     freethreaded, and `data/python/uv.json` the uv release
   - `data/go/go.json`: the newest release of the two supported Go lines
   - `data/zig/zig.json`: the newest tagged release of every minor Zig line
+  - `data/tsrs/tsrs.json`: the tsrs release npm tags `latest`
 
   The scheduled `update` workflow refreshes them with the latest released CLI.
 
@@ -69,8 +73,10 @@ releases support.
 | `packages.<system>.zig`                 | Zig (the newest pinned release)                                  |
 | `lib.<system>.zig.toolchain`            | a toolchain from a Zig line or release                           |
 | `lib.<system>.zig.fromBuildZigZon`      | a toolchain from a project's `build.zig.zon`                     |
+| `packages.<system>.tsrs`                | `tsrs` and `tsrs-lint` (the pinned release)                      |
+| `lib.<system>.tsrs.toolchain`           | the pinned tsrs release                                          |
 | `overlays.default`                      | `pkgs.crucible`: `.rust`, `.node`, `.python`, `.go`, `.zig`, ... |
-| `homeManagerModules.default`            | `programs.crucible.{rust,node,python,go,zig}`                    |
+| `homeManagerModules.default`            | `programs.crucible.{rust,node,python,go,zig,tsrs}`               |
 | `templates.{default,node,python,...}`   | starter projects for every language, see [Templates](#templates) |
 
 Every Rust toolchain also carries:
@@ -752,6 +758,51 @@ ziglang.org also lists `master`, a rolling snapshot whose version changes daily.
 update zig` does not pin it: a daily pin would rewrite `data/zig/zig.json` every day while
 resolving to a different compiler each time, so only tagged releases are pinned.
 
+## tsrs
+
+[tsrs](https://github.com/oxc-project/tsrs) is a drop-in replacement for the TypeScript 7
+compiler (`tsc`) and language server, written in Rust. crucible installs it on its own, with no
+Node.js: the executable is the one from the per-platform npm package (`@tsrs/linux-x64-gnu`,
+`@tsrs/linux-arm64-gnu`, `@tsrs/darwin-arm64`) that the `tsrs` package's Node.js launcher would
+otherwise run.
+
+```nix
+crucible.lib.${system}.tsrs.toolchain {
+  version ? "latest";  # the pinned release, or that release's exact version
+}
+```
+
+tsrs has no release lines to choose from: every version is a prerelease against one TypeScript
+release (`7.1.0-beta.tsrs4` is the fourth tsrs release for TypeScript 7.1.0-beta), so one release
+is pinned, the one npm tags `latest`, and any other version is an evaluation error. The package
+carries:
+
+- `bin/tsrs`: the compiler, with `tsc`'s options plus `--fast`, and `tsrs --lsp` for editors
+- `bin/tsrs-lint`: `tsrs --lint`, the backend [Oxlint](https://oxc.rs) runs for its type-aware
+  rules (point `OXLINT_TSGOLINT_PATH` at it outside a project that installs `tsrs`)
+- `.version`: the release it was built from
+
+A project that lists `tsrs` in its own `devDependencies` keeps running that release through
+`pnpm exec tsrs`; this one is for a dev shell, checks outside such projects, and editors.
+
+```nix
+devShells.default = pkgs.mkShell {
+  packages = [ (crucible.lib.${system}.tsrs.toolchain { }) ];
+};
+```
+
+### Home Manager
+
+```nix
+programs.crucible.tsrs.enable = true;
+```
+
+### How the package is built
+
+`lib/tsrs/tsrs.nix` unpacks the platform package into `lib/tsrs` whole, since the executable
+reads the bundled `lib.*.d.ts` files from beside its real path and panics without them, and links
+`bin/tsrs` to it. On Linux, `autoPatchelf` points it at the store's glibc and libgcc_s.
+
 ## Templates
 
 ```sh
@@ -922,6 +973,7 @@ nix run .#crucible -- update deno                     # the newest stable Deno r
 nix run .#crucible -- update python                   # every supported CPython line (and its freethreaded line), and uv
 nix run .#crucible -- update go                       # the newest release of each supported Go line
 nix run .#crucible -- update zig                      # every tagged Zig release line
+nix run .#crucible -- update tsrs                     # the tsrs release npm tags latest
 ```
 
 The fork's hashes come from each release's `SHA256SUMS`, the Rust ones from the channel
@@ -930,7 +982,7 @@ and its pnpm lockfile, Deno's from the sha256 digests GitHub records for denolan
 assets, and Zig's from ziglang.org's per-platform `index.json`, so nothing is downloaded but
 metadata. Every `SHASUMS256.txt` is verified against its GPG signature before its hashes are
 used, with the active Node.js release keys vendored in `data/node/release-keys.asc`.
-Package-manager pins come from the npm registry's `dist.integrity`, and bun's from oven-sh/bun's
+Package-manager pins and tsrs's come from the npm registry's `dist.integrity`, and bun's from oven-sh/bun's
 `SHASUMS256.txt`. Go's hashes come from go.dev's release index (`?mode=json&include=all`), which
 also decides the supported lines: the two newest with a stable release, as Go's release policy
 has it. Which Node.js lines are supported comes from the Release working group's

@@ -21,6 +21,7 @@ let
   pythonCfg = config.programs.crucible.python;
   goCfg = config.programs.crucible.go;
   zigCfg = config.programs.crucible.zig;
+  tsrsCfg = config.programs.crucible.tsrs;
   tomlFormat = pkgs.formats.toml { };
   cargoHome = "${config.home.homeDirectory}/${cfg.cargoHomeDir}";
   sessionVariables = config.home.sessionVariables;
@@ -255,6 +256,23 @@ in
     };
   };
 
+  options.programs.crucible.tsrs = {
+    enable = mkEnableOption "tsrs, the Rust port of the TypeScript 7 compiler and language server";
+
+    package = mkOption {
+      type = types.package;
+      default = self.packages.${pkgs.stdenv.hostPlatform.system}.tsrs;
+      defaultText = literalExpression "crucible.packages.\${system}.tsrs";
+      description = ''
+        The tsrs to install: `tsrs` (a drop-in for `tsc`, and `tsrs --lsp` for editors)
+        and `tsrs-lint`, the backend Oxlint uses for its type-aware rules. It is the
+        native executable alone and needs no Node.js. A project that lists `tsrs` in its
+        own `devDependencies` runs that release through `pnpm exec` or `npx`; this one is
+        for checking outside such projects and for editors.
+      '';
+    };
+  };
+
   config = mkMerge [
     (mkIf cfg.enable {
       warnings =
@@ -366,6 +384,10 @@ in
 
     (mkIf zigCfg.enable {
       home.packages = [ zigCfg.package ] ++ zigCfg.extraPackages;
+    })
+
+    (mkIf tsrsCfg.enable {
+      home.packages = [ tsrsCfg.package ];
     })
   ];
 }
