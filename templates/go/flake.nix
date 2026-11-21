@@ -1,52 +1,57 @@
 {
-  description = "A Go project with crucible";
+  description = "A Nix-flake-based Go development environment";
 
-  inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    crucible = {
-      url = "github:kiyors/crucible";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
+  inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable"; # unstable Nixpkgs
+  inputs.crucible = {
+    url = "github:kiyors/crucible";
+    inputs.nixpkgs.follows = "nixpkgs";
   };
 
   outputs =
-    { nixpkgs, crucible, ... }:
+    inputs:
+
     let
-      forAllSystems = nixpkgs.lib.genAttrs [
+      goVersion = 24; # Change this to update the whole stack
+
+      supportedSystems = [
         "x86_64-linux"
         "aarch64-linux"
+        "x86_64-darwin"
         "aarch64-darwin"
       ];
-
-      # go.mod's toolchain or go directive names the oldest Go that will do,
-      # as the go command reads it, and the pinned release of that line
-      # satisfies it as the pins move to newer patch releases.
-      goFor = system: crucible.lib.${system}.go.fromGoMod { file = ./go.mod; };
+      forEachSupportedSystem =
+        f:
+        inputs.nixpkgs.lib.genAttrs supportedSystems (
+          system:
+          f {
+            pkgs = import inputs.nixpkgs {
+              inherit system;
+              overlays = [ inputs.self.overlays.default ];
+            };
+          }
+        );
     in
     {
-      # The toolchain is the official go.dev release. Its setup hook sets
-      # GOTOOLCHAIN=local, so go never downloads a toolchain of its own.
-      devShells = forAllSystems (system: {
-        default = nixpkgs.legacyPackages.${system}.mkShell {
-          packages = [ (goFor system) ];
-        };
-      });
+      overlays.default = final: _prev: {
+        go = final."go_1_${toString goVersion}";
+      };
 
-      # Package builds use nixpkgs' buildGoModule on the same Go. A module
-      # without dependencies needs no vendorHash; once it has some, set
-      # vendorHash to the hash the first build prints.
-      packages = forAllSystems (system: {
-        default = (goFor system).buildGoModule {
-          pname = "hello-go";
-          version = "0.1.0";
-          src = ./.;
-          vendorHash = null;
-          doInstallCheck = true;
-          installCheckPhase = ''
-            test "$($out/bin/hello-go)" = "hello from crucible"
-          '';
-          meta.mainProgram = "hello-go";
-        };
-      });
+      devShells = forEachSupportedSystem (
+        { pkgs }:
+        {
+          default = pkgs.mkShellNoCC {
+            packages = with pkgs; [
+              # go (version is specified by overlay)
+              go
+
+              # goimports, godoc, etc.
+              gotools
+
+              # https://github.com/golangci/golangci-lint
+              golangci-lint
+            ];
+          };
+        }
+      );
     };
 }

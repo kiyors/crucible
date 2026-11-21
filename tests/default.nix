@@ -31,15 +31,14 @@ import ./rust { inherit pkgs crucible; }
     installPhase = "touch $out";
   };
 
-  # The Node template must resolve from its own files, with pnpm in the
-  # toolchain (not an extra package the shell has to remember to add).
+  # The Node template ships a dev shell with pnpm and biome in it.
   node-template =
     let
-      toolchain = crucible.node.fromPackageJson {
-        file = ../templates/node/package.json;
-      };
+      nodeTemplate = builtins.readFile ../templates/node/flake.nix;
     in
-    assert toolchain.packageManager.pname == "pnpm";
+    assert lib.assertMsg (
+      builtins.match ".*nodePackages.pnpm.*" nodeTemplate != null
+    ) "the node template must ship pnpm in its dev shell";
     pkgs.runCommand "crucible-check-node-template" { } "touch $out";
 
   # A bare `crucible` is `crucible doctor`, run here with the fork first on

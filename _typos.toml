@@ -1,0 +1,4 @@
+# `damon` is a real nixpkgs package (damon-0-unstable-2021-10-06); typos does
+# not know the word yet, so the hashi template's package is allowed.
+[default.extend-words]
+damon = "damon"

@@ -1,56 +1,48 @@
 {
-  description = "A Node.js project with crucible, Vite+ and pnpm";
+  description = "A Nix-flake-based Node.js development environment";
 
-  inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    crucible = {
-      url = "github:kiyors/crucible";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
+  inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable"; # unstable Nixpkgs
+  inputs.crucible = {
+    url = "github:kiyors/crucible";
+    inputs.nixpkgs.follows = "nixpkgs";
   };
 
   outputs =
-    { nixpkgs, crucible, ... }:
+    inputs:
+
     let
-      forAllSystems = nixpkgs.lib.genAttrs [
+      supportedSystems = [
         "x86_64-linux"
         "aarch64-linux"
+        "x86_64-darwin"
         "aarch64-darwin"
       ];
-
-      # package.json, .node-version and packageManager stay the single source
-      # of truth for nvm/corepack, CI and Nix. Nothing here touches the network
-      # at evaluation time: the versions are resolved against crucible's pins.
-      nodeFor = system: crucible.lib.${system}.node.fromPackageJson { file = ./package.json; };
+      forEachSupportedSystem =
+        f:
+        inputs.nixpkgs.lib.genAttrs supportedSystems (
+          system:
+          f {
+            pkgs = import inputs.nixpkgs {
+              inherit system;
+              overlays = [ inputs.self.overlays.default ];
+            };
+          }
+        );
     in
     {
-      # The toolchain carries node, npm, vp and pnpm, all running on its own
-      # Node.js. Its setup hook keeps vp from downloading a Node.js of its own.
-      devShells = forAllSystems (system: {
-        default = nixpkgs.legacyPackages.${system}.mkShell {
-          packages = [ (nodeFor system) ];
-        };
-      });
+      overlays.default = _final: prev: rec {
+        inherit (prev) nodejs;
+      };
 
-      # Package builds use nixpkgs' builder on the same Node.js, with
-      # dependencies fetched by their lockfile integrity (no npmDepsHash).
-      packages = forAllSystems (
-        system:
-        let
-          pkgs = nixpkgs.legacyPackages.${system};
-        in
+      devShells = forEachSupportedSystem (
+        { pkgs }:
         {
-          default = (nodeFor system).buildNpmPackage {
-            pname = "hello-node";
-            version = "0.1.0";
-            src = ./.;
-            npmDeps = pkgs.importNpmLock { npmRoot = ./.; };
-            inherit (pkgs.importNpmLock) npmConfigHook;
-            dontNpmBuild = true;
-            doInstallCheck = true;
-            installCheckPhase = ''
-              test "$($out/bin/hello-node)" = "hello from crucible"
-            '';
+          default = pkgs.mkShellNoCC {
+            packages = with pkgs; [
+              nodejs
+              nodePackages.pnpm
+              biome
+            ];
           };
         }
       );

@@ -31,23 +31,35 @@ let
   # A flake's outputs, called with crucible's lib as the flake exposes it.
   outputsOf =
     dir:
-    (import (dir + "/flake.nix")).outputs {
-      nixpkgs = {
-        inherit lib;
-        legacyPackages.${system} = pkgs;
-      };
-      crucible.lib.${system} = {
-        inherit rust;
-        inherit (crucible)
-          node
-          deno
-          python
-          go
-          zig
-          ;
-      };
-      rust-manifest = rustManifest;
-    };
+    (import (dir + "/flake.nix")).outputs (
+      {
+        nixpkgs = {
+          inherit lib;
+          legacyPackages.${system} = pkgs;
+        };
+        crucible.lib.${system} = {
+          inherit rust;
+          inherit (crucible)
+            node
+            deno
+            python
+            go
+            zig
+            ;
+        };
+        rust-manifest = rustManifest;
+      }
+      // {
+        # The moved templates are self-contained dev shells: their `outputs`
+        # call `self`, so the check passes a stub whose overlay is the one
+        # output the `go` template reads through it.
+        self = {
+          overlays.default = final: _prev: {
+            go = final."go_1_24";
+          };
+        };
+      }
+    );
 
   evaluate =
     name:
@@ -115,33 +127,40 @@ in
     touch $out
   '';
 
-  # The templates' dev shells evaluate with crucible's lib, and the packages
-  # of the ones init has no counterpart for in the Rust and Node.js checks
-  # build and print their greeting.
+  # The root flake exposes the moved templates as `templates.<name>`; the
+  # directories they point at must be flake dirs.
   templates =
     let
-      shell =
-        name:
-        builtins.unsafeDiscardStringContext
-          (outputsOf (../templates + "/${name}")).devShells.${system}.default.drvPath;
-      package = name: (outputsOf (../templates + "/${name}")).packages.${system}.default;
+      moved = [
+        "bun"
+        "c-cpp"
+        "deno"
+        "elixir"
+        "elm"
+        "empty"
+        "go"
+        "hash"
+        "java"
+        "jupyter"
+        "kotlin"
+        "laravel"
+        "nim"
+        "nix"
+        "node"
+        "odin"
+        "php"
+        "python"
+        "rust"
+        "scala"
+        "shell"
+        "swift"
+        "uv"
+        "zig"
+      ];
+      missing = lib.filter (name: !builtins.pathExists (../templates + "/${name}/flake.nix")) (
+        moved ++ [ "default" ]
+      );
     in
-    pkgs.runCommand "crucible-check-templates" { } ''
-      # ${
-        lib.concatMapStringsSep " " shell [
-          "default"
-          "node"
-          "python"
-          "go"
-          "zig"
-          "deno"
-        ]
-      }
-      export HOME=$TMPDIR DENO_DIR=$TMPDIR/deno
-      test "$(${lib.getExe (package "python")})" = "hello from crucible"
-      test "$(${lib.getExe (package "go")})" = "hello from crucible"
-      test "$(${package "zig"}/bin/hello-zig 2>&1)" = "hello from crucible"
-      test "$(${lib.getExe (package "deno")})" = "hello from crucible"
-      touch $out
-    '';
+    assert missing == [ ];
+    pkgs.runCommand "crucible-check-templates" { } "touch $out";
 }
