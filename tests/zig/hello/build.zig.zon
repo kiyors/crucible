@@ -1,0 +1,6 @@
+.{
+    .name = "hello",
+    .version = "0.0.1",
+    .minimum_zig_version = "0.17.1",
+    .dependencies = .{ },
+}

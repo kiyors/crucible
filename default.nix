@@ -7,6 +7,7 @@ rec {
   deno = import ./lib/deno { inherit pkgs; };
   python = import ./lib/python { inherit pkgs; };
   go = import ./lib/go { inherit pkgs; };
+  zig = import ./lib/zig { inherit pkgs; };
 
   # `crucible update | doctor | pin`
   cli = pkgs.callPackage ./crates/crucible/package.nix { inherit (rust.stable) rustPlatform; };

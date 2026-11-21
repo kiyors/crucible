@@ -164,15 +164,16 @@ jobs:
             echo "stable=$(jq -r .version data/rust/stable.json)"
             echo "beta=$(jq -r .version data/rust/beta.json)"
             echo "nightly=$(jq -r '.version + " " + .date' data/rust/nightly.json)"
+            echo "zig=$(jq -r .stable data/zig/zig.json)"
           } >> "$GITHUB_OUTPUT"
       - uses: peter-evans/create-pull-request@3ffccacd46053766916f087ce41d627c0b8cf2d1 # v8.1.3
         with:
           branch: bot/crucible-update
           delete-branch: true
           commit-message: |
-            update: cargo ${{ steps.versions.outputs.cargo }}, rust ${{ steps.versions.outputs.stable }}
+            update: cargo ${{ steps.versions.outputs.cargo }}, rust ${{ steps.versions.outputs.stable }}, zig ${{ steps.versions.outputs.zig }}
           title: |
-            update: cargo ${{ steps.versions.outputs.cargo }}, rust ${{ steps.versions.outputs.stable }}
+            update: cargo ${{ steps.versions.outputs.cargo }}, rust ${{ steps.versions.outputs.stable }}, zig ${{ steps.versions.outputs.zig }}
           body: |
             Refreshed by the scheduled update workflow, which runs every 6 hours.
 
@@ -180,6 +181,7 @@ jobs:
             - stable: ${{ steps.versions.outputs.stable }}
             - beta: ${{ steps.versions.outputs.beta }}
             - nightly: ${{ steps.versions.outputs.nightly }}
+            - zig: ${{ steps.versions.outputs.zig }}
 
             Pull requests opened by this workflow use the default `GITHUB_TOKEN`,
             which does not start other workflows, so the checks ran in this

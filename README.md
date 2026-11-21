@@ -12,6 +12,7 @@ source or through another overlay, and pinned from the files projects already ha
   the relocatable builds uv installs, with [uv](https://docs.astral.sh/uv) next to them, set up
   to use that Python and never download one.
 - **Go**: the official go.dev builds, set up so `go` never downloads another toolchain.
+- **Zig**: the official ziglang.org releases, pinned from ziglang.org's own `index.json`.
 
 - **No intermediaries.** Components come straight from `static.rust-lang.org`, unpacked into one
   prefix the way rustup installs them, so every official binary finds its libraries where it
@@ -21,7 +22,7 @@ source or through another overlay, and pinned from the files projects already ha
   of every supported Node.js line, `data/node/vite-plus.json` the Vite+ release with its
   dependency tree, `data/python/python.json` the newest CPython of every supported line and
   `data/python/uv.json` the uv release, `data/go/go.json` the newest release of every supported
-  Go line; the scheduled `update` workflow refreshes them with the
+  Go line, `data/zig/zig.json` the newest tagged release of every minor Zig line; the scheduled `update` workflow refreshes them with the
   latest released CLI.
 - **Nightly is always complete.** The pinned nightly is the newest one that ships rustc, clippy,
   rustfmt, rust-src, llvm-tools, rust-analyzer and Cranelift on every supported host.
@@ -32,31 +33,34 @@ releases support.
 
 ## Outputs
 
-| Output                                  | What it is                                               |
-| --------------------------------------- | -------------------------------------------------------- |
-| `packages.<system>.rust` (`default`)    | stable + patched cargo                                   |
-| `packages.<system>.rust-nightly`        | complete nightly with Cranelift + patched cargo          |
-| `packages.<system>.cargo`               | the patched cargo alone                                  |
-| `packages.<system>.crucible`            | the CLI (`update`, `doctor`, `pin`, `init`)              |
-| `packages.<system>.crucible-doctor`     | the CLI with `doctor` and `init` (`apps.default`)        |
-| `lib.<system>.rust.toolchain`           | a toolchain from a channel, components and targets       |
-| `lib.<system>.rust.fromToolchainFile`   | a toolchain from a project's `rust-toolchain.toml`       |
-| `packages.<system>.node`                | Node.js LTS + npm + Vite+                                |
-| `packages.<system>.node-current`        | the newest Node.js line + npm + Vite+                    |
-| `packages.<system>.vite-plus`           | `vp` alone, on Node.js LTS                               |
-| `lib.<system>.node.toolchain`           | a toolchain from a Node.js version or range              |
-| `lib.<system>.node.fromPackageJson`     | a toolchain from a project's `package.json`              |
-| `lib.<system>.deno.toolchain`           | a Deno release from denoland/deno's GitHub releases      |
-| `packages.<system>.python`              | the newest CPython + pip + uv                            |
-| `packages.<system>.uv`                  | `uv` alone, on that CPython                              |
-| `lib.<system>.python.toolchain`         | a toolchain from a Python version or specifier           |
-| `lib.<system>.python.fromPythonVersion` | a toolchain from a project's `.python-version`           |
-| `lib.<system>.python.fromPyprojectToml` | a toolchain from a project's `pyproject.toml`            |
-| `packages.<system>.go`                  | the newest Go line                                       |
-| `lib.<system>.go.toolchain`             | a toolchain from a Go line or release                    |
-| `lib.<system>.go.fromGoMod`             | a toolchain from a project's `go.mod`                    |
-| `overlays.default`                      | `pkgs.crucible`: `.rust`, `.node`, `.python`, `.go`, ... |
-| `homeManagerModules.default`            | `programs.crucible.{rust,node,python,go}`                |
+| Output                                  | What it is                                                       |
+| --------------------------------------- | ---------------------------------------------------------------- |
+| `packages.<system>.rust` (`default`)    | stable + patched cargo                                           |
+| `packages.<system>.rust-nightly`        | complete nightly with Cranelift + patched cargo                  |
+| `packages.<system>.cargo`               | the patched cargo alone                                          |
+| `packages.<system>.crucible`            | the CLI (`update`, `doctor`, `pin`, `init`)                      |
+| `packages.<system>.crucible-doctor`     | the CLI with `doctor` and `init` (`apps.default`)                |
+| `lib.<system>.rust.toolchain`           | a toolchain from a channel, components and targets               |
+| `lib.<system>.rust.fromToolchainFile`   | a toolchain from a project's `rust-toolchain.toml`               |
+| `packages.<system>.node`                | Node.js LTS + npm + Vite+                                        |
+| `packages.<system>.node-current`        | the newest Node.js line + npm + Vite+                            |
+| `packages.<system>.vite-plus`           | `vp` alone, on Node.js LTS                                       |
+| `lib.<system>.node.toolchain`           | a toolchain from a Node.js version or range                      |
+| `lib.<system>.node.fromPackageJson`     | a toolchain from a project's `package.json`                      |
+| `lib.<system>.deno.toolchain`           | a Deno release from denoland/deno's GitHub releases              |
+| `packages.<system>.python`              | the newest CPython + pip + uv                                    |
+| `packages.<system>.uv`                  | `uv` alone, on that CPython                                      |
+| `lib.<system>.python.toolchain`         | a toolchain from a Python version or specifier                   |
+| `lib.<system>.python.fromPythonVersion` | a toolchain from a project's `.python-version`                   |
+| `lib.<system>.python.fromPyprojectToml` | a toolchain from a project's `pyproject.toml`                    |
+| `packages.<system>.go`                  | the newest Go line                                               |
+| `lib.<system>.go.toolchain`             | a toolchain from a Go line or release                            |
+| `lib.<system>.go.fromGoMod`             | a toolchain from a project's `go.mod`                            |
+| `packages.<system>.zig`                 | Zig (the newest pinned release)                                  |
+| `lib.<system>.zig.toolchain`            | a toolchain from a Zig line or release                           |
+| `lib.<system>.zig.fromBuildZigZon`      | a toolchain from a project's `build.zig.zon`                     |
+| `overlays.default`                      | `pkgs.crucible`: `.rust`, `.node`, `.python`, `.go`, `.zig`, ... |
+| `homeManagerModules.default`            | `programs.crucible.{rust,node,python,go,zig}`                    |
 
 Every Rust toolchain also carries:
 
@@ -637,6 +641,67 @@ It warns when `GOROOT` is set, and when `GOTOOLCHAIN` is set to anything but `lo
    `GOTOOLCHAIN=local` in `go.env`. `bin/go` and `bin/gofmt` are symlinks, from which `go` finds
    its GOROOT.
 
+## Zig
+
+### toolchain
+
+```nix
+crucible.lib.${system}.zig.toolchain {
+  version ? "stable";  # the newest pinned release;
+                       # or a line ("0.15" -> the newest patch of that line),
+                       # or an exact pinned release ("0.15.2")
+}
+```
+
+A line or release that is not pinned is an error rather than a download: `crucible update zig`
+pins the newest patch of every minor line in ziglang.org's `index.json`.
+
+Every toolchain carries:
+
+- `.zig`: the zig executable alone
+- `.version`: the release it was built from
+
+### fromBuildZigZon
+
+```nix
+crucible.lib.${system}.zig.fromBuildZigZon { file = ./build.zig.zon; }
+```
+
+Reads `.minimum_zig_version` from the project's `build.zig.zon` (the string form Zig writes
+since 0.13, or the tuple form before it) and returns the toolchain for it. A version that is
+not pinned is the same error as above.
+
+### devShell
+
+```nix
+devShells.default = pkgs.mkShell {
+  packages = [ (crucible.lib.${system}.zig.toolchain { }) ];
+};
+```
+
+### Home Manager
+
+```nix
+programs.crucible.zig = {
+  enable = true;
+  # package = inputs.crucible.lib.${pkgs.stdenv.hostPlatform.system}.zig.toolchain { version = "0.15"; };
+  extraPackages = [ pkgs.zls ];
+};
+```
+
+### How a toolchain is built
+
+1. `lib/zig/toolchain.nix` resolves the version against `data/zig/zig.json`.
+2. `lib/zig/zig.nix` unpacks the official tarball as it is: the executable and `lib/` sit side
+   by side under `bin/`, so the standard library is found next to the executable.
+3. A `symlinkJoin` puts the toolchain together.
+
+### Master
+
+ziglang.org also lists `master`, a rolling snapshot whose version changes daily. `crucible
+update zig` does not pin it: a daily pin would rewrite `data/zig/zig.json` every day while
+resolving to a different compiler each time, so only tagged releases are pinned.
+
 ## Templates
 
 ```sh
@@ -681,6 +746,7 @@ pkgs = import nixpkgs {
 # pkgs.crucible.node.fromPackageJson { ... }, pkgs.crucible.python.latest,
 # pkgs.crucible.python.toolchain { ... }, pkgs.crucible.python.fromPyprojectToml { ... }
 # pkgs.crucible.go.stable, pkgs.crucible.go.toolchain { ... }, pkgs.crucible.go.fromGoMod { ... }
+# pkgs.crucible.zig.toolchain { ... }
 ```
 
 ## CLI
@@ -733,11 +799,13 @@ nix run .#crucible -- update node                     # every supported Node.js 
 nix run .#crucible -- update deno                     # the newest stable Deno release
 nix run .#crucible -- update python                   # every supported CPython line, and uv
 nix run .#crucible -- update go                       # the newest release of each supported Go line
+nix run .#crucible -- update zig                      # every tagged Zig release line
 ```
 
 The fork's hashes come from each release's `SHA256SUMS`, the Rust ones from the channel
 manifests, Node.js's from each release's `SHASUMS256.txt` and Vite+'s from its
-`vp-checksums.txt` and its pnpm lockfile, so nothing is downloaded but metadata. Every
+`vp-checksums.txt` and its pnpm lockfile, and Zig's from ziglang.org's per-platform
+`index.json`, so nothing is downloaded but metadata. Every
 `SHASUMS256.txt` is verified against its GPG signature before its hashes are used, with the active
 Node.js release keys vendored in `data/node/release-keys.asc`. Package-manager pins come from the
 npm registry's `dist.integrity`. Go's hashes come from go.dev's release index

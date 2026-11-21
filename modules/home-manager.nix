@@ -20,6 +20,7 @@ let
   nodeCfg = config.programs.crucible.node;
   pythonCfg = config.programs.crucible.python;
   goCfg = config.programs.crucible.go;
+  zigCfg = config.programs.crucible.zig;
   tomlFormat = pkgs.formats.toml { };
   cargoHome = "${config.home.homeDirectory}/${cfg.cargoHomeDir}";
   sessionVariables = config.home.sessionVariables;
@@ -228,6 +229,32 @@ in
     };
   };
 
+  options.programs.crucible.zig = {
+    enable = mkEnableOption "a Zig toolchain from ziglang.org";
+
+    package = mkOption {
+      type = types.package;
+      default = self.packages.${pkgs.stdenv.hostPlatform.system}.zig;
+      defaultText = literalExpression "crucible.packages.\${system}.zig";
+      example = literalExpression "crucible.lib.\${system}.zig.toolchain { version = \"0.15\"; }";
+      description = ''
+        The toolchain to install: one from crucible's `packages` or
+        `lib.<system>.zig`, or any package with a `zig` executable.
+      '';
+    };
+
+    extraPackages = mkOption {
+      type = types.listOf types.package;
+      default = [ ];
+      example = literalExpression "[ pkgs.zls ]";
+      description = ''
+        Other tools installed next to the toolchain. nixpkgs' `zls`, the Zig
+        Language Server, is built against nixpkgs' zig and does not track
+        crucible's pins, so it is not wired in by the toolchain itself.
+      '';
+    };
+  };
+
   config = mkMerge [
     (mkIf cfg.enable {
       warnings =
@@ -335,6 +362,10 @@ in
         };
         sessionPath = optional (goCfg.goPath != null) "${config.home.homeDirectory}/${goCfg.goPath}/bin";
       };
+    })
+
+    (mkIf zigCfg.enable {
+      home.packages = [ zigCfg.package ] ++ zigCfg.extraPackages;
     })
   ];
 }

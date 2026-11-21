@@ -1,0 +1,6 @@
+.{
+    .name = "hello",
+    .version = "0.0.1",
+    .minimum_zig_version = .{ .major = 0, .minor = 17, .patch = 1 },
+    .dependencies = .{ },
+}

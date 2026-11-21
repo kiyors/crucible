@@ -13,6 +13,7 @@ pub mod package_managers;
 pub mod python;
 pub mod rust;
 pub mod vite_plus;
+pub mod zig;
 
 use std::fs;
 use std::io::{ErrorKind, Write};
@@ -36,6 +37,8 @@ pub enum Scope {
     Python,
     /// The supported Go lines
     Go,
+    /// Zig releases
+    Zig,
 }
 
 /// The files a run will write, already serialized, in write order.
@@ -50,7 +53,7 @@ pub fn run(scope: Scope, version: Option<String>, root: &Path) -> Result<()> {
 
     // Plan everything first: the cargo pin, then stable, beta and nightly, then
     // Node, Vite+, the package managers and Deno, then Python and uv, then
-    // Go, so a fetch failure anywhere aborts before any pin changes.
+    // Go and Zig, so a fetch failure anywhere aborts before any pin changes.
     let plan = match scope {
         Scope::All => {
             let mut plan = cargo::plan(&http, version, root)?;
@@ -59,6 +62,7 @@ pub fn run(scope: Scope, version: Option<String>, root: &Path) -> Result<()> {
             plan.extend(deno::plan(&http, root)?);
             plan.extend(python::plan(&http, root)?);
             plan.extend(go::plan(&http, root)?);
+            plan.extend(zig::plan(&http, root)?);
             plan
         }
         Scope::Cargo => cargo::plan(&http, version, root)?,
@@ -67,6 +71,7 @@ pub fn run(scope: Scope, version: Option<String>, root: &Path) -> Result<()> {
         Scope::Deno => deno::plan(&http, root)?,
         Scope::Python => python::plan(&http, root)?,
         Scope::Go => go::plan(&http, root)?,
+        Scope::Zig => zig::plan(&http, root)?,
     };
 
     for (path, bytes) in plan {

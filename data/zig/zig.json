@@ -1,0 +1,253 @@
+{
+  "stable": "0.17",
+  "releases": {
+    "0.2": {
+      "version": "0.2.0",
+      "date": "2018-03-15",
+      "platforms": {
+        "x86_64-linux": {
+          "url": "https://ziglang.org/download/0.2.0/zig-linux-x86_64-0.2.0.tar.xz",
+          "hash": "sha256-IJxvt0XUJHTApz1vKRx646OLahtrZB7qKFp/hAzBqJA="
+        }
+      }
+    },
+    "0.3": {
+      "version": "0.3.0",
+      "date": "2018-09-28",
+      "platforms": {
+        "x86_64-linux": {
+          "url": "https://ziglang.org/download/0.3.0/zig-linux-x86_64-0.3.0.tar.xz",
+          "hash": "sha256-s3jQquMMtU8oSU57xO+8m/tjJvR7+zAui1KHr3d7Lzw="
+        }
+      }
+    },
+    "0.4": {
+      "version": "0.4.0",
+      "date": "2019-04-08",
+      "platforms": {
+        "x86_64-linux": {
+          "url": "https://ziglang.org/download/0.4.0/zig-linux-x86_64-0.4.0.tar.xz",
+          "hash": "sha256-+xlU4vtVagH4B5oIEw6I9wCE4Il4/4U7srGYbYw52E4="
+        }
+      }
+    },
+    "0.5": {
+      "version": "0.5.0",
+      "date": "2019-09-30",
+      "platforms": {
+        "x86_64-linux": {
+          "url": "https://ziglang.org/download/0.5.0/zig-linux-x86_64-0.5.0.tar.xz",
+          "hash": "sha256-Q+j4qLhVbt03Pd+cHvPKbPhS1NCf4H1XNtEv7+3StPc="
+        }
+      }
+    },
+    "0.6": {
+      "version": "0.6.0",
+      "date": "2020-04-13",
+      "platforms": {
+        "x86_64-linux": {
+          "url": "https://ziglang.org/download/0.6.0/zig-linux-x86_64-0.6.0.tar.xz",
+          "hash": "sha256-CP08dXljYwZFRBwncjYunCKUAgxE8U/OG4n0XeDcElM="
+        },
+        "aarch64-linux": {
+          "url": "https://ziglang.org/download/0.6.0/zig-linux-aarch64-0.6.0.tar.xz",
+          "hash": "sha256-51IO/ULPoCvkjC5DDQj+Hzy7mZ0h2fDT/9D+u5drL0E="
+        }
+      }
+    },
+    "0.7": {
+      "version": "0.7.1",
+      "date": "2020-12-13",
+      "platforms": {
+        "x86_64-linux": {
+          "url": "https://ziglang.org/download/0.7.1/zig-linux-x86_64-0.7.1.tar.xz",
+          "hash": "sha256-GMe5sgBgD4vN4c2Nfx9XjLw2diQc4213GTfOGagVm40="
+        },
+        "aarch64-linux": {
+          "url": "https://ziglang.org/download/0.7.1/zig-linux-aarch64-0.7.1.tar.xz",
+          "hash": "sha256-SOyQ66QH5Fh93vfuzvJf7H4TWH65jjuDxfL1//Kly+c="
+        }
+      }
+    },
+    "0.8": {
+      "version": "0.8.1",
+      "date": "2021-09-06",
+      "platforms": {
+        "x86_64-linux": {
+          "url": "https://ziglang.org/download/0.8.1/zig-linux-x86_64-0.8.1.tar.xz",
+          "hash": "sha256-bAMvxhtdd6Pzz3gXMPpUn48Fn/2zs/atHCmU0rLYeYM="
+        },
+        "aarch64-linux": {
+          "url": "https://ziglang.org/download/0.8.1/zig-linux-aarch64-0.8.1.tar.xz",
+          "hash": "sha256-IWbcny2N84fotBIog7uXnXOSgeH/Pz1Ug/7DojuVdRA="
+        },
+        "aarch64-darwin": {
+          "url": "https://ziglang.org/download/0.8.1/zig-macos-aarch64-0.8.1.tar.xz",
+          "hash": "sha256-U1EpfjuECCE1FLKcCpOAAsXPn5fu4owvMpIOEif9hCM="
+        }
+      }
+    },
+    "0.9": {
+      "version": "0.9.1",
+      "date": "2022-02-14",
+      "platforms": {
+        "x86_64-linux": {
+          "url": "https://ziglang.org/download/0.9.1/zig-linux-x86_64-0.9.1.tar.xz",
+          "hash": "sha256-vo2mMsHTJz92a2kkTYBmn+T14neYZUaB13yZLxfCN9c="
+        },
+        "aarch64-linux": {
+          "url": "https://ziglang.org/download/0.9.1/zig-linux-aarch64-0.9.1.tar.xz",
+          "hash": "sha256-XZmjnN7Rhwo/qV1N5M5orCYQzKRAM2z9JS/93cK5DmY="
+        },
+        "aarch64-darwin": {
+          "url": "https://ziglang.org/download/0.9.1/zig-macos-aarch64-0.9.1.tar.xz",
+          "hash": "sha256-jEcwgrTw+Bnx2gXeLb0MHokd/32F0sErbuh2iH1Dgoc="
+        }
+      }
+    },
+    "0.10": {
+      "version": "0.10.1",
+      "date": "2023-01-19",
+      "platforms": {
+        "x86_64-linux": {
+          "url": "https://ziglang.org/download/0.10.1/zig-linux-x86_64-0.10.1.tar.xz",
+          "hash": "sha256-Zpnw5ykwgbQkKPMsnZyYOFQJS9Ff7lSJ8SxM9FGMw4A="
+        },
+        "aarch64-linux": {
+          "url": "https://ziglang.org/download/0.10.1/zig-linux-aarch64-0.10.1.tar.xz",
+          "hash": "sha256-2wdhZk9fIqpbvXRCoWF91pbAdtVxfd78ydi5Unj3H10="
+        },
+        "aarch64-darwin": {
+          "url": "https://ziglang.org/download/0.10.1/zig-macos-aarch64-0.10.1.tar.xz",
+          "hash": "sha256-ubAEd+xfofG4nzWn0qWGiOAZkQq4CmXqwqdBcWJzdlY="
+        }
+      }
+    },
+    "0.11": {
+      "version": "0.11.0",
+      "date": "2023-08-04",
+      "platforms": {
+        "x86_64-linux": {
+          "url": "https://ziglang.org/download/0.11.0/zig-linux-x86_64-0.11.0.tar.xz",
+          "hash": "sha256-LQDnif7E9xeQpue/g/+R1WSUPF7oQ8X9lm78R0tCMEc="
+        },
+        "aarch64-linux": {
+          "url": "https://ziglang.org/download/0.11.0/zig-linux-aarch64-0.11.0.tar.xz",
+          "hash": "sha256-lW6wldi6RKxuvSf3yZVuR9kpN8EDv3VHRdCjnNql1MY="
+        },
+        "aarch64-darwin": {
+          "url": "https://ziglang.org/download/0.11.0/zig-macos-aarch64-0.11.0.tar.xz",
+          "hash": "sha256-xuv5J7sTpwfXQmdHSp9VMnTmSQb9Ib8cdaIL3oyt97I="
+        }
+      }
+    },
+    "0.12": {
+      "version": "0.12.1",
+      "date": "2024-06-08",
+      "platforms": {
+        "x86_64-linux": {
+          "url": "https://ziglang.org/download/0.12.1/zig-linux-x86_64-0.12.1.tar.xz",
+          "hash": "sha256-iGD8lyXC2Sl6YwCPhT6bEePFokQSF/mcHjEEzG+kpEM="
+        },
+        "aarch64-linux": {
+          "url": "https://ziglang.org/download/0.12.1/zig-linux-aarch64-0.12.1.tar.xz",
+          "hash": "sha256-J9T+85Po2LXzsdGfTdQ7/bRptO0Xu8TCKDwbH+ZQ738="
+        },
+        "aarch64-darwin": {
+          "url": "https://ziglang.org/download/0.12.1/zig-macos-aarch64-0.12.1.tar.xz",
+          "hash": "sha256-ZYeGDbvAcOHuBp4aPRjO2Dt7p6gL9nssV8r3yc5SCLE="
+        }
+      }
+    },
+    "0.13": {
+      "version": "0.13.0",
+      "date": "2024-06-07",
+      "platforms": {
+        "x86_64-linux": {
+          "url": "https://ziglang.org/download/0.13.0/zig-linux-x86_64-0.13.0.tar.xz",
+          "hash": "sha256-1FMS5h68xIAyt3vEz3/WkVwR+hbkqtEWtmyUaCESMOo="
+        },
+        "aarch64-linux": {
+          "url": "https://ziglang.org/download/0.13.0/zig-linux-aarch64-0.13.0.tar.xz",
+          "hash": "sha256-BBrEIyODfrViQGis2LAM1Xd9rEz5EXno2ten6Q3QxVY="
+        },
+        "aarch64-darwin": {
+          "url": "https://ziglang.org/download/0.13.0/zig-macos-aarch64-0.13.0.tar.xz",
+          "hash": "sha256-RvriGWVlRd+vTc4S+06Ghc7FtR1yG+7pOJq0GU1DOUw="
+        }
+      }
+    },
+    "0.14": {
+      "version": "0.14.1",
+      "date": "2025-05-21",
+      "platforms": {
+        "x86_64-linux": {
+          "url": "https://ziglang.org/download/0.14.1/zig-x86_64-linux-0.14.1.tar.xz",
+          "hash": "sha256-JK7uyK8Ww4GTSmzX2VyAeoyyz335+kDTWaqIQZXEcWw="
+        },
+        "aarch64-linux": {
+          "url": "https://ziglang.org/download/0.14.1/zig-aarch64-linux-0.14.1.tar.xz",
+          "hash": "sha256-96ZUrMlnhk96BQ3az6p3jHUEoOyo0rZ4g5wh7qR8mSs="
+        },
+        "aarch64-darwin": {
+          "url": "https://ziglang.org/download/0.14.1/zig-aarch64-macos-0.14.1.tar.xz",
+          "hash": "sha256-OfPcXnnCIIjOh47cgh3ttMpaHNn175FemzzDBT6Prvo="
+        }
+      }
+    },
+    "0.15": {
+      "version": "0.15.2",
+      "date": "2025-10-11",
+      "platforms": {
+        "x86_64-linux": {
+          "url": "https://ziglang.org/download/0.15.2/zig-x86_64-linux-0.15.2.tar.xz",
+          "hash": "sha256-AqonDxg9onbltZILHaxEpj8aSeVQUOveOuzJ64L5Mjk="
+        },
+        "aarch64-linux": {
+          "url": "https://ziglang.org/download/0.15.2/zig-aarch64-linux-0.15.2.tar.xz",
+          "hash": "sha256-lY7X0eANDqdlkNJ2Zu+/epMigbPXugxrAbD/JkmPZn8="
+        },
+        "aarch64-darwin": {
+          "url": "https://ziglang.org/download/0.15.2/zig-aarch64-macos-0.15.2.tar.xz",
+          "hash": "sha256-PMK6s2fhhc37J1AcSzCxsGU8KNn3PfjckUiOZuzl+ms="
+        }
+      }
+    },
+    "0.16": {
+      "version": "0.16.0",
+      "date": "2026-04-13",
+      "platforms": {
+        "x86_64-linux": {
+          "url": "https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz",
+          "hash": "sha256-cOSWZKdDdLSLUebz/fv0N/Y5XUJQkFBYi9SavlK6PQA="
+        },
+        "aarch64-linux": {
+          "url": "https://ziglang.org/download/0.16.0/zig-aarch64-linux-0.16.0.tar.xz",
+          "hash": "sha256-6ksJv7IuxvbGzqxXq2PvtrRuF6sI0h9p86SLOOFTTxc="
+        },
+        "aarch64-darwin": {
+          "url": "https://ziglang.org/download/0.16.0/zig-aarch64-macos-0.16.0.tar.xz",
+          "hash": "sha256-sj1w3qqHm1wtSG7TMW9+qlPoSs9vycx0feFSRQ1AFIk="
+        }
+      }
+    },
+    "0.17": {
+      "version": "0.17.1",
+      "date": "2026-11-02",
+      "platforms": {
+        "x86_64-linux": {
+          "url": "https://ziglang.org/download/0.17.1/zig-x86_64-linux-0.17.1.tar.xz",
+          "hash": "sha256-NYGGPjy8/Q/ODvxoLOfp6T2pZmipd3kdNWom0qfpsXo="
+        },
+        "aarch64-linux": {
+          "url": "https://ziglang.org/download/0.17.1/zig-aarch64-linux-0.17.1.tar.xz",
+          "hash": "sha256-oVRtVkbrGEQ3kY1mNcprdioOiJ6sCc73IO56HtP+d5U="
+        },
+        "aarch64-darwin": {
+          "url": "https://ziglang.org/download/0.17.1/zig-aarch64-macos-0.17.1.tar.xz",
+          "hash": "sha256-dfG8eh6YUvF+yaDBiV92fE7FbUa8ioNJIO7OHQNZ3Y0="
+        }
+      }
+    }
+  }
+}

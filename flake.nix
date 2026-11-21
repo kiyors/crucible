@@ -24,6 +24,7 @@
             node
             python
             go
+            zig
             cli
             cli-doctor
             ;
@@ -39,6 +40,7 @@
           python = python.latest;
           inherit (python.latest) uv;
           go = go.stable;
+          zig = zig.toolchain { };
           crucible = cli;
           crucible-doctor = cli-doctor;
         }
@@ -72,6 +74,9 @@
         };
         go = {
           inherit (crucible.${system}.go) toolchain fromGoMod;
+        };
+        zig = {
+          inherit (crucible.${system}.zig) toolchain fromBuildZigZon;
         };
       });
 
