@@ -772,11 +772,28 @@ rustup proxies on PATH, `CARGO_INCREMENTAL=0`, `RUSTC_WRAPPER` caches, `CARGO_TA
 `RUST_SRC_PATH` from another release, and a `rust-toolchain.toml` that disagrees with `rustc`. It
 exits non-zero when cargo is not the fork. It is what `crucible` runs with no command.
 
-For Node.js it checks the active `node` against the nearest `.node-version` or `.nvmrc`, the
-active package manager against `package.json`'s `packageManager`, and warns about state that leaks
-between projects or makes vp ignore the toolchain's Node: `VP_HOME`, a `VP_ENV_FORBIDDEN` other
-than 1, `NODE_PATH`, and an npm prefix inside the read-only store. A missing Node.js is an `info`
-line, not an error: `doctor` is useful in Rust-only projects too.
+For Node.js it checks the active `node` against the nearest `.node-version` or `.nvmrc`, and warns
+about state that leaks between projects or makes vp ignore the toolchain's Node: `VP_HOME`, a
+`VP_ENV_FORBIDDEN` other than 1, `NODE_PATH`, and an npm prefix inside the read-only store. A
+missing Node.js is an `info` line, not an error: `doctor` is useful in Rust-only projects too.
+
+The package manager is checked against the nearest `package.json`: its `packageManager`, or else
+the first `devEngines.packageManager` entry with a name and a version, the order
+`fromPackageJson` uses. An exact release, a major (`pnpm@10`) and an npm range (`pnpm@^10.2`,
+`pnpm@>=9 <11`) are all compared; a spec doctor cannot read (`pnpm@latest`, a pre-release) is an
+`info` line rather than a mismatch. `doctor` also warns about:
+
+- **A second copy further down PATH**, such as a pnpm from `extraPackages` next to the
+  toolchain's. It lists both and says which one wins.
+- **A package manager on another Node.js.** A wrapper or shebang that names a node other than the
+  one on PATH (a nixpkgs pnpm built on its own `nodejs`, say) runs install scripts on that one.
+  Only what the files state counts: `#!/usr/bin/env node`, an explicit `.../bin/node`, and
+  makeWrapper's `.<name>-wrapped` target. Native executables (bun, pnpm's standalone build) are
+  reported as not applicable, and anything else is left alone rather than guessed at.
+
+Each warning says what to do: use crucible's `packageManager = "pnpm@<major>"` in
+`lib.<system>.node.toolchain`, pass a package built from the release you need, or remove the extra
+copy.
 
 Two hints cover problems that live outside the toolchain:
 

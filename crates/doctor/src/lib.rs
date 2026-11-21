@@ -596,7 +596,7 @@ fn check_node_version_file(checks: &mut Checks, cwd: &Path, node: Option<&str>) 
         // Aliases such as `lts/*` and `node` are resolved by the toolchain,
         // not by a version we can compare here.
         None => checks.info(format!(
-            "{} pins {pin}, which is an alias; not compared with node",
+            "{} pins {pin}, which is an alias or a range doctor cannot read; not compared with node",
             path.display()
         )),
     }
@@ -619,40 +619,263 @@ fn check_package_json(checks: &mut Checks, cwd: &Path) {
             return;
         }
     };
-    let Some(spec) = json.get("packageManager").and_then(|v| v.as_str()) else {
-        checks.ok(format!("{} sets no packageManager", path.display()));
+    let Some((field, spec)) = package_manager_spec(&json) else {
+        checks.ok(format!(
+            "{} sets no packageManager or devEngines.packageManager",
+            path.display()
+        ));
         return;
     };
-    let Some((name, wanted)) = parse_package_manager(spec) else {
+    let Some((name, wanted)) = parse_package_manager(&spec) else {
         checks.error(format!(
-            "{} sets packageManager {spec}, which is not <name>@<version>",
+            "{} sets {field} {spec}, which is not <name>@<version>",
             path.display()
         ));
         return;
     };
-    let output = match Command::new(&name).arg("--version").output() {
-        Ok(output) => output,
-        Err(err) => {
-            checks.warn(format!("cannot run {name} from PATH: {err}"));
-            return;
-        }
-    };
-    if !output.status.success() {
-        checks.warn(format!(
-            "{name} --version failed: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        ));
+    let pin = format!("{} pins {spec} in {field}", path.display());
+    let fix = format!(
+        "use crucible's `packageManager = \"{name}@{}\"` in `lib.<system>.node.toolchain` (or \
+         `fromPackageJson`), or pass a package built from the release you need",
+        major_of(&wanted).unwrap_or("<major>")
+    );
+
+    let managers = executables(&name);
+    let Some(first) = managers.first() else {
+        checks.warn(format!("{pin}, but no {name} is on PATH; {fix}"));
         return;
+    };
+    for message in shadowed(&name, &managers) {
+        checks.warn(message);
     }
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let actual = stdout.trim();
-    if version_matches(&wanted, actual) == Some(true) {
-        checks.ok(format!("{name} {actual} matches {spec}"));
-    } else {
-        checks.warn(format!(
-            "{name} on PATH is {actual}, but {} pins {spec} (lockfile drift or a shim)",
-            path.display()
-        ));
+
+    match Command::new(first).arg("--version").output() {
+        Ok(output) if output.status.success() => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let actual = stdout.trim();
+            match version_matches(&wanted, actual) {
+                Some(true) => checks.ok(format!("{} is {name} {actual}, which matches {spec}", first.display())),
+                Some(false) => checks.warn(format!(
+                    "{} is {name} {actual}, but {pin} (lockfile drift or a shim); {fix}",
+                    first.display()
+                )),
+                None => checks.info(format!(
+                    "{pin}, which doctor cannot compare with {name} {actual} ({}); check it by hand",
+                    first.display()
+                )),
+            }
+        }
+        Ok(output) => checks.warn(format!(
+            "{} --version failed: {}",
+            first.display(),
+            String::from_utf8_lossy(&output.stderr).trim()
+        )),
+        Err(err) => checks.warn(format!("cannot run {}: {err}", first.display())),
+    }
+
+    // A missing node was already reported by check_node.
+    if let Some(node) = executables("node").first() {
+        check_manager_node(checks, &name, first, node);
+    }
+}
+
+/// The package manager spec package.json asks for, and the field it came
+/// from: `packageManager`, then the first `devEngines.packageManager` entry
+/// with a name and a version, the order fromPackageJson in
+/// lib/node/toolchain.nix (and corepack) uses.
+fn package_manager_spec(json: &serde_json::Value) -> Option<(&'static str, String)> {
+    if let Some(spec) = json.get("packageManager").and_then(|v| v.as_str()) {
+        return Some(("packageManager", spec.to_string()));
+    }
+    // devEngines fields are one { name, version } or a list of them.
+    let field = json.get("devEngines")?.get("packageManager")?;
+    let entries = match field {
+        serde_json::Value::Array(entries) => entries.iter().collect(),
+        entry => vec![entry],
+    };
+    entries.into_iter().find_map(|entry| {
+        let name = entry.get("name")?.as_str()?;
+        let version = entry.get("version")?.as_str()?;
+        Some(("devEngines.packageManager", format!("{name}@{version}")))
+    })
+}
+
+/// The leading major of a spec's version (`^10.2` -> `10`), for the hint
+/// that names crucible's `packageManager` argument.
+fn major_of(wanted: &str) -> Option<&str> {
+    let rest = wanted.trim_start_matches(|c: char| !c.is_ascii_digit());
+    let end = rest
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(rest.len());
+    (end > 0).then(|| &rest[..end])
+}
+
+/// Warnings for every copy of `name` after the first in `found` (as
+/// `executables` returns them, so with symlinks to one file collapsed): the
+/// first one wins, and the others are a trap as soon as PATH changes.
+fn shadowed(name: &str, found: &[PathBuf]) -> Vec<String> {
+    let Some(first) = found.first() else {
+        return Vec::new();
+    };
+    found[1..]
+        .iter()
+        .map(|other| {
+            format!(
+                "another {name} is on PATH: {} (the first one, {}, wins); remove the extra copy, \
+                 for example from `extraPackages`, so only the toolchain's {name} is left",
+                other.display(),
+                first.display()
+            )
+        })
+        .collect()
+}
+
+/// The Node.js a package manager executable runs on, as far as its own file
+/// says so without running it.
+#[derive(Debug, PartialEq)]
+enum ManagerNode {
+    /// `#!/usr/bin/env node`: whatever node is first on PATH.
+    FromPath,
+    /// A script or wrapper that names this node (a nixpkgs or Homebrew
+    /// wrapper, or a patched shebang).
+    Fixed(PathBuf),
+    /// A native executable (bun, pnpm's standalone build) that brings its own
+    /// runtime, if any.
+    Native,
+    /// Anything else; doctor does not guess.
+    Unknown,
+}
+
+/// Where a package manager gets its Node.js. Only what the files state
+/// counts: a shebang, an absolute `.../bin/node` in a shell wrapper, or
+/// makeWrapper's `.<name>-wrapped` target, followed a few levels. Larger
+/// scripts are never scanned for paths, since a bundled pnpm.cjs or yarn.js
+/// mentions node paths in strings that mean nothing about how it is run, and
+/// a wrong warning here would send people chasing a working setup.
+fn manager_node(exe: &Path) -> ManagerNode {
+    // Wrappers are a few hundred bytes; anything bigger is the program.
+    const WRAPPER_LIMIT: u64 = 64 * 1024;
+    let mut exe = exe.to_path_buf();
+    for _ in 0..4 {
+        let Ok(bytes) = fs::read(&exe) else {
+            return ManagerNode::Unknown;
+        };
+        if is_native(&bytes) {
+            return ManagerNode::Native;
+        }
+        let Some(rest) = bytes.strip_prefix(b"#!") else {
+            return ManagerNode::Unknown;
+        };
+        let text = String::from_utf8_lossy(rest);
+        let shebang: Vec<&str> = text
+            .lines()
+            .next()
+            .unwrap_or_default()
+            .split_whitespace()
+            .collect();
+        let interpreter = shebang.first().copied().unwrap_or_default();
+        if interpreter.ends_with("/env") {
+            // `env node` or `env -S node --flags`.
+            return if shebang[1..].contains(&"node") {
+                ManagerNode::FromPath
+            } else {
+                ManagerNode::Unknown
+            };
+        }
+        if interpreter.ends_with("/bin/node") {
+            return ManagerNode::Fixed(PathBuf::from(interpreter));
+        }
+        let shell = ["sh", "bash", "dash", "zsh"]
+            .iter()
+            .any(|shell| interpreter.ends_with(&format!("/{shell}")));
+        if !shell || bytes.len() as u64 > WRAPPER_LIMIT {
+            return ManagerNode::Unknown;
+        }
+        let paths: Vec<&str> = text
+            .split(|c: char| !(c.is_ascii_alphanumeric() || "/._+-@".contains(c)))
+            .filter(|word| word.starts_with('/'))
+            .collect();
+        let mut nodes: Vec<&str> = paths
+            .iter()
+            .copied()
+            .filter(|path| path.ends_with("/bin/node"))
+            .collect();
+        nodes.sort_unstable();
+        nodes.dedup();
+        match nodes[..] {
+            [node] => return ManagerNode::Fixed(PathBuf::from(node)),
+            [] => {}
+            _ => return ManagerNode::Unknown,
+        }
+        let wrapped = exe
+            .file_name()
+            .map(|name| format!("/.{}-wrapped", name.to_string_lossy()));
+        match paths
+            .iter()
+            .find(|path| wrapped.as_deref().is_some_and(|w| path.ends_with(w)))
+        {
+            Some(next) => exe = PathBuf::from(next),
+            None => return ManagerNode::Unknown,
+        }
+    }
+    ManagerNode::Unknown
+}
+
+/// ELF or Mach-O (thin, fat, either byte order).
+fn is_native(bytes: &[u8]) -> bool {
+    const MAGIC: [[u8; 4]; 6] = [
+        *b"\x7fELF",
+        [0xfe, 0xed, 0xfa, 0xce],
+        [0xfe, 0xed, 0xfa, 0xcf],
+        [0xce, 0xfa, 0xed, 0xfe],
+        [0xcf, 0xfa, 0xed, 0xfe],
+        [0xca, 0xfe, 0xba, 0xbe],
+    ];
+    bytes.len() >= 4 && MAGIC.iter().any(|magic| bytes[..4] == magic[..])
+}
+
+/// A package manager wrapped around another Node.js runs install scripts and
+/// `pnpm exec` on that one, so native addons and engines checks see a
+/// different release than the shell's node.
+fn check_manager_node(checks: &mut Checks, name: &str, manager: &Path, node: &Path) {
+    match manager_node(manager) {
+        ManagerNode::FromPath => checks.ok(format!(
+            "{} runs on the node on PATH ({})",
+            manager.display(),
+            node.display()
+        )),
+        ManagerNode::Fixed(its) => {
+            // The toolchain's node is a symlink into the store, as is the one
+            // a crucible wrapper names, so compare the files they resolve to.
+            match (fs::canonicalize(&its), fs::canonicalize(node)) {
+                (Ok(a), Ok(b)) if a == b => checks.ok(format!(
+                    "{} runs on the node on PATH ({})",
+                    manager.display(),
+                    node.display()
+                )),
+                (Ok(_), Ok(_)) => checks.warn(format!(
+                    "{} runs on {}, not the node on PATH ({}); use crucible's \
+                     `packageManager = \"{name}@<major>\"` in `lib.<system>.node.toolchain`, \
+                     which builds {name} on the toolchain's Node.js, instead of a separate {name}",
+                    manager.display(),
+                    its.display(),
+                    node.display()
+                )),
+                _ => checks.info(format!(
+                    "{} names {}, which does not exist; cannot tell which Node.js it runs on",
+                    manager.display(),
+                    its.display()
+                )),
+            }
+        }
+        ManagerNode::Native => checks.info(format!(
+            "{} is a native executable with its own runtime; the node on PATH does not apply",
+            manager.display()
+        )),
+        ManagerNode::Unknown => checks.info(format!(
+            "cannot tell which Node.js {} runs on; not compared with the node on PATH",
+            manager.display()
+        )),
     }
 }
 
@@ -676,42 +899,176 @@ fn first_version_line(text: &str) -> Option<String> {
 }
 
 /// `pnpm@12.21.0+sha512.<digest>` -> ("pnpm", "12.21.0"). The digest is a
-/// corepack integrity suffix, not part of the version.
+/// corepack integrity suffix, not part of the version. A range (`pnpm@^10.2`,
+/// devEngines' `>=9 <11`) is kept whole for version_matches.
 fn parse_package_manager(spec: &str) -> Option<(String, String)> {
     let (name, version) = spec.rsplit_once('@')?;
+    let version = version.split('+').next().unwrap_or(version).trim();
     if name.is_empty() || version.is_empty() {
         return None;
     }
-    // Corepack's spec is exact, but tolerate the range syntax devEngines uses
-    // so doctor does not warn about a pin it cannot compare.
-    let version = version
-        .split('+')
-        .next()
-        .unwrap_or(version)
-        .trim_start_matches(|c: char| matches!(c, 'v' | '^' | '~' | '>' | '=' | ' '))
-        .to_string();
-    Some((name.to_string(), version))
+    Some((name.to_string(), version.to_string()))
 }
 
-/// Whether `actual` is the version `wanted` names. A partial pin (`22`,
-/// `22.14`) matches any node with that prefix; a full pin must be exact.
-/// Aliases and ranges return None: they need real semver, which doctor avoids.
+/// Whether `actual` is a version `wanted` allows. `wanted` is an exact
+/// release, a partial pin (`22`, `22.14`, matching that prefix) or an npm
+/// range (`^10.2`, `~1.22`, `>=9 <11`, `1.2 - 2`, `8 || 9`), the subset
+/// lib/node/semver.nix reads. None when doctor cannot decide: an alias such as
+/// `lts/*`, a syntax it does not know, or a pre-release on either side.
 fn version_matches(wanted: &str, actual: &str) -> Option<bool> {
-    let wanted = wanted.trim().trim_start_matches('v');
-    let actual = actual.trim().trim_start_matches('v');
-    if wanted.is_empty() || actual.is_empty() {
-        return None;
-    }
-    let parts: Vec<&str> = wanted.split('.').collect();
-    if parts.len() > 3
-        || parts
+    let actual = exact_version(actual)?;
+    let mut any = false;
+    for alternative in wanted.split("||") {
+        let comparators = range_comparators(alternative)?;
+        any |= comparators
             .iter()
-            .any(|p| p.is_empty() || !p.chars().all(|c| c.is_ascii_digit()))
-    {
+            .all(|(op, bound)| op.holds(actual.cmp(bound)));
+    }
+    Some(any)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Op {
+    Ge,
+    Gt,
+    Le,
+    Lt,
+}
+
+impl Op {
+    fn holds(self, ordering: std::cmp::Ordering) -> bool {
+        use std::cmp::Ordering::*;
+        match self {
+            Op::Ge => ordering != Less,
+            Op::Gt => ordering == Greater,
+            Op::Le => ordering != Greater,
+            Op::Lt => ordering == Less,
+        }
+    }
+}
+
+type Version = [u64; 3];
+
+/// `v22.14.0` -> [22, 14, 0]; anything but a plain release is None.
+fn exact_version(text: &str) -> Option<Version> {
+    match partial_version(text.trim())? {
+        [Some(major), Some(minor), Some(patch)] => Some([major, minor, patch]),
+        _ => None,
+    }
+}
+
+/// `1.2.x` -> [1, 2, None]: a missing or wildcard part is None. Pre-releases
+/// are rejected rather than half-supported.
+fn partial_version(text: &str) -> Option<[Option<u64>; 3]> {
+    let text = text.trim_start_matches(['v', '=']);
+    let text = text.split('+').next().unwrap_or(text);
+    if text.contains('-') {
         return None;
     }
-    let actual_parts: Vec<&str> = actual.split('.').collect();
-    Some(parts.len() <= actual_parts.len() && parts == &actual_parts[..parts.len()])
+    let mut parts = [None; 3];
+    if text.is_empty() {
+        return Some(parts);
+    }
+    let words: Vec<&str> = text.split('.').collect();
+    if words.len() > 3 {
+        return None;
+    }
+    for (slot, word) in parts.iter_mut().zip(words) {
+        *slot = match word {
+            "x" | "X" | "*" => None,
+            word if !word.is_empty() && word.chars().all(|c| c.is_ascii_digit()) => {
+                Some(word.parse().ok()?)
+            }
+            _ => return None,
+        };
+    }
+    // `1.x.3` is not a version.
+    if parts.windows(2).any(|w| w[0].is_none() && w[1].is_some()) {
+        return None;
+    }
+    Some(parts)
+}
+
+/// One `||` alternative as bounds that must all hold, as `bounds` in
+/// lib/node/semver.nix builds them.
+fn range_comparators(text: &str) -> Option<Vec<(Op, Version)>> {
+    // `>= 9` is `>=9`: glue a lone operator to the version after it.
+    let mut words: Vec<String> = Vec::new();
+    for word in text.split_whitespace() {
+        match words.last_mut() {
+            Some(last) if last.chars().all(|c| "<>=~^".contains(c)) => last.push_str(word),
+            _ => words.push(word.to_string()),
+        }
+    }
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < words.len() {
+        if words.get(i + 1).is_some_and(|w| w == "-") {
+            let low = partial_version(&words[i])?;
+            let high = words.get(i + 2)?;
+            out.push((Op::Ge, fill(low)));
+            out.extend(at_most(partial_version(high)?));
+            i += 3;
+            continue;
+        }
+        let word = &words[i];
+        let split = word
+            .find(|c: char| !"<>=~^".contains(c))
+            .unwrap_or(word.len());
+        out.extend(comparator(&word[..split], &word[split..])?);
+        i += 1;
+    }
+    Some(out)
+}
+
+fn fill(parts: [Option<u64>; 3]) -> Version {
+    parts.map(|part| part.unwrap_or(0))
+}
+
+/// `<=1.2` means below 1.3.0, `<=1.2.3` up to and including it.
+fn at_most(parts: [Option<u64>; 3]) -> Vec<(Op, Version)> {
+    match parts {
+        [None, ..] => Vec::new(),
+        [Some(major), None, _] => vec![(Op::Lt, [major + 1, 0, 0])],
+        [Some(major), Some(minor), None] => vec![(Op::Lt, [major, minor + 1, 0])],
+        parts => vec![(Op::Le, fill(parts))],
+    }
+}
+
+fn comparator(op: &str, version: &str) -> Option<Vec<(Op, Version)>> {
+    let parts = partial_version(version)?;
+    let low = fill(parts);
+    let never = vec![(Op::Lt, [0, 0, 0])];
+    Some(match (op, parts) {
+        ("" | "=", [None, ..]) => Vec::new(),
+        ("" | "=", parts) => {
+            let mut bounds = vec![(Op::Ge, low)];
+            bounds.extend(at_most(parts));
+            bounds
+        }
+        (">=", _) => vec![(Op::Ge, low)],
+        (">", [None, ..]) => never,
+        (">", [Some(major), None, _]) => vec![(Op::Ge, [major + 1, 0, 0])],
+        (">", [Some(major), Some(minor), None]) => vec![(Op::Ge, [major, minor + 1, 0])],
+        (">", _) => vec![(Op::Gt, low)],
+        ("<", [None, ..]) => never,
+        ("<", _) => vec![(Op::Lt, low)],
+        ("<=", parts) => at_most(parts),
+        ("~", [None, ..]) => Vec::new(),
+        ("~", [Some(major), None, _]) => vec![(Op::Ge, low), (Op::Lt, [major + 1, 0, 0])],
+        ("~", [Some(major), Some(minor), _]) => {
+            vec![(Op::Ge, low), (Op::Lt, [major, minor + 1, 0])]
+        }
+        // The first non-zero part may not change, and a missing part is a
+        // wildcard: ^0.0 is <0.1.0, ^0 is <1.0.0.
+        ("^", [None, ..]) => Vec::new(),
+        ("^", [Some(0), Some(0), Some(patch)]) => vec![(Op::Ge, low), (Op::Lt, [0, 0, patch + 1])],
+        ("^", [Some(0), Some(minor), _]) if minor > 0 || parts[2].is_none() => {
+            vec![(Op::Ge, low), (Op::Lt, [0, minor + 1, 0])]
+        }
+        ("^", [Some(major), ..]) => vec![(Op::Ge, low), (Op::Lt, [major + 1, 0, 0])],
+        _ => return None,
+    })
 }
 
 fn env_value(name: &str) -> Option<String> {
@@ -731,12 +1088,14 @@ fn is_numbered(channel: &str) -> bool {
 /// Every executable called `name` on PATH, in PATH order, with symlinked
 /// duplicates (nix profiles) collapsed.
 fn executables(name: &str) -> Vec<PathBuf> {
+    env::var_os("PATH").map_or_else(Vec::new, |path| executables_in(name, &path))
+}
+
+/// `executables` for a given PATH value.
+fn executables_in(name: &str, path: &std::ffi::OsStr) -> Vec<PathBuf> {
     let mut seen = HashSet::new();
     let mut found = Vec::new();
-    let Some(path) = env::var_os("PATH") else {
-        return found;
-    };
-    for dir in env::split_paths(&path) {
+    for dir in env::split_paths(path) {
         let candidate = dir.join(name);
         if !is_executable(&candidate) {
             continue;
@@ -905,15 +1264,52 @@ export RUSTC_WRAPPER_LOG=\"debug\"
             parse_package_manager("yarn@4.18.1"),
             Some(("yarn".to_string(), "4.18.1".to_string()))
         );
+        // Ranges stay whole, for version_matches.
         assert_eq!(
             parse_package_manager("pnpm@^12.21.0"),
-            Some(("pnpm".to_string(), "12.21.0".to_string()))
+            Some(("pnpm".to_string(), "^12.21.0".to_string()))
+        );
+        assert_eq!(
+            parse_package_manager("pnpm@>=9 <11"),
+            Some(("pnpm".to_string(), ">=9 <11".to_string()))
         );
         assert_eq!(parse_package_manager("pnpm"), None);
+        assert_eq!(parse_package_manager("pnpm@"), None);
         assert_eq!(
             parse_package_manager("@scope@1.2.3"),
             Some(("@scope".to_string(), "1.2.3".to_string()))
         );
+        assert_eq!(major_of("^10.2"), Some("10"));
+        assert_eq!(major_of(">=9 <11"), Some("9"));
+        assert_eq!(major_of("latest"), None);
+    }
+
+    #[test]
+    fn falls_back_to_dev_engines_package_manager() {
+        let spec = |text: &str| package_manager_spec(&serde_json::from_str(text).unwrap());
+        assert_eq!(
+            spec(
+                r#"{"packageManager": "pnpm@10.4.1", "devEngines": {"packageManager": {"name": "yarn", "version": "4"}}}"#
+            ),
+            Some(("packageManager", "pnpm@10.4.1".to_string()))
+        );
+        assert_eq!(
+            spec(r#"{"devEngines": {"packageManager": {"name": "pnpm", "version": "^10.2"}}}"#),
+            Some(("devEngines.packageManager", "pnpm@^10.2".to_string()))
+        );
+        // The first entry with both a name and a version, as fromPackageJson.
+        assert_eq!(
+            spec(
+                r#"{"devEngines": {"packageManager": [{"name": "bun"}, {"name": "pnpm", "version": ">=9 <11", "onFail": "warn"}, {"name": "yarn", "version": "4"}]}}"#
+            ),
+            Some(("devEngines.packageManager", "pnpm@>=9 <11".to_string()))
+        );
+        assert_eq!(
+            spec(r#"{"devEngines": {"runtime": {"name": "node", "version": "24"}}}"#),
+            None
+        );
+        assert_eq!(spec(r#"{"devEngines": {"packageManager": []}}"#), None);
+        assert_eq!(spec("{}"), None);
     }
 
     #[test]
@@ -923,8 +1319,167 @@ export RUSTC_WRAPPER_LOG=\"debug\"
         assert_eq!(version_matches("22.14", "v22.23.5"), Some(false));
         assert_eq!(version_matches("22.14.0", "v22.14.1"), Some(false));
         assert_eq!(version_matches("22.14.0", "22.14.0"), Some(true));
+        assert_eq!(version_matches("v22", "v22.23.5"), Some(true));
         assert_eq!(version_matches("lts/*", "v22.23.5"), None);
-        assert_eq!(version_matches("^22", "v22.23.5"), None);
+        assert_eq!(version_matches("node", "v22.23.5"), None);
         assert_eq!(version_matches("22", ""), None);
+    }
+
+    #[test]
+    fn compares_ranges() {
+        assert_eq!(version_matches("^22", "v22.23.5"), Some(true));
+        assert_eq!(version_matches("^10.2", "10.4.1"), Some(true));
+        assert_eq!(version_matches("^10.2", "10.1.9"), Some(false));
+        assert_eq!(version_matches("^10.2", "11.0.0"), Some(false));
+        assert_eq!(version_matches("^0.2.3", "0.2.9"), Some(true));
+        assert_eq!(version_matches("^0.2.3", "0.3.0"), Some(false));
+        assert_eq!(version_matches("^0.0.3", "0.0.4"), Some(false));
+        assert_eq!(version_matches("~1.22", "1.22.22"), Some(true));
+        assert_eq!(version_matches("~1.22.1", "1.23.0"), Some(false));
+        assert_eq!(version_matches(">=9 <11", "10.4.1"), Some(true));
+        assert_eq!(version_matches(">=9 <11", "11.0.0"), Some(false));
+        assert_eq!(version_matches(">= 9 < 11", "9.0.0"), Some(true));
+        assert_eq!(version_matches(">9", "9.9.9"), Some(false));
+        assert_eq!(version_matches(">9.1", "9.2.0"), Some(true));
+        assert_eq!(version_matches("<=10.2", "10.2.7"), Some(true));
+        assert_eq!(version_matches("<=10.2", "10.3.0"), Some(false));
+        assert_eq!(version_matches("1.2 - 2", "2.9.0"), Some(true));
+        assert_eq!(version_matches("1.2 - 2", "3.0.0"), Some(false));
+        assert_eq!(version_matches("1.2 - 2", "1.1.0"), Some(false));
+        assert_eq!(version_matches("8 || 10.x", "10.4.1"), Some(true));
+        assert_eq!(version_matches("8 || 9", "10.4.1"), Some(false));
+        assert_eq!(version_matches("*", "10.4.1"), Some(true));
+        // What doctor cannot decide is None, not a mismatch.
+        assert_eq!(version_matches("latest", "10.4.1"), None);
+        assert_eq!(version_matches("^10.0.0-rc.1", "10.4.1"), None);
+        assert_eq!(version_matches("^10", "10.0.0-rc.1"), None);
+        assert_eq!(version_matches("~>10", "10.4.1"), None);
+        assert_eq!(version_matches("1.x.3", "1.0.3"), None);
+    }
+
+    /// A fresh directory for one test, so parallel tests do not collide.
+    fn scratch(test: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("crucible-doctor-{test}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn write_executable(path: &Path, contents: &[u8]) {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, contents).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn finds_shadowed_package_managers() {
+        let root = scratch("shadowed");
+        let (a, b, link, empty) = (
+            root.join("a"),
+            root.join("b"),
+            root.join("link"),
+            root.join("empty"),
+        );
+        write_executable(&a.join("pnpm"), b"#!/bin/sh\necho 10.4.1\n");
+        write_executable(&b.join("pnpm"), b"#!/bin/sh\necho 9.15.0\n");
+        // A profile symlink to the first copy is the same pnpm.
+        fs::create_dir_all(&link).unwrap();
+        std::os::unix::fs::symlink(a.join("pnpm"), link.join("pnpm")).unwrap();
+        // Not executable, so not a pnpm.
+        fs::create_dir_all(&empty).unwrap();
+        fs::write(empty.join("pnpm"), "").unwrap();
+
+        let path = env::join_paths([&link, &empty, &a, &b]).unwrap();
+        let found = executables_in("pnpm", &path);
+        assert_eq!(found, [link.join("pnpm"), b.join("pnpm")]);
+        let warnings = shadowed("pnpm", &found);
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains(&b.join("pnpm").display().to_string()));
+        assert!(warnings[0].contains(&format!(
+            "the first one, {}, wins",
+            link.join("pnpm").display()
+        )));
+        assert!(warnings[0].contains("extraPackages"));
+
+        let path = env::join_paths([&link, &a]).unwrap();
+        assert!(shadowed("pnpm", &executables_in("pnpm", &path)).is_empty());
+
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn reads_which_node_a_package_manager_runs_on() {
+        let root = scratch("manager-node");
+        let store_node = "/nix/store/00000000000000000000000000000000-nodejs-22.14.0/bin/node";
+
+        let env_node = root.join("env/pnpm");
+        write_executable(&env_node, b"#!/usr/bin/env node\nrequire('./pnpm.cjs')\n");
+        assert_eq!(manager_node(&env_node), ManagerNode::FromPath);
+
+        let shebang = root.join("shebang/yarn");
+        write_executable(
+            &shebang,
+            format!("#!{store_node}\nconsole.log('/usr/bin/node')\n").as_bytes(),
+        );
+        assert_eq!(
+            manager_node(&shebang),
+            ManagerNode::Fixed(store_node.into())
+        );
+
+        // makeWrapper's script around nixpkgs' pnpm.
+        let wrapper = root.join("wrapper/pnpm");
+        write_executable(
+            &wrapper,
+            format!(
+                "#! /nix/store/x-bash-5.2/bin/bash -e\nexec \"{store_node}\" --add-flags /nix/store/y-pnpm/libexec/pnpm.cjs \"$@\"\n"
+            )
+            .as_bytes(),
+        );
+        assert_eq!(
+            manager_node(&wrapper),
+            ManagerNode::Fixed(store_node.into())
+        );
+
+        // wrapProgram around a native binary: PATH gets a node, but the
+        // program that runs is the native one.
+        let native = root.join("native/bin");
+        write_executable(&native.join(".pnpm-wrapped"), b"\x7fELF\x02\x01\x01");
+        write_executable(
+            &native.join("pnpm"),
+            format!(
+                "#!/bin/bash -e\nPATH=/nix/store/z-nodejs-22/bin${{PATH:+:}}$PATH\nexec -a \"$0\" \"{}\" \"$@\"\n",
+                native.join(".pnpm-wrapped").display()
+            )
+            .as_bytes(),
+        );
+        assert_eq!(manager_node(&native.join("pnpm")), ManagerNode::Native);
+
+        let macho = root.join("macho/bun");
+        write_executable(&macho, &[0xcf, 0xfa, 0xed, 0xfe, 0x0c, 0x00]);
+        assert_eq!(manager_node(&macho), ManagerNode::Native);
+
+        // Two different nodes, or a big bundle, are not guessed at.
+        let two = root.join("two/pnpm");
+        write_executable(
+            &two,
+            b"#!/bin/sh\n[ -x /a/bin/node ] && exec /a/bin/node \"$@\"\nexec /b/bin/node \"$@\"\n",
+        );
+        assert_eq!(manager_node(&two), ManagerNode::Unknown);
+        let python = root.join("python/pnpm");
+        write_executable(&python, b"#!/usr/bin/python3\nprint('/usr/bin/node')\n");
+        assert_eq!(manager_node(&python), ManagerNode::Unknown);
+        let big = root.join("big/pnpm");
+        let mut text = format!("#!/bin/sh\nexec {store_node} \"$@\"\n").into_bytes();
+        text.resize(70 * 1024, b'#');
+        write_executable(&big, &text);
+        assert_eq!(manager_node(&big), ManagerNode::Unknown);
+
+        fs::remove_dir_all(&root).unwrap();
     }
 }

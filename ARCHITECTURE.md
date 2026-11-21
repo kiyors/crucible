@@ -354,8 +354,15 @@ proxies, `CARGO_INCREMENTAL=0`, `CARGO_TARGET_DIR`, `RUSTC_WRAPPER` caches, a st
 `RUST_SRC_PATH`, a `rust-toolchain.toml` that disagrees with `rustc`, variables the current
 `hm-session-vars.sh` no longer sets (a shell older than the last switch), and on macOS a GCC
 `cc`. For Node.js it compares the active node with the nearest `.node-version`/`.nvmrc` and the
-active package manager with `package.json`'s `packageManager`, and warns about `VP_HOME`,
-`VP_ENV_FORBIDDEN`, `NODE_PATH` and an npm prefix in the read-only store.
+active package manager with `package.json`'s `packageManager` (or `devEngines.packageManager`,
+in `fromPackageJson`'s order), and warns about `VP_HOME`, `VP_ENV_FORBIDDEN`, `NODE_PATH` and an
+npm prefix in the read-only store. Versions go through `version_matches`, a Rust copy of the
+subset of npm ranges `lib/node/semver.nix` reads; it returns `None` for what it cannot decide, so
+an alias is never reported as a mismatch. Copies of the package manager further down PATH are
+warned about like extra cargos. Which node a package manager runs on is read from its file alone
+(an `env node` shebang, an explicit `.../bin/node` in a small shell wrapper, makeWrapper's
+`.<name>-wrapped` target), never from scanning a bundled script, whose strings mention node paths
+that say nothing about how it runs.
 
 ### Integration
 
