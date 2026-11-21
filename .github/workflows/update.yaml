@@ -3,12 +3,19 @@ name: update
 # The scheduled pin refresh: run `crucible update` with the latest released
 # CLI (falling back to `nix run .#crucible` before the first release exists),
 # and when data/ changed, run the check workflow's builds on x86_64-linux,
-# aarch64-linux and macOS on the refreshed data, then open or update the
-# bot/crucible-update PR.
+# aarch64-linux and macOS on the refreshed data, then commit it straight to
+# main. A refresh is data only, so nothing here needs a pull request, a review
+# or the "Allow GitHub Actions to create and approve pull requests" setting.
+#
+# The push uses the default GITHUB_TOKEN, which does not start other
+# workflows, so `check` does not re-run on that commit; the `checks` job below
+# is the check for it.
 
 on:
   schedule:
-    - cron: "17 */6 * * *"
+    # Hours 0, 10 and 20 UTC: about every 10 hours, as close as cron gets
+    # (24 is not a multiple of 10). The pins rarely move faster than that.
+    - cron: "17 */10 * * *"
   workflow_dispatch:
 
 permissions:
@@ -72,6 +79,12 @@ jobs:
           tar -xzf "$work/$asset" -C "$work/bin"
           "$work/bin/crucible" update
           echo "mode=released" >> "$GITHUB_OUTPUT"
+
+      # The fallback builds the CLI from this checkout, so it needs Nix; the
+      # released path does not. This is the only way to refresh the pins
+      # before the first release.
+      - uses: ./.github/actions/setup-nix
+        if: steps.download.outputs.mode == 'nix'
 
       - name: Update the pins with the repo's own CLI
         if: steps.download.outputs.mode == 'nix'
@@ -138,7 +151,7 @@ jobs:
       - name: Build toolchains and run checks
         run: nix flake check -L
 
-  open-pr:
+  publish:
     needs: [update, checks]
     if: >-
       always()
@@ -146,48 +159,75 @@ jobs:
       && needs.checks.result == 'success'
     permissions:
       contents: write
-      pull-requests: write
+      actions: read
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 1
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: data
           path: ${{ runner.temp }}/data
-      - name: Apply the data refresh
-        run: git apply "$RUNNER_TEMP/data/data.patch"
-      - id: versions
+      - name: Commit the refresh and push it to main
         run: |
-          {
-            echo "cargo=$(jq -r .version data/rust/cargo.json)"
-            echo "stable=$(jq -r .version data/rust/stable.json)"
-            echo "beta=$(jq -r .version data/rust/beta.json)"
-            echo "nightly=$(jq -r '.version + " " + .date' data/rust/nightly.json)"
-            echo "zig=$(jq -r .stable data/zig/zig.json)"
-          } >> "$GITHUB_OUTPUT"
-      - uses: peter-evans/create-pull-request@3ffccacd46053766916f087ce41d627c0b8cf2d1 # v8.1.3
-        with:
-          branch: bot/crucible-update
-          delete-branch: true
-          commit-message: |
-            update: cargo ${{ steps.versions.outputs.cargo }}, rust ${{ steps.versions.outputs.stable }}, zig ${{ steps.versions.outputs.zig }}
-          title: |
-            update: cargo ${{ steps.versions.outputs.cargo }}, rust ${{ steps.versions.outputs.stable }}, zig ${{ steps.versions.outputs.zig }}
-          body: |
-            Refreshed by the scheduled update workflow, which runs every 6 hours.
-
-            - huacnlee/cargo v${{ steps.versions.outputs.cargo }}
-            - stable: ${{ steps.versions.outputs.stable }}
-            - beta: ${{ steps.versions.outputs.beta }}
-            - nightly: ${{ steps.versions.outputs.nightly }}
-            - zig: ${{ steps.versions.outputs.zig }}
-
-            Pull requests opened by this workflow use the default `GITHUB_TOKEN`,
-            which does not start other workflows, so the checks ran in this
-            workflow's `checks` job instead of the `check` workflow. To have
-            `check` run on its own, create a GitHub App (or a fine-grained PAT
-            with `contents` and `pull-requests` write), store it as a secret
-            and pass it to create-pull-request as `token`.
-          add-paths: |
-            data/**/*.json
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          patch="$RUNNER_TEMP/data/data.patch"
+          for _ in 1 2 3; do
+            # The patch was cut against the tip of main the update job saw,
+            # which may have moved while the checks ran; rebuild on the tip as
+            # it is now rather than push a non-fast-forward.
+            git fetch --depth=1 origin main
+            git reset --hard FETCH_HEAD
+            git apply "$patch" || {
+              # A main that already carries this refresh (a manual update, or
+              # an earlier run) makes the forward patch fail; the reverse
+              # patch then applies cleanly, and there is nothing left to do.
+              if git apply -R --check "$patch"; then
+                echo "data/ already matches main; nothing to publish"
+                exit 0
+              fi
+              echo "error: the refreshed data no longer applies to main;" >&2
+              echo "error: leaving it to the next run" >&2
+              exit 1
+            }
+            git add -A data
+            if git diff --cached --quiet; then
+              echo "data/ already matches main; nothing to publish"
+              exit 0
+            fi
+            pin() { jq -r "$2" "data/$1.json"; }
+            cargo="$(pin rust/cargo .version)"
+            stable="$(pin rust/stable .version)"
+            zig="$(pin zig/zig '.releases[.stable].version')"
+            {
+              echo "update: cargo $cargo, rust $stable, zig $zig"
+              echo
+              echo "Refreshed by the scheduled update workflow, which ran the"
+              echo "check builds on x86_64-linux, aarch64-linux and macOS on"
+              echo "this data before pushing it. Every pin after the refresh:"
+              echo
+              echo "- huacnlee/cargo v$cargo"
+              echo "- rust stable: $stable"
+              echo "- rust beta: $(pin rust/beta .version)"
+              echo "- rust nightly: $(pin rust/nightly '.version + " " + .date')"
+              echo "- node lts: $(pin node/node '.releases[.lts].version')"
+              echo "- vite+: $(pin node/vite-plus .version)"
+              echo "- deno: $(pin deno/deno '[.[].version] | join(", ")')"
+              echo "- python: $(pin python/python '[.releases[].version] | join(", ")')"
+              echo "- uv: $(pin python/uv .version)"
+              echo "- go: $(pin go/go '.releases[.stable].version')"
+              echo "- zig: $zig"
+            } > "$RUNNER_TEMP/message"
+            git commit -F "$RUNNER_TEMP/message"
+            if git push origin HEAD:main; then
+              exit 0
+            fi
+            echo "push raced with another commit on main; retrying"
+          done
+          echo "error: main kept moving; leaving it to the next run" >&2
+          exit 1

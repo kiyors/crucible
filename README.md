@@ -17,7 +17,7 @@ source or through another overlay, and pinned from the files projects already ha
 - **No intermediaries.** Components come straight from `static.rust-lang.org`, unpacked into one
   prefix the way rustup installs them, so every official binary finds its libraries where it
   expects to. The only flake input is nixpkgs.
-- **Pinned and updated every 6 hours.** `data/rust/{stable,beta,nightly}.json` hold the trimmed channel
+- **Pinned and updated about every 10 hours.** `data/rust/{stable,beta,nightly}.json` hold the trimmed channel
   manifests, `data/rust/cargo.json` the fork's release, `data/node/node.json` the newest release
   of every supported Node.js line, `data/node/vite-plus.json` the Vite+ release with its
   dependency tree, `data/python/python.json` the newest CPython of every supported line and
@@ -834,18 +834,18 @@ GitHub records for the release asset, since neither file is signed. Which CPytho
 supported comes from python.org's `release-cycle.json`. The nightly search fetches candidate
 dates in parallel.
 
-The `update` workflow runs every 6 hours: it downloads the latest released CLI
-(`crucible-<version>-<target>.tar.gz`, verified against the release's `SHA256SUMS` and its
-attestation with `gh attestation verify`), runs `crucible update`, and when `data/` changed,
-runs the check workflow's builds on x86_64-linux, aarch64-linux and macOS, then opens or
-updates the `bot/crucible-update` PR. Before the first release it falls back to
-`nix run .#crucible -- update` with the repo's own CLI.
+The `update` workflow runs at 00:17, 10:17 and 20:17 UTC (about every 10 hours): it downloads
+the latest released CLI (`crucible-<version>-<target>.tar.gz`, verified against the release's
+`SHA256SUMS` and its attestation with `gh attestation verify`), runs `crucible update`, and when
+`data/` changed, runs the check workflow's builds on x86_64-linux, aarch64-linux and macOS. When
+those pass it commits the refreshed `data/` and pushes it straight to `main`: a pin refresh is
+data only, so it needs no pull request, review or merge. Before the first release it falls back
+to `nix run .#crucible -- update` with the repo's own CLI.
 
-Pull requests opened by this workflow use the default `GITHUB_TOKEN`, which does not start
-other workflows, so `check` does not run on them; the update workflow runs the checks in its
-`checks` job instead. To have `check` start other workflows on its own, create a GitHub App
-(or a fine-grained PAT with `contents` and `pull-requests` write), store it as a secret and
-pass it to `create-pull-request` as `token`.
+A push made with the default `GITHUB_TOKEN` does not start other workflows, so `check` does not
+re-run on that commit; the update workflow's `checks` job is the check for it. A refresh whose
+checks fail, or that no longer applies because `main` moved under it, is left for the next
+scheduled run.
 
 ## Development
 
