@@ -445,9 +445,28 @@ newest release of each line python.org still fixes (3.11 to 3.15 today, the `bug
 `security` lines of its release cycle), all from one python-build-standalone build, so
 `"==3.12.4"` matches nothing and says so.
 
-For a release that is not pinned, pass the `SHA256SUMS` of a python-build-standalone build that
-has it. Every build names the CPython releases it carries in its archive names, so the file is
-enough; a `flake = false` input keeps it locked:
+For a release that is not pinned, `crucible pin python <x.y.z>` prints the `SHA256SUMS` flake
+input of the build that carries it, for every system, with the file's hash:
+
+```
+$ nix run github:kiyors/crucible#crucible -- pin python 3.14.0
+python: 3.14.0
+shasums: https://github.com/astral-sh/python-build-standalone/releases/download/20251120/SHA256SUMS
+sha256: sha256-3Rc2o1sonRG5Cta3CxEs0EilA/xVdKBRFc0U7VBdPt0=
+
+pbs-shasums = {
+  url = "https://github.com/astral-sh/python-build-standalone/releases/download/20251120/SHA256SUMS";
+  flake = false;
+};
+
+toolchain {
+  version = "3.14.0";
+  sha256sums = pbs-shasums;
+};
+```
+
+Every build names the CPython releases it carries in its archive names, so the file is enough; a
+`flake = false` input keeps it locked:
 
 ```nix
 inputs.pbs-sums = {
@@ -760,6 +779,7 @@ nix run github:kiyors/crucible -- init                     # a flake.nix for thi
 nix run github:kiyors/crucible#crucible -- pin rust 1.99   # the rust-manifest input and sha256 for a channel
 nix run github:kiyors/crucible#crucible -- pin node 24.11.0 # the SHASUMS256.txt input and sha256 for a release
 nix run github:kiyors/crucible#crucible -- pin go 1.25.3   # the per-system hashes for a Go release
+nix run github:kiyors/crucible#crucible -- pin python 3.14.0 # the SHA256SUMS input for a Python release
 ```
 
 The bare `nix run` builds a doctor-only binary (`packages.<system>.crucible-doctor`, cargo

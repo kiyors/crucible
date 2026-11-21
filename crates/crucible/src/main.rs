@@ -84,6 +84,11 @@ enum Pin {
         /// An exact release: 1.25.3, go1.27rc1, ...
         version: String,
     },
+    /// The `sha256sums` input for a Python release the pins do not cover
+    Python {
+        /// An exact release: 3.14.0
+        version: String,
+    },
 }
 
 fn main() -> ExitCode {
@@ -131,6 +136,11 @@ fn run() -> Result<ExitCode> {
         #[cfg(feature = "net")]
         Some(Command::Pin(Pin::Go { version })) => {
             update::go::pin(&version)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        #[cfg(feature = "net")]
+        Some(Command::Pin(Pin::Python { version })) => {
+            pin::python(&version)?;
             Ok(ExitCode::SUCCESS)
         }
     }

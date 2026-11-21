@@ -348,6 +348,10 @@ process.
   `pin node <x.y.z>` does the same for a release's `SHASUMS256.txt`, after checking its GPG
   signature and that it lists a tarball for every system. `pin go <version>` (in
   `update/go.rs`) prints a `toolchain` call with the release's per-system `hashes`.
+  `pin python <x.y.z>` (in `pin.rs`) walks the repo's release list from the newest until a build
+  carries the release's `install_only` archives for every system, checks the build's
+  `SHA256SUMS` against the digest GitHub recorded for it, and prints the `sha256sums` input and
+  the file's hash.
 
 `doctor` checks the user's environment. Is `cargo` the fork? It also looks for rustup
 proxies, `CARGO_INCREMENTAL=0`, `CARGO_TARGET_DIR`, `RUSTC_WRAPPER` caches, a stale

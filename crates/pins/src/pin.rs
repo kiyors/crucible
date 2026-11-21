@@ -6,11 +6,12 @@
 //! (`nightly-2026-11-01`), so the hashes and the flake agree. For Node it is the
 //! release's `SHASUMS256.txt`, as `shasumsUrl` in lib/node/toolchain.nix builds it.
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 
 use crate::http::Http;
 use crate::manifest::Manifest;
 use crate::sri;
+use crate::update::python::{self, PBS};
 
 // The URL rules live in `channel`, so `init` can use them without `net`.
 pub use init::channel::manifest_url;
@@ -73,6 +74,58 @@ pub fn node(version: &str) -> Result<()> {
     Ok(())
 }
 
+/// `crucible pin python <x.y.z>`: the `sha256sums` input for a release that is
+/// not pinned, with its hash. The build is the newest python-build-standalone
+/// one that carries the release for every system; its `SHA256SUMS` is checked
+/// against the digest GitHub records for it, as `update python` checks its
+/// own.
+pub fn python(version: &str) -> Result<()> {
+    let version = python_release_version(version)?;
+    let http = Http::new();
+    let (release, build) = python::find_release(&http, version)?;
+    let sums = python::checked_asset(&http, PBS, &release, "SHA256SUMS")?;
+    // Fails here, rather than at evaluation time, for a release the build's
+    // SHA256SUMS lacks an archive of for one of crucible's systems.
+    python::sources(
+        &crate::update::parse_sha256sums(&sums),
+        version,
+        &build,
+        false,
+    )?;
+    let url = python::release_url(PBS, &build, "SHA256SUMS");
+    let hash = sri::sri(sums.as_bytes());
+
+    println!("python: {version}");
+    println!("shasums: {url}");
+    println!("sha256: {hash}");
+    println!();
+    println!("pbs-shasums = {{");
+    println!("  url = \"{url}\";");
+    println!("  flake = false;");
+    println!("}};");
+    println!();
+    println!("toolchain {{");
+    println!("  version = \"{version}\";");
+    println!("  sha256sums = pbs-shasums;");
+    println!("}};");
+    Ok(())
+}
+
+/// An exact CPython release, `x.y.z`: the build's archives name it.
+fn python_release_version(version: &str) -> Result<&str> {
+    let valid = version.split('.').count() == 3
+        && version
+            .split('.')
+            .all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit()));
+    if !valid {
+        bail!(
+            "\"{version}\" is not an exact CPython release such as 3.14.0; \
+             lines (3.14) are pinned in data/python/python.json"
+        );
+    }
+    Ok(version)
+}
+
 /// An exact Node.js release, `v` prefix optional: SHASUMS256.txt exists per
 /// release only, not per line.
 pub fn node_version(version: &str) -> Result<&str> {
@@ -101,6 +154,18 @@ mod tests {
         for version in ["22", "22.11", "lts", "22.11.0-rc.1", "v22..0", ""] {
             assert!(
                 node_version(version).is_err(),
+                "{version} should be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn accepts_only_exact_python_releases() {
+        assert_eq!(python_release_version("3.14.0").unwrap(), "3.14.0");
+        assert_eq!(python_release_version("3.15.2").unwrap(), "3.15.2");
+        for version in ["3", "3.14", "v3.14.0", "3.14.0rc1", "3.14.0.0", "", "three"] {
+            assert!(
+                python_release_version(version).is_err(),
                 "{version} should be rejected"
             );
         }

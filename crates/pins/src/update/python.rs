@@ -22,6 +22,8 @@ use crate::sri;
 pub const PBS: &str = "astral-sh/python-build-standalone";
 const UV: &str = "astral-sh/uv";
 const RELEASE_CYCLE: &str = "https://peps.python.org/api/release-cycle.json";
+/// The releases of the repo, newest first; each lists its assets' names.
+const RELEASES: &str = "https://api.github.com/repos/astral-sh/python-build-standalone/releases";
 
 /// Nix system -> Rust host triple of both projects' archives, in
 /// `lib/common/systems.nix` order.
@@ -87,7 +89,7 @@ pub fn plan(http: &Http, root: &Path) -> Result<Plan> {
         pins.releases.insert(
             line,
             Pin {
-                platforms: sources(&sums, &version, &build)?,
+                platforms: sources(&sums, &version, &build, false)?,
                 version,
                 status: info.status.clone(),
                 end: info.end_of_life.clone(),
@@ -133,10 +135,13 @@ fn supported(cycle: &IndexMap<String, Line>) -> Vec<(String, &Line)> {
     lines
 }
 
-/// The install_only archive of one release for one host. Freethreaded and
-/// stripped builds have their own suffixes, so they never match.
-fn archive(version: &str, build: &str, triple: &str) -> String {
-    format!("cpython-{version}+{build}-{triple}-install_only.tar.gz")
+/// The install_only archive of one release for one host, with the
+/// "-freethreaded-" infix when `freethreaded`; stripped builds never match.
+fn archive(version: &str, build: &str, triple: &str, freethreaded: bool) -> String {
+    format!(
+        "cpython-{version}+{build}-{triple}-{}install_only.tar.gz",
+        if freethreaded { "freethreaded-" } else { "" }
+    )
 }
 
 /// The newest release of `line` that has an archive for every system.
@@ -150,7 +155,7 @@ fn newest(sums: &[(String, String)], line: &str, build: &str) -> Option<String> 
         .map(|patch| format!("{line}.{patch}"))
         .filter(|version| {
             PLATFORMS.iter().all(|(_, triple)| {
-                let file = archive(version, build, triple);
+                let file = archive(version, build, triple, false);
                 sums.iter().any(|(_, entry)| *entry == file)
             })
         })
@@ -162,10 +167,11 @@ pub fn sources(
     sums: &[(String, String)],
     version: &str,
     build: &str,
+    freethreaded: bool,
 ) -> Result<IndexMap<String, Source>> {
     let mut platforms = IndexMap::new();
     for (system, triple) in PLATFORMS {
-        let file = archive(version, build, triple);
+        let file = archive(version, build, triple, freethreaded);
         platforms.insert(
             system.to_string(),
             Source {
@@ -175,6 +181,57 @@ pub fn sources(
         );
     }
     Ok(platforms)
+}
+
+/// The newest python-build-standalone release that carries `version`'s
+/// `install_only` archives for every system in `PLATFORMS`, and the build tag
+/// they are named with. `pin python` uses this to find the build that
+/// contains a release the pins do not cover: it walks the repo's release
+/// list from the newest, whose assets the list responses include.
+pub fn find_release(http: &Http, version: &str) -> Result<(Value, String)> {
+    let mut page = 1;
+    loop {
+        let releases: Vec<Value> = serde_json::from_slice(
+            &http.get(&format!("{RELEASES}?per_page=10&page={page}"))?,
+        )
+        .context("failed to parse the release list")?;
+        if releases.is_empty() {
+            bail!("no python-build-standalone release carries CPython {version}");
+        }
+        for release in releases {
+            if let Some(build) = carries(&release, version) {
+                return Ok((release, build));
+            }
+        }
+        page += 1;
+    }
+}
+
+/// The build tag when `release` carries the `install_only` archives of
+/// `version` for every system in `PLATFORMS`: they are named
+/// `cpython-{version}+{build}-{triple}-install_only.tar.gz`, so the build is
+/// read from the names. Freethreaded names do not count, and neither does a
+/// release missing one of the systems.
+fn carries(release: &Value, version: &str) -> Option<String> {
+    let prefix = format!("cpython-{version}+");
+    let suffix = "-install_only.tar.gz";
+    let assets = release.get("assets")?.as_array()?;
+    let mut build = String::new();
+    for (_, triple) in PLATFORMS {
+        let name = assets
+            .iter()
+            .filter_map(|asset| asset.get("name")?.as_str())
+            .find(|name| name.starts_with(&prefix) && name.ends_with(&format!("-{triple}{suffix}")))?;
+        let file = name
+            .strip_prefix(&prefix)?
+            .strip_suffix(&format!("-{triple}{suffix}"))?;
+        if build.is_empty() {
+            build = file.to_string();
+        } else if build != file {
+            return None;
+        }
+    }
+    Some(build)
 }
 
 fn hash_of(sums: &[(String, String)], file: &str, release: &str) -> Result<String> {
@@ -214,7 +271,7 @@ fn tag(release: &Value) -> Result<String> {
 /// A release's checksum file, after checking it against the sha256 GitHub
 /// computed when it was uploaded: the hashes in it are only as good as the
 /// file, and neither project signs it.
-fn checked_asset(http: &Http, repo: &str, release: &Value, name: &str) -> Result<String> {
+pub fn checked_asset(http: &Http, repo: &str, release: &Value, name: &str) -> Result<String> {
     let tag = release
         .get("tag_name")
         .and_then(Value::as_str)
@@ -259,7 +316,7 @@ mod tests {
         let mut text = String::new();
         for (version, triples) in versions {
             for triple in *triples {
-                text.push_str(&format!("{hex}  {}\n", archive(version, BUILD, triple)));
+                text.push_str(&format!("{hex}  {}\n", archive(version, BUILD, triple, false)));
             }
         }
         parse_sha256sums(&text)
@@ -315,13 +372,13 @@ mod tests {
 
     #[test]
     fn maps_sums_to_encoded_urls() {
-        let platforms = sources(&sums(&[("3.14.10", ALL)]), "3.14.10", BUILD).unwrap();
+        let platforms = sources(&sums(&[("3.14.10", ALL)]), "3.14.10", BUILD, false).unwrap();
         assert_eq!(
             platforms["aarch64-darwin"].url,
             "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.14.10%2B20261110-aarch64-apple-darwin-install_only.tar.gz"
         );
         assert!(platforms["x86_64-linux"].hash.starts_with("sha256-"));
-        assert!(sources(&sums(&[("3.14.10", &ALL[..2])]), "3.14.10", BUILD).is_err());
+        assert!(sources(&sums(&[("3.14.10", &ALL[..2])]), "3.14.10", BUILD, false).is_err());
     }
 
     #[test]
@@ -338,5 +395,37 @@ mod tests {
         assert_eq!(asset_digest(&release, "old.sum"), None);
         assert_eq!(asset_digest(&release, "missing"), None);
         assert_eq!(tag(&release).unwrap(), "0.13.9");
+    }
+
+    #[test]
+    fn reads_the_build_a_release_carries() {
+        let release: Value = serde_json::from_str(
+            r#"{
+              "tag_name": "20251120",
+              "assets": [
+                { "name": "SHA256SUMS" },
+                { "name": "cpython-3.14.0+20251120-x86_64-unknown-linux-gnu-install_only.tar.gz" },
+                { "name": "cpython-3.14.0+20251120-aarch64-unknown-linux-gnu-install_only.tar.gz" },
+                { "name": "cpython-3.14.0+20251120-aarch64-apple-darwin-install_only.tar.gz" }
+              ]
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(carries(&release, "3.14.0").as_deref(), Some("20251120"));
+
+        // A release that misses a system, or names it freethreaded, is not
+        // the one that carries a GIL release of that version.
+        let partial: Value = serde_json::from_str(
+            r#"{
+              "tag_name": "20251120",
+              "assets": [
+                { "name": "cpython-3.14.0+20251120-x86_64-unknown-linux-gnu-install_only.tar.gz" },
+                { "name": "cpython-3.14.0+20251120-aarch64-unknown-linux-gnu-install_only.tar.gz" },
+                { "name": "cpython-3.14.0+20251120-aarch64-apple-darwin-freethreaded-install_only.tar.gz" }
+              ]
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(carries(&partial, "3.14.0"), None);
     }
 }
