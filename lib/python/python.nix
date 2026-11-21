@@ -17,7 +17,10 @@ let
     release.platforms.${system}
       or (throw "crucible: Python ${release.version} has no build for ${system}.");
   line = lib.versions.majorMinor release.version;
-  stdlib = "lib/python${line}";
+  # The freethreaded builds install under the same versions with a "t": the
+  # include dir, the standard library and the interpreter are python3.14t.
+  free = lib.optionalString (release.freethreaded or false) "t";
+  stdlib = "lib/python${line}${free}";
 
   # PEP 668: pip and `uv pip install --system` refuse to write into this
   # Python, which is in the read-only store anyway, and say what to do instead.
@@ -100,7 +103,7 @@ stdenv.mkDerivation {
   passthru = {
     pythonVersion = line;
     sitePackages = "${stdlib}/site-packages";
-    executable = "python${line}";
+    executable = "python${line}${free}";
   };
 
   meta = {

@@ -15,6 +15,8 @@ let
 
   # Whether a toolchain is rejected at evaluation time.
   rejected = toolchain: !(builtins.tryEval toolchain.drvPath).success;
+  # Whether a toolchain runs a freethreaded build.
+  freethreaded = toolchain: lib.hasSuffix "t" toolchain.python.executable;
 
   # .python-version beats requires-python, which must still allow it.
   fromApp = python.fromPyprojectToml { file = ./app/pyproject.toml; };
@@ -71,6 +73,34 @@ in
       }/bin/python3 --version)" = "Python ${r.version}"
     '') (builtins.attrValues pins.releases)}
   '';
+
+  # The freethreaded line of 3.14, pinned next to the regular one: the
+  # toolchain runs python3.14t and says so at runtime.
+  python-freethreaded =
+    let
+      ft = python.toolchain { version = "3.14t"; };
+    in
+    pythonRun "freethreaded" ft ''
+      test -x ${ft}/bin/python3.14t
+      test "$(python3 --version)" = "Python ${ft.version}"
+      test "$(python3 -c 'import sysconfig; print(sysconfig.get_config_var("Py_GIL_DISABLED"))')" = "1"
+      test "$(python3 -c 'import sys; print("free-threading" in sys.version)')" = "True"
+      touch $out
+    '';
+
+  # Freethreaded archives in a SHA256SUMS: the toolchain the sums allow.
+  python-freethreaded-sums =
+    pythonRun "freethreaded-sums"
+      (python.toolchain {
+        version = "3.14t";
+        sha256sums = ./ft-sha256sums;
+      })
+      ''
+        test "$(python3 --version)" = "Python 3.14.10"
+        test "$(python3 -c 'import sysconfig; print(sysconfig.get_config_var("Py_GIL_DISABLED"))')" = "1"
+        test "$(python3 -c 'import sys; print("free-threading" in sys.version)')" = "True"
+        touch $out
+      '';
 
   # A project's loop through uv, on the toolchain's Python and offline.
   python-uv = pythonRun "uv" fromApp ''
@@ -150,6 +180,18 @@ in
       (python.toolchain { version = ">=3.11,!=3.15.*,<4"; }).version == pins.releases."3.14".version;
     assert (python.toolchain { version = "==3.13.*"; }).version == pins.releases."3.13".version;
     assert (python.toolchain { uv = false; }).uv == null;
+    # "3.14t" is the freethreaded line: its version is the GIL build's, so
+    # the interpreter's name tells the two apart.
+    assert freethreaded (python.toolchain { version = "3.14t"; });
+    assert (python.toolchain { version = "3.14t"; }).version == pins.releases."3.14t".version;
+    assert freethreaded (python.toolchain { version = "${pins.releases."3.14t".version}t"; });
+    assert freethreaded (
+      python.fromPythonVersion { file = ./version-files/freethreaded/.python-version; }
+    );
+    # A request without the "t" never gets a freethreaded build.
+    assert !freethreaded (python.toolchain { version = "3.14"; });
+    assert !freethreaded (python.toolchain { version = pins.releases."3.14".version; });
+    assert !freethreaded python.latest;
     pkgs.runCommand "crucible-check-python-project-files" { } "touch $out";
 
   python-from-sha256sums = pythonRun "from-sha256sums" fromSha256sums ''
@@ -170,13 +212,21 @@ in
         sha256sums = ./SHA256SUMS;
       }
     );
+    # A freethreaded line that is not pinned, or that the SHA256SUMS given
+    # does not have.
+    assert rejected (python.toolchain { version = "3.11t"; });
+    assert rejected (
+      python.toolchain {
+        version = "3.13t";
+        sha256sums = ./ft-sha256sums;
+      }
+    );
     # Not a version, and specifiers PEP 440 does not allow.
     assert rejected (python.toolchain { version = "latest"; });
     assert rejected (python.toolchain { version = "~=3"; });
     assert rejected (python.toolchain { version = ">=3.14.*"; });
     assert rejected (python.toolchain { version = ">=3.14.0rc1"; });
     # Interpreters crucible does not ship.
-    assert rejected (python.fromPythonVersion { file = ./version-files/freethreaded/.python-version; });
     assert rejected (python.fromPythonVersion { file = ./version-files/pypy/.python-version; });
     # A .python-version that requires-python does not allow.
     assert rejected (python.fromPyprojectToml { file = ./mismatch/pyproject.toml; });

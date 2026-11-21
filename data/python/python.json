@@ -58,6 +58,26 @@
         }
       }
     },
+    "3.13t": {
+      "version": "3.13.18",
+      "status": "security",
+      "end": "2029-10",
+      "freethreaded": true,
+      "platforms": {
+        "x86_64-linux": {
+          "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.13.18%2B20261110-x86_64-unknown-linux-gnu-freethreaded-install_only.tar.gz",
+          "hash": "sha256-tjBDnxV41Vqg5nR3IAAx4EHMONzQCm+/mOrDIGECBo8="
+        },
+        "aarch64-linux": {
+          "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.13.18%2B20261110-aarch64-unknown-linux-gnu-freethreaded-install_only.tar.gz",
+          "hash": "sha256-Cao3bPE+UUCCpDyWk1tVAJhLd/iKMDHGBgKnyv5BztA="
+        },
+        "aarch64-darwin": {
+          "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.13.18%2B20261110-aarch64-apple-darwin-freethreaded-install_only.tar.gz",
+          "hash": "sha256-hUfLcm+F/J37rLyuUnhX+7IztWY+WRYEIS980XF1t4s="
+        }
+      }
+    },
     "3.14": {
       "version": "3.14.10",
       "status": "bugfix",
@@ -77,6 +97,26 @@
         }
       }
     },
+    "3.14t": {
+      "version": "3.14.10",
+      "status": "bugfix",
+      "end": "2030-10",
+      "freethreaded": true,
+      "platforms": {
+        "x86_64-linux": {
+          "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.14.10%2B20261110-x86_64-unknown-linux-gnu-freethreaded-install_only.tar.gz",
+          "hash": "sha256-XN0OZVOT+jrCw2FmX8xr9RjwdayNgt+h10wnihqlnnw="
+        },
+        "aarch64-linux": {
+          "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.14.10%2B20261110-aarch64-unknown-linux-gnu-freethreaded-install_only.tar.gz",
+          "hash": "sha256-JZlpdF0cN9GJMDOhrjR4tisa3Y4cIugRmB3PyhyFnY0="
+        },
+        "aarch64-darwin": {
+          "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.14.10%2B20261110-aarch64-apple-darwin-freethreaded-install_only.tar.gz",
+          "hash": "sha256-ajQVA3PcTsM0UYut/CELrAzjGu8d8haofbSq3aOXIAo="
+        }
+      }
+    },
     "3.15": {
       "version": "3.15.2",
       "status": "bugfix",
@@ -93,6 +133,26 @@
         "aarch64-darwin": {
           "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.15.2%2B20261110-aarch64-apple-darwin-install_only.tar.gz",
           "hash": "sha256-Z2fKZ/3Po6lmtvt3/D1N1AIAY/ziesHpQl+rZTGVy6s="
+        }
+      }
+    },
+    "3.15t": {
+      "version": "3.15.2",
+      "status": "bugfix",
+      "end": "2031-10",
+      "freethreaded": true,
+      "platforms": {
+        "x86_64-linux": {
+          "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.15.2%2B20261110-x86_64-unknown-linux-gnu-freethreaded-install_only.tar.gz",
+          "hash": "sha256-nBBtfwAqbX/MBqHPm32fiIwPcHvRbt7zlfepsndkM0o="
+        },
+        "aarch64-linux": {
+          "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.15.2%2B20261110-aarch64-unknown-linux-gnu-freethreaded-install_only.tar.gz",
+          "hash": "sha256-j4Ko3Y6Oa98AoCq3FU6mLL/9JQCIVPmKTp5kZwtCIOg="
+        },
+        "aarch64-darwin": {
+          "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.15.2%2B20261110-aarch64-apple-darwin-freethreaded-install_only.tar.gz",
+          "hash": "sha256-M4oCqRYf5BAoa/MFoE/D6Aqb0aWLqvzNC1Nwbxe5EGA="
         }
       }
     }

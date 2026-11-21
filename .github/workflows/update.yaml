@@ -218,7 +218,7 @@ jobs:
               echo "- node lts: $(pin node/node '.releases[.lts].version')"
               echo "- vite+: $(pin node/vite-plus .version)"
               echo "- deno: $(pin deno/deno '[.[].version] | join(", ")')"
-              echo "- python: $(pin python/python '[.releases[].version] | join(", ")')"
+              echo "- python: $(pin python/python '[.releases[] | .version + (if .freethreaded then "t" else "" end)] | join(", ")')"
               echo "- uv: $(pin python/uv .version)"
               echo "- go: $(pin go/go '.releases[.stable].version')"
               echo "- zig: $zig"

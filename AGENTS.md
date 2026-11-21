@@ -60,6 +60,8 @@ shellcheck scripts/linux-from-macos.sh
     `crates/pins/src/pin.rs`
   - `platforms` in `lib/python/toolchain.nix` ↔ `PLATFORMS` in `crates/pins/src/update/python.rs`
   - `releaseUrl` in `lib/python/toolchain.nix` ↔ `release_url` in `crates/pins/src/update/python.rs`
+  - the `-freethreaded-` infix and the `lib/python3.14t` names it implies in
+    `lib/python/python.nix` ↔ `archive` in `crates/pins/src/update/python.rs`
   - `platforms` and `downloadUrl` in `lib/go/toolchain.nix` ↔ `PLATFORMS` and `DL` in
     `crates/pins/src/update/go.rs`
 - **Package builds use `.rustPlatform`** (stock cargo). The fork cannot build in the sandbox,

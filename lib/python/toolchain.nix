@@ -25,10 +25,14 @@ let
   uvPkgs = pkgs.callPackage ./uv.nix { };
 
   # Pinned by `crucible update`: the newest release of every line python.org
-  # still fixes, all from one python-build-standalone build.
+  # still fixes, all from one python-build-standalone build. The freethreaded
+  # builds have their own lines, keyed with the trailing "t" next to the
+  # regular ones, at the same versions.
   pinned = lib.importJSON ../../data/python/python.json;
   pinnedReleases = attrValues pinned.releases;
-  pinnedVersions = map (r: r.version) pinnedReleases;
+  # A freethreaded release is named by its version with the "t" a request
+  # for it takes.
+  label = r: r.version + lib.optionalString (r.freethreaded or false) "t";
 
   # Nix system -> host triple of the archives, as `PLATFORMS` in
   # crates/pins/src/update/python.rs.
@@ -46,39 +50,68 @@ let
     }";
 
   # Every release a python-build-standalone SHA256SUMS has an install_only
-  # archive of for each system. The build tag is part of every file name.
+  # archive of for each system, as pins: `{ version, freethreaded,
+  # platforms }`. The build tag is part of every file name; the freethreaded
+  # archives name the GIL builds' versions with a "-freethreaded" infix, so
+  # they parse as freethreaded with the GIL triple.
   fromSha256sums =
     file:
     let
-      entries = filter (m: m != null) (
-        map (match "([0-9a-f]{64})  (cpython-([0-9]+\\.[0-9]+\\.[0-9]+)\\+([0-9]+)-(.+)-install_only\\.tar\\.gz)") (
-          lib.splitString "\n" (readFile file)
+      # The groups of one archive line: [hex, file, version, build, triple].
+      parse =
+        m:
+        let
+          triple = lib.removeSuffix "-freethreaded" (elemAt m 4);
+        in
+        {
+          version = elemAt m 2;
+          build = elemAt m 3;
+          file = elemAt m 1;
+          hash = "sha256:${elemAt m 0}";
+          inherit triple;
+          freethreaded = triple != elemAt m 4;
+        };
+      entries = filter (e: e != null) (
+        map (m: if m == null then null else parse m) (
+          map (match "([0-9a-f]{64})  (cpython-([0-9]+\\.[0-9]+\\.[0-9]+)\\+([0-9]+)-(.+)-install_only\\.tar\\.gz)") (
+            lib.splitString "\n" (readFile file)
+          )
         )
       );
       archive =
-        version: triple: lib.findFirst (m: elemAt m 2 == version && elemAt m 4 == triple) null entries;
-      complete = version: lib.all (triple: archive version triple != null) (attrValues platforms);
-      versions = lib.unique (filter complete (map (m: elemAt m 2) entries));
+        freethreaded: version: triple:
+        lib.findFirst (
+          e: e.version == version && e.triple == triple && e.freethreaded == freethreaded
+        ) null entries;
+      complete =
+        freethreaded: version:
+        lib.all (triple: archive freethreaded version triple != null) (attrValues platforms);
+      # The pins of one kind: every release that has complete archives.
+      pins =
+        freethreaded:
+        map (version: {
+          inherit version freethreaded;
+          platforms = lib.mapAttrs (
+            _: triple:
+            let
+              e = archive freethreaded version triple;
+            in
+            {
+              url = releaseUrl e.build e.file;
+              inherit (e) hash;
+            }
+          ) platforms;
+        }) (lib.unique (filter (v: complete freethreaded v) (map (e: e.version) entries)));
     in
     if entries == [ ] then
       throw "crucible: ${toString file} lists no cpython-*-install_only.tar.gz; is it a python-build-standalone SHA256SUMS?"
     else
-      map (version: {
-        inherit version;
-        platforms = lib.mapAttrs (
-          _: triple:
-          let
-            m = archive version triple;
-          in
-          {
-            url = releaseUrl (elemAt m 3) (elemAt m 1);
-            hash = "sha256:${elemAt m 0}";
-          }
-        ) platforms;
-      }) versions;
+      pins false ++ pins true;
 
   notPinned = spec: ''
-    crucible: Python "${spec}" matches no pinned release (${lib.concatStringsSep ", " pinnedVersions}).
+    crucible: Python "${spec}" matches no pinned release (${
+      lib.concatMapStringsSep ", " label pinnedReleases
+    }).
     For another release, pass the SHA256SUMS of a python-build-standalone release that has it as
     `sha256sums`, for example a `flake = false` input with the url
     https://github.com/astral-sh/python-build-standalone/releases/download/<build>/SHA256SUMS
@@ -86,7 +119,10 @@ let
 
   # `version` is a line ("3.14"), "3" (the newest pinned line), a PEP 440
   # specifier (">=3.12,<3.15") or an exact release. Pinned releases need
-  # nothing else; others come from a build's SHA256SUMS.
+  # nothing else; others come from a build's SHA256SUMS. A trailing "t"
+  # ("3.14t", "3.14.10t") asks for the freethreaded build of what the rest
+  # allows. The two kinds share versions, so each request only ever sees the
+  # releases of its own kind.
   resolve =
     {
       version,
@@ -94,15 +130,18 @@ let
     }:
     let
       spec = lib.trim version;
-      releases = if sha256sums != null then fromSha256sums sha256sums else pinnedReleases;
-      newest = pep440.newest spec (map (r: r.version) releases);
+      freethreaded = lib.hasSuffix "t" spec;
+      releases = filter (r: (r.freethreaded or false) == freethreaded) (
+        if sha256sums != null then fromSha256sums sha256sums else pinnedReleases
+      );
+      newest = pep440.newest (lib.removeSuffix "t" spec) (map (r: r.version) releases);
     in
     if newest != null then
       lib.findFirst (r: r.version == newest) null releases
     else if sha256sums != null then
       throw ''
-        crucible: the SHA256SUMS given has no CPython that "${spec}" allows for every system
-        (it has ${lib.concatMapStringsSep ", " (r: r.version) releases}).
+        crucible: the SHA256SUMS given has no ${lib.optionalString freethreaded "freethreaded "}CPython that "${spec}" allows for every system
+        (it has ${lib.concatMapStringsSep ", " label releases}).
       ''
     else
       throw (notPinned spec);
@@ -162,10 +201,10 @@ let
     };
 
   # The request in a .python-version, as uv and pyenv write it: "3.14",
-  # "3.14.2", "cpython@3.14" or "cpython-3.14", or a specifier. Only the first
-  # entry counts. Other implementations and freethreaded builds ("3.14t") are
-  # not something crucible ships, so they fail here rather than resolving to a
-  # different interpreter.
+  # "3.14.2", "cpython@3.14", "cpython-3.14", "3.14t" for the freethreaded
+  # build or a specifier. Only the first entry counts. Other implementations
+  # (PyPy, GraalPy) are not something crucible ships, so they fail here
+  # rather than resolving to a different interpreter.
   readPythonVersion =
     file:
     let
@@ -174,7 +213,7 @@ let
       );
       entry =
         if lines == [ ] then throw "crucible: ${toString file} names no Python version." else head lines;
-      plain = match "(cpython[-@]|python)?([0-9]+(\\.[0-9]+){0,2})" (lib.toLower entry);
+      plain = match "(cpython[-@]|python)?([0-9]+(\\.[0-9]+){0,2}t?)" (lib.toLower entry);
     in
     if plain != null then
       elemAt plain 1
@@ -182,8 +221,8 @@ let
       entry
     else
       throw ''
-        crucible: ${toString file} asks for "${entry}", but crucible ships CPython only, without
-        the freethreaded builds. Use a version such as "3.14" or "3.14.2".
+        crucible: ${toString file} asks for "${entry}", but crucible ships CPython only.
+        Use a version such as "3.14", "3.14.2" or "3.14t" for the freethreaded build.
       '';
 
   fromPythonVersion =

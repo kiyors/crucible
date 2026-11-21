@@ -6,6 +6,10 @@
 //! downloaded. That file is checked against the digest GitHub records for the
 //! release asset before its hashes are used. Which lines are supported comes
 //! from the release cycle python.org publishes for the devguide.
+//!
+//! The freethreaded builds have their own lines, keyed with the trailing "t"
+//! next to the regular ones: their archives name the GIL builds' versions
+//! with a "-freethreaded" infix.
 
 use std::path::Path;
 
@@ -57,7 +61,15 @@ pub struct Pin {
     /// "bugfix" or "security", so a reader can tell which lines are winding down.
     pub status: String,
     pub end: String,
+    /// True on the freethreaded line of the same versions (the line key ends
+    /// in "t"), false on the regular one; serialized only when true.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub freethreaded: bool,
     pub platforms: IndexMap<String, Source>,
+}
+
+fn is_false(v: &bool) -> bool {
+    !*v
 }
 
 /// The pinned format of `data/python/uv.json`.
@@ -87,14 +99,29 @@ pub fn plan(http: &Http, root: &Path) -> Result<Plan> {
         })?;
         println!("python {line}: {version}");
         pins.releases.insert(
-            line,
+            line.clone(),
             Pin {
                 platforms: sources(&sums, &version, &build, false)?,
                 version,
                 status: info.status.clone(),
                 end: info.end_of_life.clone(),
+                freethreaded: false,
             },
         );
+        // The freethreaded line of the same versions, next to it.
+        let ft_line = format!("{line}t");
+        if let Some(ft_version) = newest(&sums, &ft_line, &build) {
+            pins.releases.insert(
+                ft_line,
+                Pin {
+                    platforms: sources(&sums, &ft_version, &build, true)?,
+                    version: ft_version,
+                    status: info.status.clone(),
+                    end: info.end_of_life.clone(),
+                    freethreaded: true,
+                },
+            );
+        }
     }
     if pins.releases.is_empty() {
         bail!("release-cycle.json lists no supported Python line");
@@ -135,8 +162,9 @@ fn supported(cycle: &IndexMap<String, Line>) -> Vec<(String, &Line)> {
     lines
 }
 
-/// The install_only archive of one release for one host, with the
-/// "-freethreaded-" infix when `freethreaded`; stripped builds never match.
+/// The install_only archive of one release for one host. Stripped builds have
+/// their own suffix, so they never match. The freethreaded ones name the GIL
+/// build's version with a "-freethreaded" infix.
 fn archive(version: &str, build: &str, triple: &str, freethreaded: bool) -> String {
     format!(
         "cpython-{version}+{build}-{triple}-{}install_only.tar.gz",
@@ -144,18 +172,28 @@ fn archive(version: &str, build: &str, triple: &str, freethreaded: bool) -> Stri
     )
 }
 
-/// The newest release of `line` that has an archive for every system.
+/// The newest release of `line` that has an archive for every system. A line
+/// ending in "t" is the freethreaded one: its archives carry the
+/// "-freethreaded" infix and name the GIL release's versions.
 fn newest(sums: &[(String, String)], line: &str, build: &str) -> Option<String> {
-    let prefix = format!("cpython-{line}.");
-    let suffix = format!("+{build}-{}-install_only.tar.gz", PLATFORMS[0].1);
+    let freethreaded = line.ends_with('t');
+    let base = line.strip_suffix('t').unwrap_or(line);
+    let suffix = format!(
+        "+{build}-{}-{}install_only.tar.gz",
+        PLATFORMS[0].1,
+        if freethreaded { "freethreaded-" } else { "" }
+    );
     sums.iter()
-        .filter_map(|(_, file)| file.strip_prefix(&prefix)?.strip_suffix(&suffix))
+        .filter_map(|(_, file)| {
+            file.strip_prefix(&format!("cpython-{base}."))
+                .and_then(|s| s.strip_suffix(&suffix))
+        })
         // A patch number alone: "3.15.0a2" is a pre-release.
         .filter(|patch| !patch.is_empty() && patch.bytes().all(|b| b.is_ascii_digit()))
-        .map(|patch| format!("{line}.{patch}"))
+        .map(|patch| format!("{base}.{patch}"))
         .filter(|version| {
             PLATFORMS.iter().all(|(_, triple)| {
-                let file = archive(version, build, triple, false);
+                let file = archive(version, build, triple, freethreaded);
                 sums.iter().any(|(_, entry)| *entry == file)
             })
         })
@@ -191,10 +229,9 @@ pub fn sources(
 pub fn find_release(http: &Http, version: &str) -> Result<(Value, String)> {
     let mut page = 1;
     loop {
-        let releases: Vec<Value> = serde_json::from_slice(
-            &http.get(&format!("{RELEASES}?per_page=10&page={page}"))?,
-        )
-        .context("failed to parse the release list")?;
+        let releases: Vec<Value> =
+            serde_json::from_slice(&http.get(&format!("{RELEASES}?per_page=10&page={page}"))?)
+                .context("failed to parse the release list")?;
         if releases.is_empty() {
             bail!("no python-build-standalone release carries CPython {version}");
         }
@@ -221,7 +258,9 @@ fn carries(release: &Value, version: &str) -> Option<String> {
         let name = assets
             .iter()
             .filter_map(|asset| asset.get("name")?.as_str())
-            .find(|name| name.starts_with(&prefix) && name.ends_with(&format!("-{triple}{suffix}")))?;
+            .find(|name| {
+                name.starts_with(&prefix) && name.ends_with(&format!("-{triple}{suffix}"))
+            })?;
         let file = name
             .strip_prefix(&prefix)?
             .strip_suffix(&format!("-{triple}{suffix}"))?;
@@ -316,7 +355,24 @@ mod tests {
         let mut text = String::new();
         for (version, triples) in versions {
             for triple in *triples {
-                text.push_str(&format!("{hex}  {}\n", archive(version, BUILD, triple, false)));
+                text.push_str(&format!(
+                    "{hex}  {}\n",
+                    archive(version, BUILD, triple, false)
+                ));
+            }
+        }
+        parse_sha256sums(&text)
+    }
+
+    fn ft_sums(versions: &[(&str, &[&str])]) -> Vec<(String, String)> {
+        let hex = "3fe0d7c0538eb5d190c34582992d26230532551355cbd789fabc6591621cfc07";
+        let mut text = String::new();
+        for (version, triples) in versions {
+            for triple in *triples {
+                text.push_str(&format!(
+                    "{hex}  {}\n",
+                    archive(version, BUILD, triple, true)
+                ));
             }
         }
         parse_sha256sums(&text)
@@ -362,12 +418,24 @@ mod tests {
     }
 
     #[test]
-    fn ignores_freethreaded_and_stripped_builds() {
+    fn ignores_stripped_builds_and_reads_freethreaded_lines() {
+        // Stripped builds have no interpreter files, so the regular line
+        // never sees them; the freethreaded line picks up the freethreaded
+        // names, which name the GIL version.
         let text = "\
 3fe0d7c0538eb5d190c34582992d26230532551355cbd789fabc6591621cfc07  cpython-3.14.10+20261110-x86_64-unknown-linux-gnu-freethreaded-install_only.tar.gz
 3fe0d7c0538eb5d190c34582992d26230532551355cbd789fabc6591621cfc07  cpython-3.14.10+20261110-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz
 ";
         assert_eq!(newest(&parse_sha256sums(text), "3.14", BUILD), None);
+
+        let sums = ft_sums(&[
+            ("3.14.9", ALL),
+            ("3.14.10", ALL),
+            // Not for every system, so not pinnable.
+            ("3.14.11", &ALL[..2]),
+        ]);
+        assert_eq!(newest(&sums, "3.14t", BUILD).as_deref(), Some("3.14.10"));
+        assert_eq!(newest(&sums, "3.14", BUILD), None);
     }
 
     #[test]
@@ -377,24 +445,14 @@ mod tests {
             platforms["aarch64-darwin"].url,
             "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.14.10%2B20261110-aarch64-apple-darwin-install_only.tar.gz"
         );
+        assert_eq!(
+            sources(&ft_sums(&[("3.14.10", ALL)]), "3.14.10", BUILD, true)
+                .unwrap()["aarch64-darwin"]
+                .url,
+            "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.14.10%2B20261110-aarch64-apple-darwin-freethreaded-install_only.tar.gz"
+        );
         assert!(platforms["x86_64-linux"].hash.starts_with("sha256-"));
         assert!(sources(&sums(&[("3.14.10", &ALL[..2])]), "3.14.10", BUILD, false).is_err());
-    }
-
-    #[test]
-    fn reads_an_assets_digest() {
-        let release: Value = serde_json::from_str(
-            r#"{ "tag_name": "0.13.9", "assets": [
-              { "name": "uv-aarch64-apple-darwin.tar.gz", "digest": "sha256:00" },
-              { "name": "sha256.sum", "digest": "sha256:ab12" },
-              { "name": "old.sum", "digest": null }
-            ] }"#,
-        )
-        .unwrap();
-        assert_eq!(asset_digest(&release, "sha256.sum"), Some("ab12"));
-        assert_eq!(asset_digest(&release, "old.sum"), None);
-        assert_eq!(asset_digest(&release, "missing"), None);
-        assert_eq!(tag(&release).unwrap(), "0.13.9");
     }
 
     #[test]
@@ -427,5 +485,21 @@ mod tests {
         )
         .unwrap();
         assert_eq!(carries(&partial, "3.14.0"), None);
+    }
+
+    #[test]
+    fn reads_an_assets_digest() {
+        let release: Value = serde_json::from_str(
+            r#"{ "tag_name": "0.13.9", "assets": [
+              { "name": "uv-aarch64-apple-darwin.tar.gz", "digest": "sha256:00" },
+              { "name": "sha256.sum", "digest": "sha256:ab12" },
+              { "name": "old.sum", "digest": null }
+            ] }"#,
+        )
+        .unwrap();
+        assert_eq!(asset_digest(&release, "sha256.sum"), Some("ab12"));
+        assert_eq!(asset_digest(&release, "old.sum"), None);
+        assert_eq!(asset_digest(&release, "missing"), None);
+        assert_eq!(tag(&release).unwrap(), "0.13.9");
     }
 }

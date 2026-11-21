@@ -432,7 +432,8 @@ that is not pinned is an evaluation error rather than a silent substitution.
 
 ```nix
 crucible.lib.${system}.python.toolchain {
-  version ? "3";        # "3" (the newest pinned line), a line ("3.14"), a PEP 440 specifier
+  version ? "3";        # "3" (the newest pinned line), a line ("3.14"), a freethreaded line
+                        # ("3.14t"), a PEP 440 specifier
                         # (">=3.12,<3.15", "~=3.13.2") or an exact release, pinned in
                         # data/python/; any other release with `sha256sums`
   uv ? true;            # include uv, set up for this Python
@@ -443,7 +444,9 @@ crucible.lib.${system}.python.toolchain {
 A version or specifier resolves offline to the newest pinned release it allows. The pins hold the
 newest release of each line python.org still fixes (3.11 to 3.15 today, the `bugfix` and
 `security` lines of its release cycle), all from one python-build-standalone build, so
-`"==3.12.4"` matches nothing and says so.
+`"==3.12.4"` matches nothing and says so. The freethreaded builds (`3.14t`) are pinned as lines
+of their own next to the regular ones, at the same versions, so `version = "3.14t"` picks the
+freethreaded interpreter — `python3.14t`, the same one uv installs.
 
 For a release that is not pinned, `crucible pin python <x.y.z>` prints the `SHA256SUMS` flake
 input of the build that carries it, for every system, with the file's hash:
@@ -477,14 +480,17 @@ inputs.pbs-sums = {
 crucible.lib.${system}.python.toolchain { version = "3.14.0"; sha256sums = pbs-sums; }
 ```
 
+With `sha256sums` given, a `version` ending in `t` (`3.14t`) picks the freethreaded build the sums
+have for every system.
+
 Every toolchain carries:
 
 - `.python`: the CPython alone (python3, pip, headers, the standard library)
 - `.uv`: uv for this Python, or `null`
 - `.pythonVersion` (`"3.14"`) and `.sitePackages` (`"lib/python3.14/site-packages"`)
 
-Only the standard (GIL) builds are pinned. Freethreaded builds (`3.14t`), PyPy and GraalPy are
-not, and a project asking for one fails at evaluation time.
+Freethreaded builds (`3.14t`) are pinned as lines of their own next to the regular ones; PyPy and
+GraalPy are not, and a project asking for one fails at evaluation time.
 
 ### fromPythonVersion and fromPyprojectToml
 
@@ -494,7 +500,8 @@ crucible.lib.${system}.python.fromPyprojectToml { file = ./pyproject.toml; uv ? 
 ```
 
 `fromPythonVersion` reads the first entry of a `.python-version` as uv and pyenv write it:
-`3.14`, `3.14.2`, `cpython@3.14`, `cpython-3.14` or a specifier. `fromPyprojectToml` reads the
+`3.14`, `3.14.2`, `cpython@3.14`, `cpython-3.14`, `3.14t` for the freethreaded build or a
+specifier. `fromPyprojectToml` reads the
 project the way uv does: the `.python-version` next to `pyproject.toml`, then
 `project.requires-python`, then the newest pinned line. A `.python-version` that
 `requires-python` does not allow is an error, as it is for uv.
@@ -544,14 +551,17 @@ or a `UV_PYTHON*` or `UV_MANAGED_PYTHON` session variable overrides what crucibl
 
 ### How a toolchain is built
 
-1. `lib/python/toolchain.nix` resolves the version against `data/python/python.json`, or reads
-   the releases and their hashes from a `SHA256SUMS` you pass in.
+1. `lib/python/toolchain.nix` resolves the version against `data/python/python.json` — a
+   `version` ending in `t` picks the freethreaded line — or reads the releases and their hashes
+   from a `SHA256SUMS` you pass in.
 2. `lib/python/python.nix` unpacks the `install_only` archive as it is. On Linux, `autoPatchelf`
    points python at the store's glibc, libgcc_s and libcrypt.so.1. sysconfig's build-machine paths (`/install`, clang, the
    build's llvm-ar) are rewritten to this prefix and the shell's tools, as uv does when it
-   installs these builds, and an `EXTERNALLY-MANAGED` file is added.
+   installs these builds, and an `EXTERNALLY-MANAGED` file is added. The freethreaded builds are
+   the same, under `lib/python3.14t`, `bin/python3.14t` and the `t`-suffixed `_sysconfigdata`
+   and config names.
 3. `lib/python/uv.nix` installs the `uv` and `uvx` binaries from uv's GitHub release and wraps
-   them for the toolchain's Python.
+   them for the toolchain's Python (`python3`, or `python3.14t` on the freethreaded toolchains).
 4. A `symlinkJoin` puts python and uv together, with the setup hook.
 
 ## Go
