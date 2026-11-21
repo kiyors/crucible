@@ -36,11 +36,11 @@ jobs:
               sudo apt-get install -y musl-tools
               rustup target add aarch64-unknown-linux-musl
           - target: aarch64-apple-darwin
-            runs-on: macos-14
+            runs-on: macos-latest
             setup: |
               rustup target add aarch64-apple-darwin
           - target: x86_64-apple-darwin
-            runs-on: macos-14
+            runs-on: macos-latest
             setup: |
               rustup target add x86_64-apple-darwin
     runs-on: ${{ matrix.runs-on }}
