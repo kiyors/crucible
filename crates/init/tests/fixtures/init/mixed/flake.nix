@@ -2,7 +2,7 @@
   description = "A Rust, Node.js, Deno, Python, Go and Zig project with crucible";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
     crucible = {
       url = "github:kiyors/crucible";
       inputs.nixpkgs.follows = "nixpkgs";

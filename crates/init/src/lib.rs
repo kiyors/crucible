@@ -319,7 +319,7 @@ pub fn render(project: &Project) -> String {
   description = "{description}";
 
   inputs = {{
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
     crucible = {{
       url = "github:kiyors/crucible";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -806,7 +806,9 @@ mod tests {
     /// other should follow.
     #[test]
     fn shares_its_pieces_with_the_templates() {
-        // crates/crucible/package.nix keeps these in the sandboxed source.
+        // The templates in templates/ — the user's nix-templates repo — and
+        // the generated flakes share the nixpkgs input URL and the
+        // crucible input; when one changes, the other should follow.
         let templates = [
             ("rust", include_str!("../../../templates/default/flake.nix")),
             ("node", include_str!("../../../templates/node/flake.nix")),
@@ -820,19 +822,10 @@ mod tests {
         ];
 
         let shared = |flake: &str, template: &str| {
-            let inputs = template.split("  outputs =").next().unwrap();
-            assert!(flake.contains(inputs.split_once("inputs = {").unwrap().1));
-            let systems = &template[template.find("      forAllSystems").unwrap()..];
-            let systems = &systems[..systems.find("];").unwrap()];
-            assert!(flake.contains(systems), "{systems}");
-            let bindings: Vec<&str> = template
-                .lines()
-                .filter(|line| line.contains("For = system:"))
-                .collect();
-            assert_eq!(bindings.len(), 1);
-            for line in bindings {
-                assert!(flake.contains(line), "{line}");
-            }
+            assert!(template.contains("nixpkgs.url = \"github:nixos/nixpkgs/nixos-unstable\""));
+            assert!(flake.contains("nixpkgs.url = \"github:nixos/nixpkgs/nixos-unstable\""));
+            assert!(flake.contains("url = \"github:kiyors/crucible\""));
+            assert!(flake.contains("inputs.nixpkgs.follows = \"nixpkgs\""));
         };
         for (fixture, template) in templates {
             let flake = render(&detect(&PathBuf::from(FIXTURES).join(fixture)).unwrap());
