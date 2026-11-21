@@ -50,10 +50,12 @@ nix shell .#rust.stock -c cargo build -p crucible --no-default-features  # docto
 - **Nix evaluation stays offline.** Network fetches belong in the CLI, and their results go into
   `data/`.
 - **Two copies must stay in sync**:
-  - `lib/common/systems.nix` ↔ `HOSTS` in `crates/crucible/src/manifest.rs` (same systems, same order)
-  - `manifestUrl` in `lib/rust/toolchain.nix` ↔ `manifest_url` in `crates/crucible/src/pin.rs`
-  - `platforms` in `lib/node/toolchain.nix` ↔ `PLATFORMS` in `crates/crucible/src/update/node.rs`
-  - `shasumsUrl` in `lib/node/toolchain.nix` ↔ the URL `pin::node` prints in `crates/crucible/src/pin.rs`
+  - `lib/common/systems.nix` ↔ `HOSTS` in `crates/upstream/src/manifest.rs` (same systems, same
+    order)
+  - `manifestUrl` in `lib/rust/toolchain.nix` ↔ `manifest_url` in `crates/pins/src/pin.rs`
+  - `platforms` in `lib/node/toolchain.nix` ↔ `PLATFORMS` in `crates/pins/src/update/node.rs`
+  - `shasumsUrl` in `lib/node/toolchain.nix` ↔ the URL `pin::node` prints in
+    `crates/pins/src/pin.rs`
 - **Package builds use `.rustPlatform`** (stock cargo). The fork cannot build in the sandbox,
   because it keeps its build directory under `~/.cargo/targets`.
 - **The sysroot's real copies are deliberate** (`bin/*`, `librustc_driver`). Do not "optimize"

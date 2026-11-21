@@ -38,10 +38,18 @@ rustPlatform.buildRustPackage {
     "--package"
     manifest.package.name
   ];
-  cargoTestFlags = [
-    "--package"
-    manifest.package.name
-  ];
+  # The full build tests every crate. The doctor-only one tests just what it
+  # compiles, so it still never builds pins or upstream.
+  cargoTestFlags =
+    if net then
+      [ "--workspace" ]
+    else
+      [
+        "--package"
+        manifest.package.name
+        "--package"
+        "doctor"
+      ];
 
   meta = {
     inherit (manifest.package) description;

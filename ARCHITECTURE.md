@@ -43,7 +43,7 @@ The design rests on two ideas:
   call it, so there is exactly one place where the pieces are wired together.
 - `lib/common/systems.nix`: the supported systems (`x86_64-linux`, `aarch64-linux`,
   `aarch64-darwin`), meaning the ones that both nixpkgs and the fork's releases support. The
-  CLI's `HOSTS` in `crates/crucible/src/manifest.rs` must list the same systems in the same
+  CLI's `HOSTS` in `crates/upstream/src/manifest.rs` must list the same systems in the same
   order.
 
 ### Rust (`lib/rust/`)
@@ -146,16 +146,51 @@ The pinned nightly is the newest one that ships every required component (Cranel
 
 ### CLI (`crates/`)
 
-A Cargo workspace whose root manifest and `Cargo.lock` sit at the repo root, with the crate in
-`crates/crucible` (`publish = false`). Every dependency version is declared once, in the root
-`[workspace.dependencies]`. `crates/crucible/package.nix` builds it with crucible's own
-`rust.stable.rustPlatform`, so every CI run also proves that the toolchain packages a real crate.
-Its source is the repo root cut down to the Cargo manifests, `crates/` without Nix or Markdown,
-and `data/node/release-keys.asc`, so editing docs or Nix does not rebuild the CLI.
-The CLI code lives in the library (`src/lib.rs`), so it can be tested without a network or a
-process. `main.rs` is only clap. Everything but `doctor` sits behind the default `net` cargo
-feature; `cli-doctor` (`packages.crucible-doctor`, what `apps.default` runs) builds without it
-and skips compiling rustls and ring.
+A Cargo workspace whose root manifest and `Cargo.lock` sit at the repo root (`publish = false`
+throughout). Every dependency version is declared once, in the root `[workspace.dependencies]`.
+`crates/crucible/package.nix` builds the binary with crucible's own `rust.stable.rustPlatform`,
+so every CI run also proves that the toolchain packages a real crate. Its source is the repo root
+cut down to the Cargo manifests, `crates/` without Nix or Markdown, and
+`data/node/release-keys.asc`, so editing docs or Nix does not rebuild the CLI.
+
+There are four crates. The first cut is the one that matters to users, what the doctor-only
+build compiles; the second follows the one layering the network code already has.
+
+- `crates/crucible`: the `crucible` binary, only clap and dispatch. Its default `net` feature
+  is nothing but the optional `pins` dependency, so the doctor-only build (`cli-doctor`,
+  `packages.crucible-doctor`, what `apps.default` runs) leaves out rustls, ring and every other
+  network dependency by not depending on them, not through `#[cfg]` in library code. The
+  package builds and tests with `--package`, so that build never compiles `pins` or `upstream`.
+- `crates/doctor`: `doctor` alone. It may not reach the network, and its dependencies
+  (`serde_json`, `toml`) are all the doctor-only build adds to the binary.
+- `crates/upstream`: downloading, verifying and parsing upstream release metadata. Its modules
+  depend on nothing else in the workspace, and they hold the whole TLS, GPG and hashing stack.
+- `crates/pins`: `update` and `pin`, the two commands that turn that metadata into pins (in
+  `data/`, or printed for a project). They share helpers, so they stay one crate. Its root
+  re-exports `upstream`'s modules, so `crate::http` and the rest read as they do in one crate.
+  Adding a language means a step in `pins/src/update/` and, when it needs a new upstream
+  format, a model in `upstream`.
+
+Everything is a library, so the trimming and parsing rules are tested without a network or a
+process.
+
+`upstream`:
+
+- `pnpm_lock.rs`: the pnpm v9 lockfile model and `graph()`, the shape of the graph in
+  `data/node/vite-plus.json`. It walks the graph once per system from the root, following
+  optional dependencies only where npm's `os`/`cpu`/`libc` rules allow them. Its `PLATFORMS`
+  follow `lib/common/systems.nix`, like `PLATFORMS` in `pins`' `update/node.rs` and
+  `update/vite_plus.rs`.
+- `manifest.rs`: the upstream manifest model and `trim()`, the exact shape of
+  `data/rust/*.json`. `tests/trim.rs` compares it against `tests/fixtures/`.
+- `gpg.rs`: verifies each `SHASUMS256.txt` against its `.sig` using the active Node.js release
+  keys from `data/node/release-keys.asc`. Pure Rust, so `cargo test` needs no system `gpgv`; the
+  vendored keyring is the allow-list, not a key someone happened to install locally.
+- `http.rs`: the single path for every download. It retries transient failures and never retries
+  a 404.
+- `sri.rs`: hex/bytes → `sha256-<base64>`, so the CLI never has to shell out to `nix`.
+
+`pins`:
 
 - `update/`: `update [all|cargo|rust|node]`. It fetches and validates **every** pin before writing
   anything, then replaces each file atomically in a fixed order, under a
@@ -166,29 +201,18 @@ and skips compiling rustls and ring.
   release of every supported line, then Vite+, whose lockfile is downloaded and checked against
   `vp-checksums.txt` before it is trimmed, then the package managers from npm registry metadata.
   Every `SHASUMS256.txt` is GPG-verified before its hashes are used.
-- `pnpm_lock.rs`: the pnpm v9 lockfile model and `graph()`, the shape of the graph in
-  `data/node/vite-plus.json`. It walks the graph once per system from the root, following
-  optional dependencies only where npm's `os`/`cpu`/`libc` rules allow them. Its `PLATFORMS`
-  follow `lib/common/systems.nix`, like `PLATFORMS` in `update/node.rs` and `update/vite_plus.rs`.
-- `manifest.rs`: the upstream manifest model and `trim()`, the exact shape of
-  `data/rust/*.json`. `tests/trim.rs` compares it against `tests/fixtures/`.
 - `pin.rs`: `pin rust <channel>` prints the `flake = false` input and the SRI hash for a
   channel. Its URL rules mirror `manifestUrl` in `toolchain.nix`, and the two must stay in sync.
   `pin node <x.y.z>` does the same for a release's `SHASUMS256.txt`, after checking its GPG
   signature and that it lists a tarball for every system.
-- `doctor.rs`: checks the user's environment. Is `cargo` the fork? It also looks for rustup
-  proxies, `CARGO_INCREMENTAL=0`, `CARGO_TARGET_DIR`, `RUSTC_WRAPPER` caches, a stale
-  `RUST_SRC_PATH`, a `rust-toolchain.toml` that disagrees with `rustc`, variables the current
-  `hm-session-vars.sh` no longer sets (a shell older than the last switch), and on macOS a GCC
-  `cc`. For Node.js it compares the active node with the nearest `.node-version`/`.nvmrc` and the
-  active package manager with `package.json`'s `packageManager`, and warns about `VP_HOME`,
-  `VP_ENV_FORBIDDEN`, `NODE_PATH` and an npm prefix in the read-only store.
-- `gpg.rs`: verifies each `SHASUMS256.txt` against its `.sig` using the active Node.js release
-  keys from `data/node/release-keys.asc`. Pure Rust, so `cargo test` needs no system `gpgv`; the
-  vendored keyring is the allow-list, not a key someone happened to install locally.
-- `http.rs`: the single path for every download. It retries transient failures and never retries
-  a 404.
-- `sri.rs`: hex/bytes → `sha256-<base64>`, so the CLI never has to shell out to `nix`.
+
+`doctor` checks the user's environment. Is `cargo` the fork? It also looks for rustup
+proxies, `CARGO_INCREMENTAL=0`, `CARGO_TARGET_DIR`, `RUSTC_WRAPPER` caches, a stale
+`RUST_SRC_PATH`, a `rust-toolchain.toml` that disagrees with `rustc`, variables the current
+`hm-session-vars.sh` no longer sets (a shell older than the last switch), and on macOS a GCC
+`cc`. For Node.js it compares the active node with the nearest `.node-version`/`.nvmrc` and the
+active package manager with `package.json`'s `packageManager`, and warns about `VP_HOME`,
+`VP_ENV_FORBIDDEN`, `NODE_PATH` and an npm prefix in the read-only store.
 
 ### Integration
 

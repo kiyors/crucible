@@ -12,6 +12,10 @@ publish = false
 # Every version lives here once, so the crates cannot drift apart. Features a
 # crate needs on top of these are added where it opts in.
 [workspace.dependencies]
+doctor = { path = "crates/doctor" }
+pins = { path = "crates/pins" }
+upstream = { path = "crates/upstream" }
+
 anyhow = "1"
 base64 = "0.22"
 clap = { version = "4.5", features = ["derive"] }

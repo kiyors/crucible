@@ -7,9 +7,8 @@ use std::process::ExitCode;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
-use crucible::doctor;
 #[cfg(feature = "net")]
-use crucible::{pin, update, update::Scope};
+use pins::{pin, update, update::Scope};
 
 #[derive(Parser)]
 #[command(name = "crucible", version)]

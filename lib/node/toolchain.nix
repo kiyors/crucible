@@ -34,14 +34,14 @@ let
   pinnedVersions = map (r: r.version) (attrValues pinned.releases);
   pinnedPackageManagers = lib.importJSON ../../data/node/package-managers.json;
 
-  # Nix system -> nodejs.org platform, as `PLATFORMS` in crates/crucible/src/update/node.rs.
+  # Nix system -> nodejs.org platform, as `PLATFORMS` in crates/pins/src/update/node.rs.
   platforms = {
     x86_64-linux = "linux-x64";
     aarch64-linux = "linux-arm64";
     aarch64-darwin = "darwin-arm64";
   };
 
-  # Must match the URL `crucible pin node` prints, in crates/crucible/src/pin.rs.
+  # Must match the URL `crucible pin node` prints, in crates/pins/src/pin.rs.
   shasumsUrl = version: "https://nodejs.org/dist/v${version}/SHASUMS256.txt";
 
   exact = spec: match "v?([0-9]+\\.[0-9]+\\.[0-9]+)" spec;

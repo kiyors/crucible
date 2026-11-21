@@ -392,16 +392,9 @@ name = "crucible"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "base64",
  "clap",
- "indexmap",
- "pgp",
- "serde",
- "serde_json",
- "serde_yaml_ng",
- "sha2",
- "toml",
- "ureq",
+ "doctor",
+ "pins",
 ]
 
 [[package]]
@@ -619,6 +612,15 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.10",
+]
+
+[[package]]
+name = "doctor"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde_json",
+ "toml",
 ]
 
 [[package]]
@@ -1334,6 +1336,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "pins"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "indexmap",
+ "serde",
+ "serde_json",
+ "toml",
+ "upstream",
+]
+
+[[package]]
 name = "pkcs1"
 version = "0.7.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1961,6 +1976,22 @@ name = "untrusted"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
+
+[[package]]
+name = "upstream"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "indexmap",
+ "pgp",
+ "serde",
+ "serde_json",
+ "serde_yaml_ng",
+ "sha2",
+ "toml",
+ "ureq",
+]
 
 [[package]]
 name = "ureq"
