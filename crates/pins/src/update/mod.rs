@@ -12,6 +12,7 @@ pub mod node;
 pub mod package_managers;
 pub mod python;
 pub mod rust;
+pub mod tsrs;
 pub mod vite_plus;
 pub mod zig;
 
@@ -39,6 +40,8 @@ pub enum Scope {
     Go,
     /// Zig releases
     Zig,
+    /// tsrs, the TypeScript type checker
+    Tsrs,
 }
 
 /// The files a run will write, already serialized, in write order.
@@ -53,7 +56,7 @@ pub fn run(scope: Scope, version: Option<String>, root: &Path) -> Result<()> {
 
     // Plan everything first: the cargo pin, then stable, beta and nightly, then
     // Node, Vite+, the package managers and Deno, then Python and uv, then
-    // Go and Zig, so a fetch failure anywhere aborts before any pin changes.
+    // Go, Zig and tsrs, so a fetch failure anywhere aborts before any pin changes.
     let plan = match scope {
         Scope::All => {
             let mut plan = cargo::plan(&http, version, root)?;
@@ -63,6 +66,7 @@ pub fn run(scope: Scope, version: Option<String>, root: &Path) -> Result<()> {
             plan.extend(python::plan(&http, root)?);
             plan.extend(go::plan(&http, root)?);
             plan.extend(zig::plan(&http, root)?);
+            plan.extend(tsrs::plan(&http, root)?);
             plan
         }
         Scope::Cargo => cargo::plan(&http, version, root)?,
@@ -72,6 +76,7 @@ pub fn run(scope: Scope, version: Option<String>, root: &Path) -> Result<()> {
         Scope::Python => python::plan(&http, root)?,
         Scope::Go => go::plan(&http, root)?,
         Scope::Zig => zig::plan(&http, root)?,
+        Scope::Tsrs => tsrs::plan(&http, root)?,
     };
 
     for (path, bytes) in plan {

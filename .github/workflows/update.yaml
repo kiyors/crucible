@@ -222,6 +222,7 @@ jobs:
               echo "- uv: $(pin python/uv .version)"
               echo "- go: $(pin go/go '.releases[.stable].version')"
               echo "- zig: $zig"
+              echo "- tsrs: $(pin tsrs/tsrs .version)"
             } > "$RUNNER_TEMP/message"
             git commit -F "$RUNNER_TEMP/message"
             if git push origin HEAD:main; then
