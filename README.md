@@ -602,10 +602,11 @@ crucible.lib.${system}.go.fromGoMod {
 ```
 
 Reads the `toolchain` directive, then the `go` directive, the order the go command uses. Both
-name the oldest release that will do, so `go 1.26.2` or `toolchain go1.26.2` gets the pinned
-1.26 release (1.26.11 today), and keeps working as the daily update moves the pin. A file asking
-for a newer release than the pin, or for a line that is no longer pinned, is an evaluation error
-that says to update crucible or pass `hashes`.
+name the oldest release that will do, so `go 1.26.2` or `toolchain go1.26.2` gets the oldest
+pinned release that is as new: the pinned 1.26 release (1.26.11 today), and keeps working as the
+daily update moves the pin. A line that is no longer pinned (`go 1.21`) moves on to the oldest
+pinned release, as a newer `go` builds the module anyway. A file asking for a newer release than
+every pin is an evaluation error that says to update crucible or pass `hashes`.
 
 ### devShell
 

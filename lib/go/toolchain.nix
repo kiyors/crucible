@@ -52,10 +52,11 @@ let
   # without the "go" prefix. Pinned releases need nothing else; any other
   # exact release needs `hashes`.
   #
-  # `minimum` reads an exact release the way the go command reads go.mod: as
-  # the oldest release that will do. The pinned release of that line then
-  # satisfies it when it is the same or newer, so go.mod files keep working
-  # as the daily update moves the pin to each new patch release.
+  # `minimum` reads a version the way the go command reads go.mod: as the
+  # oldest release that will do. It gets the oldest pinned release that is
+  # the same or newer, so go.mod files keep working as the daily update moves
+  # the pins to each new patch release, and as old lines leave support: Go
+  # keeps building modules that ask for an older release.
   resolve =
     {
       version,
@@ -87,6 +88,21 @@ let
         }
     else if spec == "stable" || spec == "latest" then
       pinned.releases.${pinned.stable}
+    else if minimum && (line != null || release != null) then
+      let
+        # The pinned releases that will do, oldest first.
+        enough = lib.sort (a: b: compareVersions a.version b.version < 0) (
+          filter (r: compareVersions r.version spec >= 0) (attrValues pinned.releases)
+        );
+      in
+      if enough != [ ] then
+        head enough
+      else
+        throw ''
+          crucible: Go ${spec} is newer than every pinned release (${lib.concatStringsSep ", " pinnedVersions}).
+          Update crucible, or pass that release's `hashes`
+          (`nix run github:kiyors/crucible#crucible -- pin go ${spec}`).
+        ''
     else if line != null then
       pinned.releases.${head line} or (throw (notPinned spec))
     else if release == null then
@@ -96,13 +112,6 @@ let
       ''
     else if pinnedLine != null && pinnedLine.version == spec then
       pinnedLine
-    else if minimum && pinnedLine != null && compareVersions pinnedLine.version spec >= 0 then
-      pinnedLine
-    else if minimum && pinnedLine != null then
-      throw ''
-        crucible: Go ${spec} is newer than the pinned ${pinnedLine.version}. Update crucible, or
-        pass that release's `hashes` (`nix run github:kiyors/crucible#crucible -- pin go ${spec}`).
-      ''
     else
       throw (notPinned spec);
 

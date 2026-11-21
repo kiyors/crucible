@@ -125,8 +125,8 @@ in
       );
 
   # The toolchain directive wins over the go directive; both are minimums,
-  # met by the pinned release of their line; `toolchain default` and
-  # comments are ignored.
+  # met by the oldest pinned release that is as new, even on a newer line;
+  # `toolchain default` and comments are ignored.
   go-from-go-mod =
     let
       byToolchain = fromGoMod (
@@ -140,6 +140,11 @@ in
     assert byGo.version == oldest.version;
     assert byLine.version == oldest.version;
     assert exactPin.version == oldest.version;
+    # A line that left support, as a line or a release, and a patch newer
+    # than its line's pin, move on to the next pinned release.
+    assert (fromGoMod (goMod "old" "go 1.16")).version == oldest.version;
+    assert (fromGoMod (goMod "oldrelease" "go 1.20.3")).version == oldest.version;
+    assert (fromGoMod (goMod "pastpin" "go ${oldest.version}9")).version == stable.version;
     # A version with a go prefix, and a line, through `toolchain`.
     assert (go.toolchain { version = "go${stable.version}"; }).version == stable.version;
     assert (go.toolchain { version = pins.stable; }).version == stable.version;
@@ -167,10 +172,10 @@ in
         hashes = { };
       }
     );
-    # go.mod asking for a patch release newer than the pin, for a line that
-    # is not pinned, or for nothing at all.
+    # go.mod asking for a release newer than every pin, or for nothing at
+    # all.
     assert rejected (fromGoMod (goMod "newer" "go ${pins.stable}.999"));
-    assert rejected (fromGoMod (goMod "old" "go 1.16"));
+    assert rejected (fromGoMod (goMod "newline" "go 1.999"));
     assert rejected (fromGoMod (goMod "none" ""));
     # A cross package set.
     assert rejected

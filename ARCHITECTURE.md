@@ -213,8 +213,9 @@ separate package ecosystem, the second builds from source.
     then `go`, ignoring `toolchain default` and comments.
   - `resolve` turns "stable", a line or an exact release into a pinned release, or builds one
     from per-system `hashes` with URLs from `downloadUrl`, which must match `DL` in
-    `crates/pins/src/update/go.rs`. For go.mod it reads an exact release as a minimum, as the go command
-    does: the pinned release of that line satisfies it when it is the same or newer.
+    `crates/pins/src/update/go.rs`. For go.mod it reads a line or release as a minimum, as the go
+    command does: the oldest pinned release that is the same or newer satisfies it, on a newer
+    line when the one asked for is no longer pinned.
   - Each toolchain carries `.goroot` and `.buildGoModule` (nixpkgs' builder overridden onto
     it, with `CGO_ENABLED` in passthru for the builder's default). There is no gopls: Go
     releases do not ship one, and it does not have to match the Go it runs.
