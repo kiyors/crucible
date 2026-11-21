@@ -11,19 +11,29 @@ source or through another overlay, and pinned from the files projects already ha
 - **Python**: CPython from [python-build-standalone](https://github.com/astral-sh/python-build-standalone),
   the relocatable builds uv installs, with [uv](https://docs.astral.sh/uv) next to them, set up
   to use that Python and never download one.
+- **Deno**: the official denoland/deno release builds.
 - **Go**: the official go.dev builds, set up so `go` never downloads another toolchain.
 - **Zig**: the official ziglang.org releases, pinned from ziglang.org's own `index.json`.
 
-- **No intermediaries.** Components come straight from `static.rust-lang.org`, unpacked into one
+- **No intermediaries.** Every toolchain is built from its project's own release archives, not
+  from source. Rust's components come straight from `static.rust-lang.org`, joined into one
   prefix the way rustup installs them, so every official binary finds its libraries where it
-  expects to. The only flake input is nixpkgs.
-- **Pinned and updated about every 10 hours.** `data/rust/{stable,beta,nightly}.json` hold the trimmed channel
-  manifests, `data/rust/cargo.json` the fork's release, `data/node/node.json` the newest release
-  of every supported Node.js line, `data/node/vite-plus.json` the Vite+ release with its
-  dependency tree, `data/python/python.json` the newest CPython of every supported line and
-  `data/python/uv.json` the uv release, `data/go/go.json` the newest release of every supported
-  Go line, `data/zig/zig.json` the newest tagged release of every minor Zig line; the scheduled `update` workflow refreshes them with the
-  latest released CLI.
+  expects to. The only flake input is nixpkgs, and the pinned releases evaluate offline.
+- **Pinned and updated about every 10 hours.** `data/` holds every pin, with the hash of every
+  archive:
+  - `data/rust/{stable,beta,nightly}.json`: the trimmed channel manifests, and
+    `data/rust/cargo.json` the fork's release
+  - `data/node/node.json`: the newest release of every supported Node.js line,
+    `data/node/vite-plus.json` the Vite+ release with its dependency tree, and
+    `data/node/package-managers.json` the newest pnpm, yarn and bun of every supported major
+  - `data/deno/deno.json`: the newest Deno release
+  - `data/python/python.json`: the newest CPython of every supported line, regular and
+    freethreaded, and `data/python/uv.json` the uv release
+  - `data/go/go.json`: the newest release of the two supported Go lines
+  - `data/zig/zig.json`: the newest tagged release of every minor Zig line
+
+  The scheduled `update` workflow refreshes them with the latest released CLI.
+
 - **Nightly is always complete.** The pinned nightly is the newest one that ships rustc, clippy,
   rustfmt, rust-src, llvm-tools, rust-analyzer and Cranelift on every supported host.
 - **The fork cannot update itself** inside the read-only store (`CARGO_FORK_AUTO_UPDATE=0`).
@@ -61,6 +71,7 @@ releases support.
 | `lib.<system>.zig.fromBuildZigZon`      | a toolchain from a project's `build.zig.zon`                     |
 | `overlays.default`                      | `pkgs.crucible`: `.rust`, `.node`, `.python`, `.go`, `.zig`, ... |
 | `homeManagerModules.default`            | `programs.crucible.{rust,node,python,go,zig}`                    |
+| `templates.{default,node,python,...}`   | starter projects for every language, see [Templates](#templates) |
 
 Every Rust toolchain also carries:
 
@@ -437,10 +448,10 @@ major line when a newer one is pinned.
 
 ```nix
 crucible.lib.${system}.python.toolchain {
-  version ? "3";        # "3" (the newest pinned line), a line ("3.14"), a freethreaded line
-                        # ("3.14t"), a PEP 440 specifier
+  version ? "3";        # "3" (the newest pinned line), a line ("3.14"), a PEP 440 specifier
                         # (">=3.12,<3.15", "~=3.13.2") or an exact release, pinned in
-                        # data/python/; any other release with `sha256sums`
+                        # data/python/; any other release with `sha256sums`. A trailing
+                        # "t" ("3.14t", "3.14.10t") asks for the freethreaded build
   uv ? true;            # include uv, set up for this Python
   sha256sums ? null;    # a python-build-standalone release's SHA256SUMS as a file
 }
@@ -449,9 +460,13 @@ crucible.lib.${system}.python.toolchain {
 A version or specifier resolves offline to the newest pinned release it allows. The pins hold the
 newest release of each line python.org still fixes (3.11 to 3.15 today, the `bugfix` and
 `security` lines of its release cycle), all from one python-build-standalone build, so
-`"==3.12.4"` matches nothing and says so. The freethreaded builds (`3.14t`) are pinned as lines
-of their own next to the regular ones, at the same versions, so `version = "3.14t"` picks the
-freethreaded interpreter — `python3.14t`, the same one uv installs.
+`"==3.12.4"` matches nothing and says so.
+
+The freethreaded builds (no GIL) are pinned as lines of their own next to the regular ones (3.13t
+to 3.15t today), at the same versions: `version = "3.14t"` picks the freethreaded interpreter,
+the same one uv installs as `3.14t`. A version without the `t` never gets a freethreaded build,
+and one with it never gets a regular build. PyPy and GraalPy are not pinned, and a project asking
+for one fails at evaluation time.
 
 For a release that is not pinned, `crucible pin python <x.y.z>` prints the `SHA256SUMS` flake
 input of the build that carries it, for every system, with the file's hash:
@@ -492,10 +507,8 @@ Every toolchain carries:
 
 - `.python`: the CPython alone (python3, pip, headers, the standard library)
 - `.uv`: uv for this Python, or `null`
-- `.pythonVersion` (`"3.14"`) and `.sitePackages` (`"lib/python3.14/site-packages"`)
-
-Freethreaded builds (`3.14t`) are pinned as lines of their own next to the regular ones; PyPy and
-GraalPy are not, and a project asking for one fails at evaluation time.
+- `.pythonVersion` (`"3.14"`) and `.sitePackages` (`"lib/python3.14/site-packages"`, or
+  `"lib/python3.14t/site-packages"` on a freethreaded build)
 
 ### fromPythonVersion and fromPyprojectToml
 
@@ -505,11 +518,10 @@ crucible.lib.${system}.python.fromPyprojectToml { file = ./pyproject.toml; uv ? 
 ```
 
 `fromPythonVersion` reads the first entry of a `.python-version` as uv and pyenv write it:
-`3.14`, `3.14.2`, `cpython@3.14`, `cpython-3.14`, `3.14t` for the freethreaded build or a
-specifier. `fromPyprojectToml` reads the
-project the way uv does: the `.python-version` next to `pyproject.toml`, then
-`project.requires-python`, then the newest pinned line. A `.python-version` that
-`requires-python` does not allow is an error, as it is for uv.
+`3.14`, `3.14.2`, `cpython@3.14`, `cpython-3.14`, `3.14t` for the freethreaded build, or a
+specifier. `fromPyprojectToml` reads the project the way uv does: the `.python-version` next to
+`pyproject.toml`, then `project.requires-python`, then the newest pinned line. A
+`.python-version` that `requires-python` does not allow is an error, as it is for uv.
 
 ### devShell
 
@@ -556,17 +568,17 @@ or a `UV_PYTHON*` or `UV_MANAGED_PYTHON` session variable overrides what crucibl
 
 ### How a toolchain is built
 
-1. `lib/python/toolchain.nix` resolves the version against `data/python/python.json` — a
-   `version` ending in `t` picks the freethreaded line — or reads the releases and their hashes
-   from a `SHA256SUMS` you pass in.
+1. `lib/python/toolchain.nix` resolves the version against `data/python/python.json`, or reads
+   the releases and their hashes from a `SHA256SUMS` you pass in. A `version` ending in `t` looks
+   only at the freethreaded releases, any other only at the regular ones.
 2. `lib/python/python.nix` unpacks the `install_only` archive as it is. On Linux, `autoPatchelf`
-   points python at the store's glibc, libgcc_s and libcrypt.so.1. sysconfig's build-machine paths (`/install`, clang, the
-   build's llvm-ar) are rewritten to this prefix and the shell's tools, as uv does when it
-   installs these builds, and an `EXTERNALLY-MANAGED` file is added. The freethreaded builds are
-   the same, under `lib/python3.14t`, `bin/python3.14t` and the `t`-suffixed `_sysconfigdata`
-   and config names.
+   points python at the store's glibc, libgcc_s and libcrypt.so.1. sysconfig's build-machine
+   paths (`/install`, clang, the build's llvm-ar) are rewritten to this prefix and the shell's
+   tools, as uv does when it installs these builds, and an `EXTERNALLY-MANAGED` file is added.
+   The freethreaded builds get the same treatment under `lib/python3.14t`; they have
+   `bin/python3.14t` as well as `bin/python3`.
 3. `lib/python/uv.nix` installs the `uv` and `uvx` binaries from uv's GitHub release and wraps
-   them for the toolchain's Python (`python3`, or `python3.14t` on the freethreaded toolchains).
+   them for the toolchain's `python3`.
 4. A `symlinkJoin` puts python and uv together, with the setup hook.
 
 ## Go
@@ -604,7 +616,7 @@ crucible.lib.${system}.go.fromGoMod {
 Reads the `toolchain` directive, then the `go` directive, the order the go command uses. Both
 name the oldest release that will do, so `go 1.26.2` or `toolchain go1.26.2` gets the oldest
 pinned release that is as new: the pinned 1.26 release (1.26.11 today), and keeps working as the
-daily update moves the pin. A line that is no longer pinned (`go 1.21`) moves on to the oldest
+update moves the pin. A line that is no longer pinned (`go 1.21`) moves on to the oldest
 pinned release, as a newer `go` builds the module anyway. A file asking for a newer release than
 every pin is an evaluation error that says to update crucible or pass `hashes`.
 
@@ -802,13 +814,14 @@ pkgs = import nixpkgs {
   overlays = [ crucible.overlays.default ];
 };
 
-# pkgs.crucible.rust.{stable,nightly,cargo}, pkgs.crucible.cli, pkgs.crucible.cli-doctor,
-# pkgs.crucible.rust.toolchain { ... }, pkgs.crucible.rust.fromToolchainFile { ... },
-# pkgs.crucible.node.{lts,current}, pkgs.crucible.node.toolchain { ... },
-# pkgs.crucible.node.fromPackageJson { ... }, pkgs.crucible.python.latest,
-# pkgs.crucible.python.toolchain { ... }, pkgs.crucible.python.fromPyprojectToml { ... }
-# pkgs.crucible.go.stable, pkgs.crucible.go.toolchain { ... }, pkgs.crucible.go.fromGoMod { ... }
-# pkgs.crucible.zig.toolchain { ... }
+# pkgs.crucible.cli, pkgs.crucible.cli-doctor
+# pkgs.crucible.rust.{stable,nightly,cargo}, .toolchain { ... }, .fromToolchainFile { ... }
+# pkgs.crucible.node.{lts,current}, .toolchain { ... }, .fromPackageJson { ... }
+# pkgs.crucible.deno.toolchain { ... }
+# pkgs.crucible.python.latest, .toolchain { ... }, .fromPythonVersion { ... },
+#   .fromPyprojectToml { ... }
+# pkgs.crucible.go.stable, .toolchain { ... }, .fromGoMod { ... }
+# pkgs.crucible.zig.toolchain { ... }, .fromBuildZigZon { ... }
 ```
 
 ## CLI
@@ -862,13 +875,14 @@ copy.
 The other languages get the same treatment, each one only when its executable or its project file
 is there, so a Rust-only project sees no Python or Go lines. A project file without the
 executable is a warning that names the function to add (`fromPyprojectToml`, `fromGoMod`,
-`fromBuildZigZon`, `deno.toolchain`) or the `programs.crucible.<lang>` option, and a second copy
-further down PATH is warned about as above.
+`fromBuildZigZon`, `deno.toolchain`) or the `programs.crucible.<lang>` option (Deno has none
+yet), and a second copy further down PATH is warned about as above.
 
 - **Python and uv.** The active `python3` is compared with the nearest `.python-version` (read as
   `fromPythonVersion` reads it) and with `requires-python` in the nearest `pyproject.toml`, both
-  as PEP 440; a `3.14t` entry also needs `python3` to be a freethreaded build. `doctor` warns about `PYTHONHOME`, a `UV_PYTHON` that is not the `python3` on PATH
-  (or, when unset, a uv wrapper that defaults it to another toolchain's python3), a
+  as PEP 440; a `3.14t` entry also needs `python3` to be a freethreaded build. `doctor` warns
+  about `PYTHONHOME`, a `UV_PYTHON` that is not the `python3` on PATH (or, when unset, a uv
+  wrapper that defaults it to another toolchain's python3), a
   `UV_PYTHON_DOWNLOADS` other than `never`, and any `UV_MANAGED_PYTHON` or
   `UV_PYTHON_PREFERENCE`. A uv that sets no `UV_PYTHON` at all is not crucible's, and gets an
   `info` line. The OS's own `/usr/bin/python3` further down PATH is not reported, since it cannot
@@ -905,25 +919,26 @@ nix run .#crucible -- update cargo --version 0.103.0-1
 nix run .#crucible -- update rust                     # stable, beta, newest complete nightly
 nix run .#crucible -- update node                     # every supported Node.js line, and Vite+
 nix run .#crucible -- update deno                     # the newest stable Deno release
-nix run .#crucible -- update python                   # every supported CPython line, and uv
+nix run .#crucible -- update python                   # every supported CPython line (and its freethreaded line), and uv
 nix run .#crucible -- update go                       # the newest release of each supported Go line
 nix run .#crucible -- update zig                      # every tagged Zig release line
 ```
 
 The fork's hashes come from each release's `SHA256SUMS`, the Rust ones from the channel
-manifests, Node.js's from each release's `SHASUMS256.txt` and Vite+'s from its
-`vp-checksums.txt` and its pnpm lockfile, and Zig's from ziglang.org's per-platform
-`index.json`, so nothing is downloaded but metadata. Every
-`SHASUMS256.txt` is verified against its GPG signature before its hashes are used, with the active
-Node.js release keys vendored in `data/node/release-keys.asc`. Package-manager pins come from the
-npm registry's `dist.integrity`. Go's hashes come from go.dev's release index
-(`?mode=json&include=all`), which also decides the supported lines: the two newest with a stable
-release, as Go's release policy has it. Which Node.js lines are supported comes from the Release working
-group's `schedule.json`. CPython's hashes come from the newest python-build-standalone
-build's `SHA256SUMS` and uv's from its release's `sha256.sum`, each checked against the sha256
-GitHub records for the release asset, since neither file is signed. Which CPython lines are
-supported comes from python.org's `release-cycle.json`. The nightly search fetches candidate
-dates in parallel.
+manifests, Node.js's from each release's `SHASUMS256.txt`, Vite+'s from its `vp-checksums.txt`
+and its pnpm lockfile, Deno's from the sha256 digests GitHub records for denoland/deno's release
+assets, and Zig's from ziglang.org's per-platform `index.json`, so nothing is downloaded but
+metadata. Every `SHASUMS256.txt` is verified against its GPG signature before its hashes are
+used, with the active Node.js release keys vendored in `data/node/release-keys.asc`.
+Package-manager pins come from the npm registry's `dist.integrity`, and bun's from oven-sh/bun's
+`SHASUMS256.txt`. Go's hashes come from go.dev's release index (`?mode=json&include=all`), which
+also decides the supported lines: the two newest with a stable release, as Go's release policy
+has it. Which Node.js lines are supported comes from the Release working group's
+`schedule.json`. CPython's hashes come from the newest python-build-standalone build's
+`SHA256SUMS` and uv's from its release's `sha256.sum`, each checked against the sha256 GitHub
+records for the release asset, since neither file is signed. Which CPython lines are supported
+comes from python.org's `release-cycle.json`. The nightly search fetches candidate dates in
+parallel.
 
 The `update` workflow runs at 00:17, 10:17 and 20:17 UTC (about every 10 hours): it downloads
 the latest released CLI (`crucible-<version>-<target>.tar.gz`, verified against the release's
@@ -944,5 +959,9 @@ scheduled run.
 direnv allow          # or: nix develop ./dev
 nix flake check -L    # builds a crate with every toolchain
 cd dev && nix fmt
-nix shell .#rust.stock -c cargo test --workspace  # the CLI's tests, from the repo root
+nix shell .#rust.stock -c cargo test --workspace                 # the CLI's tests, from the repo root
+nix shell .#rust.stock -c cargo clippy --workspace --all-targets # warnings are errors ([workspace.lints])
 ```
+
+`nix flake check` also runs clippy on the workspace (`checks.<system>.crucible-clippy`), so a new
+warning fails CI. `AGENTS.md` lists every check to run before a commit.
