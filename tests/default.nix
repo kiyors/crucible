@@ -16,6 +16,20 @@ import ./rust { inherit pkgs crucible; }
   crucible = crucible.cli;
   crucible-doctor = crucible.cli-doctor;
 
+  # `cargo clippy --workspace --all-targets` with every warning an error.
+  # It reuses the CLI package's vendored dependencies, since the sandbox
+  # cannot download crates, and its stock toolchain, which carries clippy.
+  crucible-clippy = crucible.cli.overrideAttrs {
+    pname = "crucible-clippy";
+    buildPhase = ''
+      runHook preBuild
+      cargo clippy --offline --workspace --all-targets -- -D warnings
+      runHook postBuild
+    '';
+    doCheck = false;
+    installPhase = "touch $out";
+  };
+
   # The Node template must resolve from its own files, with pnpm in the
   # toolchain (not an extra package the shell has to remember to add).
   node-template =

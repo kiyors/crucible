@@ -35,3 +35,11 @@ sha2 = "0.10"
 toml = { version = "0.8", features = ["preserve_order"] }
 # Default features give us rustls, and a synchronous API keeps the binary small.
 ureq = "2"
+
+# The CLI is warning-free today; deny what it already passes so a new warning
+# becomes a build failure rather than a habit nobody notices.
+[workspace.lints.rust]
+warnings = "deny"
+
+[workspace.lints.clippy]
+all = "deny"

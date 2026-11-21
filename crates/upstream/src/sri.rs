@@ -24,7 +24,7 @@ pub fn from_hex(hex: &str) -> Result<String> {
 
 fn decode_hex(hex: &str) -> Result<Vec<u8>> {
     let hex = hex.trim();
-    if hex.len() % 2 != 0 {
+    if !hex.len().is_multiple_of(2) {
         bail!("hex hash has an odd length: {hex}");
     }
     let mut out = Vec::with_capacity(hex.len() / 2);

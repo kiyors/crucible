@@ -391,7 +391,8 @@ that say nothing about how it runs.
 
 - `tests/default.nix` → `checks.<system>`, one set per language (`tests/rust/`, `tests/node/`,
   `tests/zig/`) plus the CLI
-  build. The Rust checks build `tests/rust/hello` with each kind of toolchain: stable (clippy,
+  build and `crucible-clippy`, which runs clippy on the workspace with every warning denied
+  (`[workspace.lints]` in `Cargo.toml` sets the same levels for local runs). The Rust checks build `tests/rust/hello` with each kind of toolchain: stable (clippy,
   fmt, llvm-tools, rust-analyzer, `RUST_SRC_PATH`, which must beat an inherited one), stock
   cargo, nightly, wasm32 (a real link), `fromToolchainFile`, a numbered channel through
   `manifest`, `exclude` and its evaluation-time errors, `rustPlatform.buildRustPackage`, and on
