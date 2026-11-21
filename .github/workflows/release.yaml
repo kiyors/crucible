@@ -17,8 +17,10 @@ permissions:
 
 jobs:
   build:
-    # Artifacts are uploaded from here; nothing else needs the token.
+    # Check out the repo and upload the artifacts from here; nothing else in
+    # the job needs the token.
     permissions:
+      contents: read
       actions: write
     strategy:
       fail-fast: false
