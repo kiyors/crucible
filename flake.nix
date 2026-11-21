@@ -101,5 +101,25 @@
         path = ./templates/node;
         description = "A Node.js project with Vite+ and pnpm, pinned by package.json";
       };
+
+      templates.python = {
+        path = ./templates/python;
+        description = "A Python project with uv, pinned by pyproject.toml and .python-version";
+      };
+
+      templates.go = {
+        path = ./templates/go;
+        description = "A Go module whose toolchain comes from go.mod";
+      };
+
+      templates.zig = {
+        path = ./templates/zig;
+        description = "A Zig project whose toolchain comes from build.zig.zon";
+      };
+
+      templates.deno = {
+        path = ./templates/deno;
+        description = "A Deno project on the newest pinned Deno release";
+      };
     };
 }

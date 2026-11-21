@@ -1,7 +1,8 @@
-# `crucible init`'s output must evaluate. Its cargo tests pin the generated
-# text to the golden flakes in crates/init/tests/fixtures/init/, and this check calls
-# those flakes' `outputs` with crucible's own lib: together they show that what
-# init writes is a working flake, without IFD or a network.
+# `crucible init`'s output must evaluate, and so must the templates whose
+# text it shares. Its cargo tests pin the generated text to the golden flakes
+# in crates/init/tests/fixtures/init/, and this check calls those flakes'
+# `outputs` with crucible's own lib: together they show that what init writes
+# is a working flake, without IFD or a network.
 { pkgs, crucible }:
 let
   inherit (pkgs) lib;
@@ -27,22 +28,33 @@ let
         crucible.rust.fromToolchainFile args;
   };
 
+  # A flake's outputs, called with crucible's lib as the flake exposes it.
+  outputsOf =
+    dir:
+    (import (dir + "/flake.nix")).outputs {
+      nixpkgs = {
+        inherit lib;
+        legacyPackages.${system} = pkgs;
+      };
+      crucible.lib.${system} = {
+        inherit rust;
+        inherit (crucible)
+          node
+          deno
+          python
+          go
+          zig
+          ;
+      };
+      rust-manifest = rustManifest;
+    };
+
   evaluate =
     name:
     let
       dir = fixtures + "/${name}";
       flake = import (dir + "/flake.nix");
-      outputs = flake.outputs {
-        nixpkgs = {
-          inherit lib;
-          legacyPackages.${system} = pkgs;
-        };
-        crucible.lib.${system} = {
-          inherit rust;
-          inherit (crucible) node;
-        };
-        rust-manifest = rustManifest;
-      };
+      outputs = outputsOf dir;
       text = builtins.readFile (dir + "/flake.nix");
     in
     assert lib.assertMsg (
@@ -64,6 +76,12 @@ in
         "rust-numbered"
         "node"
         "rust-node"
+        "python"
+        "python-version"
+        "go"
+        "zig"
+        "deno"
+        "mixed"
       ]
     }
     touch $out
@@ -83,6 +101,47 @@ in
     diff golden.nix flake.nix
     grep -q 'through the rust-manifest input' out
     grep -q 'nix develop' out
+    # Every language at once, with Zig left on the newest pin.
+    cd ..
+    cp -r ${fixtures}/mixed mixed
+    chmod -R u+w mixed
+    cd mixed
+    mv flake.nix golden.nix
+    $slim init > out
+    diff golden.nix flake.nix
+    grep -q 'python: pyproject.toml (version from requires-python)' out
+    grep -q 'go: go.mod (go 1.27.0)' out
+    grep -q 'note: build.zig.zon has no .minimum_zig_version' out
     touch $out
   '';
+
+  # The templates' dev shells evaluate with crucible's lib, and the packages
+  # of the ones init has no counterpart for in the Rust and Node.js checks
+  # build and print their greeting.
+  templates =
+    let
+      shell =
+        name:
+        builtins.unsafeDiscardStringContext
+          (outputsOf (../templates + "/${name}")).devShells.${system}.default.drvPath;
+      package = name: (outputsOf (../templates + "/${name}")).packages.${system}.default;
+    in
+    pkgs.runCommand "crucible-check-templates" { } ''
+      # ${
+        lib.concatMapStringsSep " " shell [
+          "default"
+          "node"
+          "python"
+          "go"
+          "zig"
+          "deno"
+        ]
+      }
+      export HOME=$TMPDIR DENO_DIR=$TMPDIR/deno
+      test "$(${lib.getExe (package "python")})" = "hello from crucible"
+      test "$(${lib.getExe (package "go")})" = "hello from crucible"
+      test "$(${package "zig"}/bin/hello-zig 2>&1)" = "hello from crucible"
+      test "$(${lib.getExe (package "deno")})" = "hello from crucible"
+      touch $out
+    '';
 }

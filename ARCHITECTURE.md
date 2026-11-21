@@ -297,9 +297,14 @@ build compiles; the second follows the one layering the network code already has
   package builds and tests with `--package`, so that build never compiles `pins` or `upstream`.
 - `crates/doctor`: `doctor` alone. It may not reach the network, and its dependencies
   (`serde_json`, `toml`) are all the doctor-only build adds to the binary.
-- `crates/init`: `init [--force]`, which writes a `flake.nix` with a dev shell from the current
-  directory's `rust-toolchain(.toml)` and `package.json`, with a `rust-manifest` input for
-  channels the pins do not cover. Its text is a trimmed copy of `templates/*/flake.nix` (a test
+- `crates/init`: `init [--force]`, which writes a `flake.nix` with one dev shell from the
+  current directory's project files: `rust-toolchain(.toml)`, `package.json`,
+  `deno.json(c)`, `pyproject.toml` or `.python-version`, `go.mod` and `build.zig.zon`, each
+  through the matching `from<ProjectFile>` (Deno through `toolchain { }`, since `deno.json`
+  names no Deno version), with a `rust-manifest` input for channels the pins do not cover. It
+  reads only what it needs to pick a function and describe the result (the `go.mod` directive,
+  `.minimum_zig_version`, where Python's version comes from); the versions are resolved at
+  evaluation time against the pins, which init does not carry. Its text is a trimmed copy of `templates/*/flake.nix` (a test
   checks the shared pieces still match), already nixfmt-formatted, and its `SYSTEMS` follow
   `lib/common/systems.nix`. It needs no network, so it is in the doctor-only build. Its
   `channel.rs` holds the rustup channel rules: `manifest_url` mirrors `manifestUrl` in
@@ -412,6 +417,10 @@ crucible's makeWrapper script when the variable is unset. Go compares `go versio
 - `templates/default`: a Rust project whose toolchain comes from `rust-toolchain.toml`.
 - `templates/node`: a Node.js project whose toolchain comes from `package.json`,
   `.node-version` and `packageManager` (including pnpm), with a `buildNpmPackage` build.
+- `templates/python`, `templates/go`, `templates/zig`, `templates/deno`: a hello-world project
+  per language whose toolchain comes from `pyproject.toml`, `go.mod`, `build.zig.zon` and the
+  newest Deno pin, each with a package (a `writeShellApplication` on the toolchain for Python and
+  Deno, `.buildGoModule`, `zig build`).
 
 ### Verification
 
@@ -432,7 +441,9 @@ crucible's makeWrapper script when the variable is unset. Go compares `go versio
   a `SHASUMS256.txt`, reject misuse at evaluation time, and build `tests/node/hello` with
   `.buildNpmPackage` and `importNpmLock`. `tests/init.nix` evaluates the golden flakes in
   `crates/init/tests/fixtures/init/` (which `init`'s cargo tests must reproduce byte for byte) against
-  crucible's lib, and runs the doctor-only `init` in one of them. `tests/default.nix` also checks the Node template
+  crucible's lib, runs the doctor-only `init` in the numbered-channel and the all-languages
+  fixtures, and its `templates` check evaluates every template's dev shell and builds and runs
+  the Python, Go, Zig and Deno template packages. `tests/default.nix` also checks the Node template
   resolves and that the doctor-only binary carries the Node, Python, Go, Zig and Deno checks. The Python checks run python,
   pip and a stdlib venv on the newest line and every pinned line, take `tests/python/app` through
   `uv sync` and `uv run` offline (uv must find the toolchain's python and refuse to download

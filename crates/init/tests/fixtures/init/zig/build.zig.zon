@@ -1,0 +1,7 @@
+.{
+    .name = .init_zig,
+    .version = "0.1.0",
+    // The newest pin of the newest line, as tests/zig/hello names it.
+    .minimum_zig_version = "0.17.1",
+    .paths = .{""},
+}

@@ -426,6 +426,11 @@ The release is pinned in `data/deno/deno.json` from denoland/deno's GitHub relea
 `crucible update deno` refreshes it; today it is the newest Deno 2, 2.9.8. A major or release
 that is not pinned is an evaluation error rather than a silent substitution.
 
+There is no `fromDenoJson`: `deno.json` (and `deno.jsonc`) pins a project's dependencies and
+tasks, but has no field for the version of Deno itself, so there is nothing in it to resolve.
+`crucible init` and the Deno template call `toolchain { }`; pass `version = "2"` to stay on one
+major line when a newer one is pinned.
+
 ## Python
 
 ### toolchain
@@ -736,12 +741,25 @@ resolving to a different compiler each time, so only tagged releases are pinned.
 ```sh
 nix flake init -t github:kiyors/crucible            # Rust
 nix flake init -t github:kiyors/crucible#node       # Node.js + Vite+ + pnpm
+nix flake init -t github:kiyors/crucible#python     # Python + uv
+nix flake init -t github:kiyors/crucible#go         # Go
+nix flake init -t github:kiyors/crucible#zig        # Zig
+nix flake init -t github:kiyors/crucible#deno       # Deno
 ```
 
 The Rust one has a `flake.nix` with a dev shell and a package, a `rust-toolchain.toml` and an
 `.envrc`. The Node one resolves its toolchain from `package.json`, `.node-version` and
 `packageManager` (including pnpm), and builds a package through `buildNpmPackage` with
-`importNpmLock`.
+`importNpmLock`. Each of the others has a dev shell and a hello-world package:
+
+- **python**: `fromPyprojectToml` reads `.python-version` and `requires-python`; the package
+  runs `main.py` on the toolchain's Python (a project with dependencies builds them from
+  `uv.lock`, for example with uv2nix).
+- **go**: `fromGoMod` reads `go.mod`; the package is the toolchain's `.buildGoModule` with no
+  `vendorHash`, since the module has no dependencies.
+- **zig**: `fromBuildZigZon` reads `.minimum_zig_version`; the package runs `zig build`.
+- **deno**: `deno.toolchain { }`, because `deno.json` names no Deno version (see [Deno](#deno));
+  the package runs `main.ts` with `deno run`.
 
 For a project that already exists, `crucible init` writes just the `flake.nix`:
 
@@ -750,16 +768,27 @@ nix run github:kiyors/crucible -- init          # in the project's directory
 nix run github:kiyors/crucible -- init --force  # replace an existing flake.nix
 ```
 
-It looks in the current directory for `rust-toolchain.toml` (or `rust-toolchain`) and
-`package.json`, and writes a dev shell, for every supported system, that takes Rust from
-`fromToolchainFile` and Node.js from `fromPackageJson` (which reads `.node-version` or `.nvmrc`
-next to it). A channel crucible does not pin, such as `"1.99"` or `"nightly-2026-11-01"`, gets the
-`rust-manifest` input described under [fromToolchainFile](#fromtoolchainfile). It refuses to
-replace an existing `flake.nix` without `--force`, needs no network, and prints what to run next:
-`git add` for the new files when the project is a git repository (a flake sees only tracked
-files), `nix develop`, and `use flake` for direnv when `direnv` is on PATH. A `.nvmrc` or
-`.node-version` without a `package.json` is left out with a note, because `fromPackageJson` needs
-the `package.json`.
+It looks in the current directory for each language's project files and writes one dev shell,
+for every supported system, with a toolchain for every language it finds:
+
+| Found                                   | The dev shell's toolchain                                                      |
+| --------------------------------------- | ------------------------------------------------------------------------------ |
+| `rust-toolchain.toml`, `rust-toolchain` | `rust.fromToolchainFile`                                                       |
+| `package.json`                          | `node.fromPackageJson` (reads `.node-version` or `.nvmrc` too)                 |
+| `deno.json`, `deno.jsonc`               | `deno.toolchain { }`, the newest pinned release                                |
+| `pyproject.toml`                        | `python.fromPyprojectToml` (reads `.python-version` too)                       |
+| `.python-version` alone                 | `python.fromPythonVersion`                                                     |
+| `go.mod`                                | `go.fromGoMod`                                                                 |
+| `build.zig.zon`                         | `zig.fromBuildZigZon`, or `zig.toolchain { }` without a `.minimum_zig_version` |
+
+A Rust channel crucible does not pin, such as `"1.99"` or `"nightly-2026-11-01"`, gets the
+`rust-manifest` input described under [fromToolchainFile](#fromtoolchainfile). A `go.mod`
+without a `go` directive is an error, because `fromGoMod` needs one. init refuses to replace an
+existing `flake.nix` without `--force`, needs no network, and prints what each toolchain is
+pinned by and what to run next: `git add` for the files the flake reads when the project is a
+git repository (a flake sees only tracked files), `nix develop`, and `use flake` for direnv when
+`direnv` is on PATH. A `.nvmrc` or `.node-version` without a `package.json` is left out with a
+note, because `fromPackageJson` needs the `package.json`.
 
 ## Overlay
 
