@@ -13,7 +13,7 @@ cd dev && nix flake check                 # git hooks (treefmt, gitleaks)
 # The CLI is a Cargo workspace at the repo root (crates/*):
 nix shell .#rust.stock -c cargo test --workspace                         # unit tests
 nix shell .#rust.stock -c cargo clippy --workspace --all-targets         # lints
-nix shell .#rust.stock -c cargo build -p crucible --no-default-features  # doctor-only build
+nix shell .#rust.stock -c cargo build -p crucible --no-default-features  # user build (no update/pin)
 actionlint                                # the workflows
 shellcheck scripts/linux-from-macos.sh
 ```

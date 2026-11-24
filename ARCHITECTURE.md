@@ -53,7 +53,7 @@ The design rests on two ideas:
 - `flake.nix`: the public surface. `packages`, `apps`, `lib`, `checks`, `overlays`,
   `homeManagerModules` and `templates`, for the systems in `lib/common/systems.nix`. It does no
   work of its own. Everything goes through `default.nix`.
-- `default.nix`: `{ pkgs } -> { rust, node, deno, python, go, zig, tsrs, cli, cli-doctor }`, everything crucible provides for one nixpkgs
+- `default.nix`: `{ pkgs } -> { rust, node, deno, python, go, zig, tsrs, cli, cli-full }`, everything crucible provides for one nixpkgs
   instance. The flake, the overlay (`overlay.nix` → `pkgs.crucible`) and non-flake users all
   call it, so there is exactly one place where the pieces are wired together.
 - `lib/common/systems.nix`: the supported systems (`x86_64-linux`, `aarch64-linux`,
@@ -306,16 +306,16 @@ so every CI run also proves that the toolchain packages a real crate. Its source
 cut down to the Cargo manifests, `crates/` without Nix or Markdown, and
 `data/node/release-keys.asc`, so editing docs or Nix does not rebuild the CLI.
 
-There are five crates. The first cut is the one that matters to users, what the doctor-only
-build compiles; the second follows the one layering the network code already has.
+There are five crates. The first cut is the one that matters to users, what the user build
+compiles; the second follows the one layering the network code already has.
 
 - `crates/crucible`: the `crucible` binary, only clap and dispatch. Its default `net` feature
-  is nothing but the optional `pins` dependency, so the doctor-only build (`cli-doctor`,
-  `packages.crucible-doctor`, what `apps.default` runs) leaves out rustls, ring and every other
+  is nothing but the optional `pins` dependency, so the user build (`cli`,
+  `packages.crucible`, what `apps.default` runs) leaves out rustls, ring and every other
   network dependency by not depending on them, not through `#[cfg]` in library code. The
   package builds and tests with `--package`, so that build never compiles `pins` or `upstream`.
 - `crates/doctor`: `doctor` alone. It may not reach the network, and its dependencies
-  (`serde_json`, `toml`) are all the doctor-only build adds to the binary.
+  (`serde_json`, `toml`) are all the user build adds to the binary.
 - `crates/init`: `init [--force]`, which writes a `flake.nix` with one dev shell from the
   current directory's project files: `rust-toolchain(.toml)`, `package.json`,
   `deno.json(c)`, `pyproject.toml` or `.python-version`, `go.mod` and `build.zig.zon`, each
@@ -325,7 +325,7 @@ build compiles; the second follows the one layering the network code already has
   `.minimum_zig_version`, where Python's version comes from); the versions are resolved at
   evaluation time against the pins, which init does not carry. Its text is a trimmed copy of `templates/*/flake.nix` (a test
   checks the shared pieces still match), already nixfmt-formatted, and its `SYSTEMS` follow
-  `lib/common/systems.nix`. It needs no network, so it is in the doctor-only build. Its
+  `lib/common/systems.nix`. It needs no network, so it is in the user build. Its
   `channel.rs` holds the rustup channel rules: `manifest_url` mirrors `manifestUrl` in
   `toolchain.nix` and `pins`' `pin` uses it too, so there is one copy.
 - `crates/upstream`: downloading, verifying and parsing upstream release metadata. Its modules
@@ -465,10 +465,10 @@ crucible's makeWrapper script when the variable is unset. Go compares `go versio
   a `SHASUMS256.txt`, reject misuse at evaluation time, and build `tests/node/hello` with
   `.buildNpmPackage` and `importNpmLock`. `tests/init.nix` evaluates the golden flakes in
   `crates/init/tests/fixtures/init/` (which `init`'s cargo tests must reproduce byte for byte) against
-  crucible's lib, runs the doctor-only `init` in the numbered-channel and the all-languages
+  crucible's lib, runs the user build's `init` in the numbered-channel and the all-languages
   fixtures, and its `templates` check evaluates every template's dev shell and builds and runs
   the Python, Go, Zig and Deno template packages. `tests/default.nix` also checks the Node template
-  resolves and that the doctor-only binary carries the Node, Python, Go, Zig and Deno checks. The Python checks run python,
+  resolves and that the user binary carries the Node, Python, Go, Zig and Deno checks. The Python checks run python,
   pip and a stdlib venv on the newest line and every pinned line, take `tests/python/app` through
   `uv sync` and `uv run` offline (uv must find the toolchain's python and refuse to download
   another), check the setup hook beats inherited values, build and import a C extension from

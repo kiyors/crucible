@@ -45,7 +45,7 @@ let
   notPinned = spec: ''
     crucible: Go "${spec}" matches no pinned release (${lib.concatStringsSep ", " pinnedVersions}).
     For another release, pass its per-system `hashes`;
-    `nix run github:kiyors/crucible#crucible -- pin go <version>` prints them.
+    `nix run github:kiyors/crucible#crucible-full -- pin go <version>` prints them.
   '';
 
   # `version` is "stable", a line ("1.27") or an exact release, with or
@@ -101,7 +101,7 @@ let
         throw ''
           crucible: Go ${spec} is newer than every pinned release (${lib.concatStringsSep ", " pinnedVersions}).
           Update crucible, or pass that release's `hashes`
-          (`nix run github:kiyors/crucible#crucible -- pin go ${spec}`).
+          (`nix run github:kiyors/crucible#crucible-full -- pin go ${spec}`).
         ''
     else if line != null then
       pinned.releases.${head line} or (throw (notPinned spec))

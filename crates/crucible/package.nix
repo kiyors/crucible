@@ -4,8 +4,8 @@
 {
   lib,
   rustPlatform,
-  # false builds `doctor` alone (the `net` feature off), which is all a bare
-  # `nix run github:kiyors/crucible` runs, without rustls and ring to compile.
+  # false is the user build (the `net` feature off): `init`, `add` and
+  # `doctor`, without `update` and `pin` and the rustls and ring they compile.
   net ? true,
 }:
 let
@@ -14,7 +14,7 @@ let
   manifest = lib.importTOML ./Cargo.toml;
 in
 rustPlatform.buildRustPackage {
-  pname = manifest.package.name + lib.optionalString (!net) "-doctor";
+  pname = manifest.package.name + lib.optionalString net "-full";
   inherit (workspace.workspace.package) version;
   buildNoDefaultFeatures = !net;
 
@@ -42,12 +42,12 @@ rustPlatform.buildRustPackage {
   cargoLock.lockFile = root + "/Cargo.lock";
 
   # Only the binary's package: building the whole workspace would pull the
-  # net code back into the doctor-only build.
+  # net code back into the user build.
   cargoBuildFlags = [
     "--package"
     manifest.package.name
   ];
-  # The full build tests every crate. The doctor-only one tests just what it
+  # The full build tests every crate. The user build tests just what it
   # compiles, so it still never builds pins or upstream.
   cargoTestFlags =
     if net then

@@ -10,8 +10,9 @@ rec {
   zig = import ./lib/zig { inherit pkgs; };
   tsrs = import ./lib/tsrs { inherit pkgs; };
 
-  # `crucible update | doctor | pin`
-  cli = pkgs.callPackage ./crates/crucible/package.nix { inherit (rust.stable) rustPlatform; };
-  # `crucible doctor` alone, quicker to build for `nix run` on a cold cache.
-  cli-doctor = cli.override { net = false; };
+  # `crucible init | add | doctor`, what users install and `nix run` starts.
+  # It leaves out `update` and `pin` and the TLS stack they need.
+  cli = cli-full.override { net = false; };
+  # The maintainer build: the above plus `update` and `pin`, for CI.
+  cli-full = pkgs.callPackage ./crates/crucible/package.nix { inherit (rust.stable) rustPlatform; };
 }

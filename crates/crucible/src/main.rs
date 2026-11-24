@@ -1,4 +1,5 @@
-//! `crucible`: the repo's updater, environment doctor and channel pin helper.
+//! `crucible`: start a toolchain flake and diagnose its environment; the
+//! `net` build adds the repo's pin updater and channel pin helper.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -11,23 +12,24 @@ mod templates;
 #[cfg(feature = "net")]
 use pins::{pin, update, update::Scope};
 
+// A bare `crucible` prints the commands instead of picking one for the
+// user: `doctor` reads the environment and exits non-zero on a broken one,
+// which is a surprising answer to "what does this do?".
 #[derive(Parser)]
-#[command(name = "crucible", version)]
+#[command(name = "crucible", version, arg_required_else_help = true)]
 #[cfg_attr(
     feature = "net",
-    command(about = "Refresh crucible's pins and diagnose a toolchain environment")
+    command(
+        about = "Start a toolchain flake, diagnose its environment and refresh crucible's pins"
+    )
 )]
 #[cfg_attr(
     not(feature = "net"),
-    command(
-        about = "Diagnose a toolchain environment or start a flake (build without network commands)"
-    )
+    command(about = "Start a toolchain flake and diagnose its environment")
 )]
 struct Cli {
-    // Optional so a bare `nix run github:kiyors/crucible` diagnoses the
-    // caller's shell: `doctor` is the one command most users ever need.
     #[command(subcommand)]
-    command: Option<Command>,
+    command: Command,
 }
 
 #[derive(Subcommand)]
@@ -46,7 +48,8 @@ enum Command {
         #[arg(long, default_value = ".")]
         root: PathBuf,
     },
-    /// Check that the fork is what cargo resolves to
+    /// Check that the toolchains on PATH work: cargo is the fork, and Node.js,
+    /// Python, Go, Zig and Deno match the project
     Doctor,
     /// Write a flake.nix whose dev shell uses this directory's
     /// rust-toolchain.toml and package.json; with a directory, create a new
@@ -69,9 +72,10 @@ enum Command {
     #[cfg(feature = "net")]
     #[command(subcommand)]
     Pin(Pin),
-    // The doctor-only build is what a bare `nix run github:kiyors/crucible`
-    // runs, so `-- pin rust 1.99` lands here; say where the command went
-    // instead of clap's bare "unrecognized subcommand".
+    // The user build (`packages.crucible`, what `nix run
+    // github:kiyors/crucible` runs) leaves out `update` and `pin`, so
+    // `-- pin rust 1.99` lands here; say where the command went instead of
+    // clap's bare "unrecognized subcommand".
     #[cfg(not(feature = "net"))]
     #[command(external_subcommand)]
     Missing(Vec<String>),
@@ -114,12 +118,12 @@ fn main() -> ExitCode {
 
 fn run() -> Result<ExitCode> {
     match Cli::parse().command {
-        None | Some(Command::Doctor) => doctor::run(),
-        Some(Command::Init {
+        Command::Doctor => doctor::run(),
+        Command::Init {
             force,
             directory,
             template,
-        }) => {
+        } => {
             if let Some(directory) = directory {
                 templates::init(&directory, template.as_deref())?;
             } else {
@@ -132,42 +136,42 @@ fn run() -> Result<ExitCode> {
             }
             Ok(ExitCode::SUCCESS)
         }
-        Some(Command::Add { template }) => {
+        Command::Add { template } => {
             templates::add(template.as_deref())?;
             Ok(ExitCode::SUCCESS)
         }
         #[cfg(not(feature = "net"))]
-        Some(Command::Missing(args)) => anyhow::bail!(
-            "`{}` is not in this doctor-only build; run `nix run github:kiyors/crucible#crucible -- {}`",
+        Command::Missing(args) => anyhow::bail!(
+            "`{}` is a maintainer command, left out of this build; run `nix run github:kiyors/crucible#crucible-full -- {}`",
             args[0],
             args.join(" ")
         ),
         #[cfg(feature = "net")]
-        Some(Command::Update {
+        Command::Update {
             what,
             version,
             root,
-        }) => {
+        } => {
             update::run(what, version, &root)?;
             Ok(ExitCode::SUCCESS)
         }
         #[cfg(feature = "net")]
-        Some(Command::Pin(Pin::Rust { channel })) => {
+        Command::Pin(Pin::Rust { channel }) => {
             pin::run(&channel)?;
             Ok(ExitCode::SUCCESS)
         }
         #[cfg(feature = "net")]
-        Some(Command::Pin(Pin::Node { version })) => {
+        Command::Pin(Pin::Node { version }) => {
             pin::node(&version)?;
             Ok(ExitCode::SUCCESS)
         }
         #[cfg(feature = "net")]
-        Some(Command::Pin(Pin::Go { version })) => {
+        Command::Pin(Pin::Go { version }) => {
             update::go::pin(&version)?;
             Ok(ExitCode::SUCCESS)
         }
         #[cfg(feature = "net")]
-        Some(Command::Pin(Pin::Python { version })) => {
+        Command::Pin(Pin::Python { version }) => {
             pin::python(&version)?;
             Ok(ExitCode::SUCCESS)
         }

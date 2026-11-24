@@ -99,10 +99,10 @@ in
     touch $out
   '';
 
-  # init is part of the doctor-only build, so `nix run github:kiyors/crucible
+  # init is part of the user build, so `nix run github:kiyors/crucible
   # -- init` works on a cold cache. It must refuse to replace a flake.nix.
   crucible-init = pkgs.runCommand "crucible-check-init" { } ''
-    slim=${lib.getExe crucible.cli-doctor}
+    slim=${lib.getExe crucible.cli}
     cp -r ${fixtures}/rust-numbered project
     chmod -R u+w project
     cd project
@@ -128,7 +128,8 @@ in
   '';
 
   # The root flake exposes the moved templates as `templates.<name>`; the
-  # directories they point at must be flake dirs.
+  # directories they point at must be flake dirs. These are directory names:
+  # `templates.hash` lives in `hashi`.
   templates =
     let
       moved = [
@@ -139,7 +140,7 @@ in
         "elm"
         "empty"
         "go"
-        "hash"
+        "hashi"
         "java"
         "jupyter"
         "kotlin"

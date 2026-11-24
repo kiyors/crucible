@@ -55,9 +55,11 @@ jobs:
         run: ${{ matrix.setup }}
 
       # Written with cargo from the repo root: `cargo build --release
-      # -p crucible --locked`, plus `--target` for every cross build.
+      # -p crucible --locked`, plus `--target` for every cross build. These
+      # tarballs are what the update workflow runs, so `net` (`update` and
+      # `pin`) is named here rather than left to Cargo's default features.
       - name: Build
-        run: cargo build --release -p crucible --locked --target ${{ matrix.target }}
+        run: cargo build --release -p crucible --locked --features net --target ${{ matrix.target }}
 
       - id: package
         run: |

@@ -83,7 +83,7 @@ let
   notPinned = spec: ''
     crucible: Node.js "${spec}" matches no pinned release (${lib.concatStringsSep ", " pinnedVersions}).
     For another release, pass its SHASUMS256.txt as `shasums` (a `flake = false` input) or its
-    `sha256`; `nix run github:kiyors/crucible#crucible -- pin node <version>` prints both.
+    `sha256`; `nix run github:kiyors/crucible#crucible-full -- pin node <version>` prints both.
   '';
 
   # `version` is "lts", "current", "lts/<codename>", a line ("24"), an npm

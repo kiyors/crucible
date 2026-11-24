@@ -2,7 +2,7 @@
 //! toolchains from the files a project already has, the way the README and
 //! templates/ use crucible.
 //!
-//! It never touches the network, so it is part of the doctor-only build that a
+//! It never touches the network, so it is part of the user build that a
 //! bare `nix run github:kiyors/crucible` runs: starting a flake is a first-run
 //! command too, and a cold cache should not have to compile rustls for it.
 

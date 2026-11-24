@@ -27,7 +27,7 @@
             zig
             tsrs
             cli
-            cli-doctor
+            cli-full
             ;
         in
         {
@@ -44,18 +44,18 @@
           zig = zig.toolchain { };
           tsrs = tsrs.toolchain { };
           crucible = cli;
-          crucible-doctor = cli-doctor;
+          crucible-full = cli-full;
         }
       );
 
-      # `nix run github:kiyors/crucible` is the full CLI: `update` and `pin`
-      # are in. The doctor-only `crucible-doctor` build stays for CI, where it
-      # is the one build without the network commands.
+      # `nix run github:kiyors/crucible` is the user CLI: `init`, `add` and
+      # `doctor`. The maintainer commands `update` and `pin` are in
+      # `crucible-full`, which CI runs.
       apps = forAllSystems (system: {
         default = {
           type = "app";
           program = nixpkgs.lib.getExe crucible.${system}.cli;
-          meta.description = "the full CLI, with `update` and `pin`";
+          meta.description = "the crucible CLI: `init`, `add` and `doctor`";
         };
       });
 

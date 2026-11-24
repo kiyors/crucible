@@ -7,7 +7,7 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
-# Nothing here may reach the network: this crate is all of the doctor-only
+# Nothing here may reach the network: it is part of the user
 # build that a bare `nix run github:kiyors/crucible` compiles.
 [dependencies]
 anyhow.workspace = true

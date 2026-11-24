@@ -52,8 +52,8 @@ releases support.
 | `packages.<system>.rust` (`default`)    | stable + patched cargo                                           |
 | `packages.<system>.rust-nightly`        | complete nightly with Cranelift + patched cargo                  |
 | `packages.<system>.cargo`               | the patched cargo alone                                          |
-| `packages.<system>.crucible`            | the CLI (`update`, `doctor`, `pin`, `init`, `add`)               |
-| `packages.<system>.crucible-doctor`     | the CLI with `doctor` and `init`, for CI                         |
+| `packages.<system>.crucible`            | the CLI (`init`, `add`, `doctor`)                                |
+| `packages.<system>.crucible-full`       | the CLI plus the maintainer commands `update` and `pin`          |
 | `lib.<system>.rust.toolchain`           | a toolchain from a channel, components and targets               |
 | `lib.<system>.rust.fromToolchainFile`   | a toolchain from a project's `rust-toolchain.toml`               |
 | `packages.<system>.node`                | Node.js LTS + npm + Vite+                                        |
@@ -317,7 +317,7 @@ A range resolves offline to the newest pinned release it allows. The pins hold t
 of each line the Node.js release schedule still supports (22, 24 and 26 today), so `"~22.11"`
 matches nothing and says so: for that, pin the exact release.
 
-`nix run github:kiyors/crucible#crucible -- pin node 24.11.0` prints the `SHASUMS256.txt` input
+`nix run github:kiyors/crucible#crucible-full -- pin node 24.11.0` prints the `SHASUMS256.txt` input
 and `sha256` for a release, the counterpart of `pin rust`; it verifies the file's GPG signature
 first.
 
@@ -478,7 +478,7 @@ For a release that is not pinned, `crucible pin python <x.y.z>` prints the `SHA2
 input of the build that carries it, for every system, with the file's hash:
 
 ```
-$ nix run github:kiyors/crucible#crucible -- pin python 3.14.0
+$ nix run github:kiyors/crucible#crucible-full -- pin python 3.14.0
 python: 3.14.0
 shasums: https://github.com/astral-sh/python-build-standalone/releases/download/20251120/SHA256SUMS
 sha256: sha256-3Rc2o1sonRG5Cta3CxEs0EilA/xVdKBRFc0U7VBdPt0=
@@ -602,7 +602,7 @@ crucible.lib.${system}.go.toolchain {
 The pins hold the newest release of each line Go still supports, which is the two newest (1.26
 and 1.27 today). A line resolves to its pinned release. An exact release has to be the pinned
 one, or come with the archive hashes of the systems you build on:
-`nix run github:kiyors/crucible#crucible -- pin go 1.25.3` prints the `toolchain` call with all
+`nix run github:kiyors/crucible#crucible-full -- pin go 1.25.3` prints the `toolchain` call with all
 of them, taken from go.dev's release index.
 
 Every toolchain carries:
@@ -814,7 +814,7 @@ nix flake init -t github:kiyors/crucible#elixir     # Elixir
 nix flake init -t github:kiyors/crucible#elm        # Elm
 nix flake init -t github:kiyors/crucible#empty      # Empty
 nix flake init -t github:kiyors/crucible#go         # Go
-nix flake init -t github:kiyors/crucible#hashi      # HashiCorp tools
+nix flake init -t github:kiyors/crucible#hash       # HashiCorp tools
 nix flake init -t github:kiyors/crucible#java       # Java
 nix flake init -t github:kiyors/crucible#jupyter    # Jupyter
 nix flake init -t github:kiyors/crucible#kotlin     # Kotlin
@@ -884,7 +884,7 @@ pkgs = import nixpkgs {
   overlays = [ crucible.overlays.default ];
 };
 
-# pkgs.crucible.cli, pkgs.crucible.cli-doctor
+# pkgs.crucible.cli, pkgs.crucible.cli-full
 # pkgs.crucible.rust.{stable,nightly,cargo}, .toolchain { ... }, .fromToolchainFile { ... }
 # pkgs.crucible.node.{lts,current}, .toolchain { ... }, .fromPackageJson { ... }
 # pkgs.crucible.deno.toolchain { ... }
@@ -900,23 +900,27 @@ pkgs = import nixpkgs {
 toolchain:
 
 ```sh
-nix run github:kiyors/crucible                             # doctor: is cargo the fork, and is anything working against it?
-nix run github:kiyors/crucible -- init                     # a flake.nix for this project, see Templates
-nix run github:kiyors/crucible#crucible -- pin rust 1.99   # the rust-manifest input and sha256 for a channel
-nix run github:kiyors/crucible#crucible -- pin node 24.11.0 # the SHASUMS256.txt input and sha256 for a release
-nix run github:kiyors/crucible#crucible -- pin go 1.25.3   # the per-system hashes for a Go release
-nix run github:kiyors/crucible#crucible -- pin python 3.14.0 # the SHA256SUMS input for a Python release
+nix run github:kiyors/crucible                                     # list the commands
+nix run github:kiyors/crucible -- doctor                           # is cargo the fork, and is anything working against it?
+nix run github:kiyors/crucible -- init                             # a flake.nix for this project, see Templates
+nix run github:kiyors/crucible#crucible-full -- pin rust 1.99      # the rust-manifest input and sha256 for a channel
+nix run github:kiyors/crucible#crucible-full -- pin node 24.11.0   # the SHASUMS256.txt input and sha256 for a release
+nix run github:kiyors/crucible#crucible-full -- pin go 1.25.3      # the per-system hashes for a Go release
+nix run github:kiyors/crucible#crucible-full -- pin python 3.14.0  # the SHA256SUMS input for a Python release
 ```
 
-The bare `nix run` builds the full CLI (`packages.<system>.crucible`, everything included). The
-doctor-only build (`packages.<system>.crucible-doctor`, cargo feature `net` off) stays for CI;
-it leaves out the HTTP and TLS stack that `update` and `pin` need, so it builds faster.
+`packages.<system>.crucible`, what the bare `nix run` builds and what you install, has the
+user commands: `init`, `add` and `doctor`. With no command it lists them. The maintainer
+commands, `update` (what CI runs to refresh `data/`) and `pin`, are in
+`packages.<system>.crucible-full` (cargo feature `net`); leaving them out of the user build
+also leaves out the HTTP and TLS stack they need, so it builds faster. Running `update` or
+`pin` on the user build says where to find them.
 
 `doctor` checks that the first `cargo` on PATH is the fork, and warns about other cargos and
 rustup proxies on PATH, `CARGO_INCREMENTAL=0`, `RUSTC_WRAPPER` caches, `CARGO_TARGET_DIR`, a
 `RUST_SRC_PATH` from another release, and a `rust-toolchain.toml` that disagrees with `rustc`. It
 exits non-zero when cargo is not the fork, and on any other `error` line, such as a toolchain
-that a project's pin rules out. It is what `crucible` runs with no command.
+that a project's pin rules out.
 
 For Node.js it checks the active `node` against the nearest `.node-version` or `.nvmrc`, and warns
 about state that leaks between projects or makes vp ignore the toolchain's Node: `VP_HOME`, a
@@ -982,16 +986,16 @@ Two hints cover problems that live outside the toolchain:
 ## Updating
 
 ```sh
-nix run .#crucible -- update                          # everything
-nix run .#crucible -- update cargo                    # latest huacnlee/cargo release
-nix run .#crucible -- update cargo --version 0.103.0-1
-nix run .#crucible -- update rust                     # stable, beta, newest complete nightly
-nix run .#crucible -- update node                     # every supported Node.js line, and Vite+
-nix run .#crucible -- update deno                     # the newest stable Deno release
-nix run .#crucible -- update python                   # every supported CPython line (and its freethreaded line), and uv
-nix run .#crucible -- update go                       # the newest release of each supported Go line
-nix run .#crucible -- update zig                      # every tagged Zig release line
-nix run .#crucible -- update tsrs                     # the tsrs release npm tags latest
+nix run .#crucible-full -- update                          # everything
+nix run .#crucible-full -- update cargo                    # latest huacnlee/cargo release
+nix run .#crucible-full -- update cargo --version 0.103.0-1
+nix run .#crucible-full -- update rust                     # stable, beta, newest complete nightly
+nix run .#crucible-full -- update node                     # every supported Node.js line, and Vite+
+nix run .#crucible-full -- update deno                     # the newest stable Deno release
+nix run .#crucible-full -- update python                   # every supported CPython line (and its freethreaded line), and uv
+nix run .#crucible-full -- update go                       # the newest release of each supported Go line
+nix run .#crucible-full -- update zig                      # every tagged Zig release line
+nix run .#crucible-full -- update tsrs                     # the tsrs release npm tags latest
 ```
 
 The fork's hashes come from each release's `SHA256SUMS`, the Rust ones from the channel
@@ -1016,7 +1020,7 @@ the latest released CLI (`crucible-<version>-<target>.tar.gz`, verified against 
 `data/` changed, runs the check workflow's builds on x86_64-linux, aarch64-linux and macOS. When
 those pass it commits the refreshed `data/` and pushes it straight to `main`: a pin refresh is
 data only, so it needs no pull request, review or merge. Before the first release it falls back
-to `nix run .#crucible -- update` with the repo's own CLI.
+to `nix run .#crucible-full -- update` with the repo's own CLI.
 
 A push made with the default `GITHUB_TOKEN` does not start other workflows, so `check` does not
 re-run on that commit; the update workflow's `checks` job is the check for it. A refresh whose
