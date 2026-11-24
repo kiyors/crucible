@@ -1,17 +1,17 @@
 {
-  "version": "7.1.0-beta.tsrs4",
+  "version": "7.1.0-beta.tsrs5",
   "platforms": {
     "x86_64-linux": {
-      "url": "https://registry.npmjs.org/@tsrs/linux-x64-gnu/-/linux-x64-gnu-7.1.0-beta.tsrs4.tgz",
-      "hash": "sha512-YIqFRStXq5yURR+zYDwIKcV126KH+EibPMJ1ZbfT2ToJ0w5zmRUKV/A5z0kjmQu6A6wItLZxOzKjU1v+ad5blA=="
+      "url": "https://registry.npmjs.org/@tsrs/linux-x64-gnu/-/linux-x64-gnu-7.1.0-beta.tsrs5.tgz",
+      "hash": "sha512-hyg70btCCaMT3RvFYU0KEibFyQjFUUfrqk4zTl7rf/7G3HPO3X6sEs8J/AHYUvJB0cA+dXgU/adkiZf1XJI/XA=="
     },
     "aarch64-linux": {
-      "url": "https://registry.npmjs.org/@tsrs/linux-arm64-gnu/-/linux-arm64-gnu-7.1.0-beta.tsrs4.tgz",
-      "hash": "sha512-RIbwlpYWflMDq9XosRHL7gpwSV5fnEaUvjr3ehzKCcc7E6ozo0mH4m/OgQE3ts/4euWKzZxsK7lN6r091W5mWg=="
+      "url": "https://registry.npmjs.org/@tsrs/linux-arm64-gnu/-/linux-arm64-gnu-7.1.0-beta.tsrs5.tgz",
+      "hash": "sha512-o0ofV8Yw5IbaXR7wjIHaqBv9YddJ6Weot+IpYWfUNqG3YpAe4N5G0dU9vsCLX7eNNYx1mMyIZK0eyMV1r6qg2g=="
     },
     "aarch64-darwin": {
-      "url": "https://registry.npmjs.org/@tsrs/darwin-arm64/-/darwin-arm64-7.1.0-beta.tsrs4.tgz",
-      "hash": "sha512-Be1McQGyHipWIjnkvytZmh7Wi4YVATvTfiEuPX34kfk+W7QCtTdUUHnuLZ7bzwy8LgL9VDCmyvQtWiF3MENxBQ=="
+      "url": "https://registry.npmjs.org/@tsrs/darwin-arm64/-/darwin-arm64-7.1.0-beta.tsrs5.tgz",
+      "hash": "sha512-wRLJq3IDZjdLrh+lsipipCfYPpFjNW/0zjeM9azNLjA33OWjOIxT2THiKExf7bjkbr6SGCrrjDR+ZZyXYz4Rjg=="
     }
   }
 }
