@@ -305,7 +305,7 @@ crucible.lib.${system}.node.toolchain {
                           # any other exact release ("24.11.0") with `shasums` or `sha256`
   vitePlus ? true;        # include vp, set up for this Node.js
   packageManager ? null;  # "pnpm@12" (the pinned 12.x), a range ("pnpm@^10"), an exact
-                          # pinned release ("pnpm@12.21.0"), or a package built from
+                          # pinned release, or a package built from
                           # another release; all run by this Node.js. "npm@..." needs nothing
                           # "bun@1" is pinned from oven-sh/bun's GitHub release; it needs no nixpkgs.
   shasums ? null;         # the release's SHASUMS256.txt as a file (a `flake = false` input)
@@ -347,10 +347,13 @@ The package manager comes from `packageManager`, then `devEngines.packageManager
 corepack uses. An explicit `packageManager` argument overrides both.
 
 Package managers run on the toolchain's Node.js. The newest release of each supported major is
-pinned in `data/node/package-managers.json`: pnpm and yarn from the npm registry's own
-integrity hashes, bun from oven-sh/bun's `SHASUMS256.txt`, one zip per platform. So
-`packageManager = "pnpm@12"` selects the pinned 12.x (12.21.0 today) and
-`packageManager = "pnpm@12.21.0"` is exactly that release. `packageManager = "bun@1"` resolves
+pinned in `data/node/package-managers.json`: pnpm from pnpm's GitHub releases (each hash checked
+against GitHub's artifact attestation), bun from oven-sh/bun's `SHASUMS256.txt`, and yarn from
+the npm registry's own integrity hashes. Every pnpm
+line upstream still releases (10, 11 and 12) is pinned, so `packageManager = "pnpm@12"` selects
+the pinned 12.x, and the exact release the pin holds (`pnpm@12.23.0` today) is that release. An
+exact pin follows upstream: when `crucible update` moves the 12.x pin, a project that names the
+old release exactly has to move with it. `packageManager = "bun@1"` resolves
 to the pinned bun: every supported major has one, so it never depends on nixpkgs' one bun. A
 range is used only when the pinned release, or nixpkgs' build of that major (`pnpm_12`,
 `yarn-berry_4`, ...), satisfies it. An exact release that neither has is an evaluation error
@@ -835,7 +838,9 @@ nix flake init -t github:kiyors/crucible#zig        # Zig
 
 The templates live in [`templates/`](templates). The Rust one (the `default` template) has a
 `flake.nix` with a dev shell and a package, a `rust-toolchain.toml` and an `.envrc`; each of the
-others is a dev shell for its language, and `c` and `cpp` are aliases for `c-cpp`.
+others is a dev shell for its language, and `c` and `cpp` are aliases for `c-cpp`. Rust, Node.js,
+Python, Go, Zig, Deno, Bun and uv take their toolchain from `crucible.lib`; the other templates
+still use nixpkgs packages until crucible pins their toolchains.
 
 For a project that already exists, `crucible init` writes just the `flake.nix`:
 

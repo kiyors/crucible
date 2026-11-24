@@ -1,5 +1,5 @@
 {
-  description = "A Nix-flake-based Kotlin development environment";
+  description = "Kotlin on Java 25 from nixpkgs, with Gradle";
 
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable"; # unstable Nixpkgs
   inputs.crucible = {

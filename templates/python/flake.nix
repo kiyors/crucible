@@ -1,98 +1,34 @@
 {
-  description = "A Nix-flake-based Python development environment";
+  description = "Python with CPython and uv pinned from crucible";
 
-  inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable"; # unstable Nixpkgs
-  inputs.crucible = {
-    url = "github:kiyors/crucible";
-    inputs.nixpkgs.follows = "nixpkgs";
+  inputs = {
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+    crucible = {
+      url = "github:kiyors/crucible";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
-    inputs:
-
+    { nixpkgs, crucible, ... }:
     let
-      supportedSystems = [
+      systems = [
         "x86_64-linux"
         "aarch64-linux"
-        "x86_64-darwin"
         "aarch64-darwin"
       ];
-      forEachSupportedSystem =
-        f:
-        inputs.nixpkgs.lib.genAttrs supportedSystems (
-          system:
-          f {
-            pkgs = import inputs.nixpkgs { inherit system; };
-          }
-        );
+      forAllSystems = nixpkgs.lib.genAttrs systems;
 
-      /*
-        Change this value ({major}.{min}) to
-        update the Python virtual-environment
-        version. When you do this, make sure
-        to delete the `.venv` directory to
-        have the hook rebuild it for the new
-        version, since it won't overwrite an
-        existing one. After this, reload the
-        development shell to rebuild it.
-        You'll see a warning asking you to
-        do this when version mismatches are
-        present. For safety, removal should
-        be a manual step, even if trivial.
-      */
-      version = "3.13";
+      # "3" is the newest supported CPython line. The toolchain includes pip
+      # and uv; its setup hook points uv at this interpreter and stops it
+      # downloading another one.
+      pythonFor = system: crucible.lib.${system}.python.toolchain { version = "3"; };
     in
     {
-      devShells = forEachSupportedSystem (
-        { pkgs }:
-        let
-          concatMajorMinor =
-            v:
-            pkgs.lib.pipe v [
-              pkgs.lib.versions.splitVersion
-              (pkgs.lib.sublist 0 2)
-              pkgs.lib.concatStrings
-            ];
-
-          python = pkgs."python${concatMajorMinor version}";
-        in
-        {
-          default = pkgs.mkShellNoCC {
-            venvDir = ".venv";
-
-            postShellHook = ''
-              venvVersionWarn() {
-              	local venvVersion
-              	venvVersion="$("$venvDir/bin/python" -c 'import platform; print(platform.python_version())')"
-
-              	[[ "$venvVersion" == "${python.version}" ]] && return
-
-              	cat <<EOF
-              Warning: Python version mismatch: [$venvVersion (venv)] != [${python.version}]
-                       Delete '$venvDir' and reload to rebuild for version ${python.version}
-              EOF
-              }
-
-              venvVersionWarn
-            '';
-
-            packages = with python.pkgs; [
-              venvShellHook
-              pip
-
-              # Add whatever else you'd like here.
-              # pkgs.basedpyright
-
-              # pkgs.black
-              # or
-              # python.pkgs.black
-
-              # pkgs.ruff
-              # or
-              # python.pkgs.ruff
-            ];
-          };
-        }
-      );
+      devShells = forAllSystems (system: {
+        default = nixpkgs.legacyPackages.${system}.mkShellNoCC {
+          packages = [ (pythonFor system) ];
+        };
+      });
     };
 }

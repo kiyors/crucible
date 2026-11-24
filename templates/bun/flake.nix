@@ -1,42 +1,39 @@
 {
-  description = "A Nix-flake-based Bun development environment";
+  description = "Bun pinned from crucible, without Node.js";
 
-  inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable"; # unstable Nixpkgs
-  inputs.crucible = {
-    url = "github:kiyors/crucible";
-    inputs.nixpkgs.follows = "nixpkgs";
+  inputs = {
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+    crucible = {
+      url = "github:kiyors/crucible";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
-    inputs:
-
+    { nixpkgs, crucible, ... }:
     let
-      supportedSystems = [
+      systems = [
         "x86_64-linux"
         "aarch64-linux"
-        "x86_64-darwin"
         "aarch64-darwin"
       ];
-      forEachSupportedSystem =
-        f:
-        inputs.nixpkgs.lib.genAttrs supportedSystems (
-          system:
-          f {
-            pkgs = import inputs.nixpkgs { inherit system; };
-          }
-        );
+      forAllSystems = nixpkgs.lib.genAttrs systems;
+
+      # Bun is one of the package managers the Node toolchain can carry.
+      # `packageManager` is the bun derivation on its own, without Node.js;
+      # its hash comes from oven-sh/bun's SHASUMS256.txt.
+      bunFor =
+        system:
+        (crucible.lib.${system}.node.toolchain {
+          vitePlus = false;
+          packageManager = "bun@1";
+        }).packageManager;
     in
     {
-      devShells = forEachSupportedSystem (
-        { pkgs }:
-        {
-          default = pkgs.mkShellNoCC {
-            packages = with pkgs; [
-              bun
-              biome
-            ];
-          };
-        }
-      );
+      devShells = forAllSystems (system: {
+        default = nixpkgs.legacyPackages.${system}.mkShellNoCC {
+          packages = [ (bunFor system) ];
+        };
+      });
     };
 }

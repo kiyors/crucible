@@ -29,6 +29,13 @@ serde_json = { version = "1", features = ["preserve_order"] }
 # Verify nodejs.org's SHASUMS256.txt.sig without a system gpgv. No default
 # features: the bzip2 one is the only C dependency.
 pgp = { version = "0.21", default-features = false }
+# npm registry signatures (ECDSA P-256). pgp already builds p256 with these
+# features, so this adds no crates.
+p256 = { version = "0.13", default-features = false, features = [
+  "ecdsa",
+  "pkcs8",
+  "std",
+] }
 # Vite+ publishes its dependency tree as a pnpm lockfile, which is YAML.
 serde_yaml_ng = "0.10"
 sha2 = "0.10"

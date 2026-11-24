@@ -1,5 +1,5 @@
 {
-  description = "A Nix-flake-based Odin development environment";
+  description = "Odin from nixpkgs";
 
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable"; # unstable Nixpkgs
   inputs.crucible = {

@@ -1,5 +1,5 @@
 {
-  description = "A Nix-flake-based development environment for Terraform, Packer, and Nomad";
+  description = "HashiCorp tools from nixpkgs: Terraform, Packer, Nomad, Vault and Terragrunt (allowUnfree)";
 
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable"; # unstable Nixpkgs
   inputs.crucible = {

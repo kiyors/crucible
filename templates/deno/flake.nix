@@ -1,39 +1,32 @@
 {
-  description = "A Nix-flake-based Deno development environment";
+  description = "Deno 2 pinned from crucible";
 
-  inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable"; # unstable Nixpkgs
-  inputs.crucible = {
-    url = "github:kiyors/crucible";
-    inputs.nixpkgs.follows = "nixpkgs";
+  inputs = {
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+    crucible = {
+      url = "github:kiyors/crucible";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
-    inputs:
-
+    { nixpkgs, crucible, ... }:
     let
-      supportedSystems = [
+      systems = [
         "x86_64-linux"
         "aarch64-linux"
-        "x86_64-darwin"
         "aarch64-darwin"
       ];
-      forEachSupportedSystem =
-        f:
-        inputs.nixpkgs.lib.genAttrs supportedSystems (
-          system:
-          f {
-            pkgs = import inputs.nixpkgs { inherit system; };
-          }
-        );
+      forAllSystems = nixpkgs.lib.genAttrs systems;
+
+      # Deno 2 is the pinned line; `toolchain { }` selects its newest release.
+      denoFor = system: crucible.lib.${system}.deno.toolchain { };
     in
     {
-      devShells = forEachSupportedSystem (
-        { pkgs }:
-        {
-          default = pkgs.mkShellNoCC {
-            packages = with pkgs; [ deno ];
-          };
-        }
-      );
+      devShells = forAllSystems (system: {
+        default = nixpkgs.legacyPackages.${system}.mkShellNoCC {
+          packages = [ (denoFor system) ];
+        };
+      });
     };
 }

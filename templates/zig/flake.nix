@@ -1,45 +1,33 @@
 {
-  description = "A Nix-flake-based Zig development environment";
+  description = "Zig with the newest stable release pinned from crucible";
 
-  inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable"; # stable Nixpkgs
-  inputs.crucible = {
-    url = "github:kiyors/crucible";
-    inputs.nixpkgs.follows = "nixpkgs";
+  inputs = {
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+    crucible = {
+      url = "github:kiyors/crucible";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
-    inputs:
-
+    { nixpkgs, crucible, ... }:
     let
-      supportedSystems = [
+      systems = [
         "x86_64-linux"
         "aarch64-linux"
-        "x86_64-darwin"
         "aarch64-darwin"
       ];
-      forEachSupportedSystem =
-        f:
-        inputs.nixpkgs.lib.genAttrs supportedSystems (
-          system:
-          f {
-            pkgs = import inputs.nixpkgs {
-              inherit system;
-            };
-          }
-        );
+      forAllSystems = nixpkgs.lib.genAttrs systems;
+
+      # The newest stable release by default; a build.zig.zon's minimum
+      # version can be read with crucible.lib.${system}.zig.fromBuildZigZon.
+      zigFor = system: crucible.lib.${system}.zig.toolchain { };
     in
     {
-      devShells = forEachSupportedSystem (
-        { pkgs }:
-        {
-          default = pkgs.mkShellNoCC {
-            packages = with pkgs; [
-              zig
-              zls
-              lldb
-            ];
-          };
-        }
-      );
+      devShells = forAllSystems (system: {
+        default = nixpkgs.legacyPackages.${system}.mkShellNoCC {
+          packages = [ (zigFor system) ];
+        };
+      });
     };
 }

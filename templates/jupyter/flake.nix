@@ -1,5 +1,5 @@
 {
-  description = "A Nix-flake-based Jupyter development environment";
+  description = "Jupyter from nixpkgs with Python 3.11, Poetry, ipykernel and a .venv";
 
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable"; # unstable Nixpkgs
   inputs.crucible = {

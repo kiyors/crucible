@@ -1,5 +1,5 @@
 {
-  description = "A Nix-flake-based Nix development environment";
+  description = "Nix tooling from nixpkgs: nixd, nixfmt, statix, cachix and vulnix";
 
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable"; # unstable Nixpkgs
   inputs.crucible = {

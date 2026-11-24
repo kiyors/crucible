@@ -36,9 +36,9 @@ as research, so a few of the proposals under "Recommended design" were revised d
   24–32 MB; `digest` present (`sha256:6c5913a4…`; downloaded, shasum matched). Tarball is a 50 MB
   Node SEA + `dist/`; interpreter `/lib/ld-linux-aarch64.so.1`, NEEDED
   `libgcc_s libpthread libm libdl libc` → patch on NixOS. Registry alternative:
-  `pnpm-12.21.0.tgz` (`sha512-Zv2CeO4o…`, `bin.pnpm` JS, needs Node). Crucible uses neither: the
-  native `@pnpm/exe.<os>-<cpu>` packages have a simple `package/pnpm` layout and their registry
-  `dist.integrity`, so no tarball is downloaded and no launch script is needed.
+  `pnpm-12.21.0.tgz` (`sha512-Zv2CeO4o…`, `bin.pnpm` JS, needs Node). Crucible uses the GitHub
+  release asset: 10 is a raw binary, 11 and 12 a tarball with the binary and its `dist/` tree,
+  each sha256 checked against GitHub's artifact attestation. No npm registry or launch script.
 - **yarn berry** (`gh api repos/yarnpkg/berry/releases/latest` → `@yarnpkg/cli/4.18.1`):
   **0 assets**, no digest. Use npm `@yarnpkg/cli-dist@4.18.1` (`sha512-EH+A4TxA…`,
   `bin.yarn = bin/yarn.js`) with Node. nixpkgs bootstraps it from the repo with node+yarn.
@@ -96,12 +96,14 @@ comparison.
 
 - Pins: `data/node/node.json` (one newest stable per supported line, from `index.json` +
   `SHASUMS256.txt`), `data/node/vite-plus.json` (vp archives + lockfile graph), and
-  `data/node/package-managers.json` (pnpm/yarn/bun exact releases, from npm registry integrity).
+  `data/node/package-managers.json` (pnpm and bun from their GitHub releases, yarn from npm
+  registry integrity).
 - Trust: every `SHASUMS256.txt` is GPG-verified during `update`/`pin` against
   `data/node/release-keys.asc`; the pinned hash is still checked again by Nix at fetch time.
-- Package managers: native `@pnpm/exe.*` / `@oven/bun-*` tarballs and `@yarnpkg/cli-dist` /
-  `yarn` are fetched and installed by `lib/node/package-manager.nix`, run by the toolchain's
-  node; nixpkgs' major-version packages remain the fallback for unpinned majors.
+- Package managers: pnpm's release binaries/tarballs and bun's release zips from GitHub, and
+  `@yarnpkg/cli-dist` / `yarn` from the npm registry, are fetched and installed by
+  `lib/node/package-manager.nix`, run by the toolchain's node; nixpkgs' major-version packages
+  remain the fallback for unpinned majors.
 - `fromPackageJson` resolves the version and package manager as in §3, including `.node-version`
   and `.nvmrc`. A Node template and doctor checks round out the user-facing side.
 - Verification: aarch64-darwin and aarch64-linux were built; x86_64-linux was evaluated only.

@@ -1,5 +1,5 @@
 {
-  description = "A Nix-flake-based Elm development environment";
+  description = "Elm and elm2nix from nixpkgs";
 
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable"; # unstable Nixpkgs
   inputs.crucible = {

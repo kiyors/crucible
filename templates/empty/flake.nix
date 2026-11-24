@@ -1,5 +1,5 @@
 {
-  description = "An empty flake template that you can adapt to your own environment";
+  description = "Empty nixpkgs dev shell to adapt to your own environment";
 
   # Flake inputs
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable"; # unstable Nixpkgs

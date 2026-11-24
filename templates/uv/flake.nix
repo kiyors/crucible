@@ -1,53 +1,40 @@
 {
-  description = "Combined Python (uv) and Node.js development environment";
+  description = "Python (CPython + uv) and Node.js, both pinned from crucible, with a uv venv";
 
-  inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
-  inputs.crucible = {
-    url = "github:kiyors/crucible";
-    inputs.nixpkgs.follows = "nixpkgs";
+  inputs = {
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+    crucible = {
+      url = "github:kiyors/crucible";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
-    { nixpkgs, ... }:
+    { nixpkgs, crucible, ... }:
     let
-      supportedSystems = [
+      systems = [
         "x86_64-linux"
         "aarch64-linux"
-        "x86_64-darwin"
         "aarch64-darwin"
       ];
-
-      forEachSupportedSystem =
-        f:
-        nixpkgs.lib.genAttrs supportedSystems (
-          system:
-          f {
-            pkgs = import nixpkgs {
-              inherit system;
-            };
-          }
-        );
+      forAllSystems = nixpkgs.lib.genAttrs systems;
     in
     {
-      overlays.default = _final: _prev: { };
-
-      devShells = forEachSupportedSystem (
-        { pkgs }:
+      devShells = forAllSystems (
+        system:
         let
-          python = pkgs.python313;
+          pkgs = nixpkgs.legacyPackages.${system};
+          # The Python toolchain carries uv and points it at its own
+          # interpreter, so `uv venv` cannot fetch another Python.
+          python = crucible.lib.${system}.python.toolchain { };
+          node = crucible.lib.${system}.node.toolchain { vitePlus = false; };
         in
         {
           default = pkgs.mkShellNoCC {
-            UV_PYTHON = "${python}/bin/python";
             PIP_DISABLE_PIP_VERSION_CHECK = "1";
-
-            packages = with pkgs; [
-              uv
+            packages = [
               python
-
-              # Add whatever else you'd like here.
-              # ruff
-              # black
+              node
             ];
 
             shellHook = ''
@@ -63,9 +50,10 @@
               echo "Versions:"
               echo "  Python: $(python --version)"
               echo "  uv:     $(uv --version)"
+              echo "  Node:   $(node --version)"
             '';
           };
         }
       );
-    }; # <--- This was likely missing or misaligned
+    };
 }

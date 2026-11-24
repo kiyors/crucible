@@ -1,5 +1,5 @@
 {
-  description = "A Nix-flake-based Shell development environment";
+  description = "Shell development from nixpkgs with shellcheck";
 
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable"; # unstable Nixpkgs
   inputs.crucible = {

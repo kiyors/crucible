@@ -1,5 +1,5 @@
 {
-  description = "A Nix-flake-based Nim development environment";
+  description = "Nim and Nimble from nixpkgs";
 
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
   inputs.crucible = {

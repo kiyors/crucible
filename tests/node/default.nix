@@ -106,8 +106,11 @@ in
     nodeRun "from-package-json" fromApp ''
       node --version | grep -q '^v24\.'
       pnpm --version | grep -q '^10\.'
-      # pnpm runs on the toolchain's node.
-      head -1 "$(readlink -f "$(command -v pnpm)")" | grep -q '${fromApp.node}/bin/node'
+      # pnpm runs on the toolchain's node: the pinned native pnpm's wrapper
+      # puts that node first on PATH for the scripts pnpm runs.
+      grep -q '${fromApp.node}/bin' "$(readlink -f "$(command -v pnpm)")"
+      echo '{}' > package.json
+      test "$(pnpm exec node --version)" = "$(node --version)"
     '';
 
   # devEngines.runtime wins over engines.node, and a list may name other
@@ -126,22 +129,30 @@ in
     vp --version | grep -q 'Node.js *v24.11.0'
   '';
 
-  # A pinned major gets its exact npm release, not nixpkgs' build of that
-  # major: cove needs pnpm 12.21.0 specifically.
+  # A pinned major gets its exact upstream release, not nixpkgs' build of that
+  # major.
   node-pnpm-exact =
     let
-      toolchain = node.toolchain {
-        packageManager = "pnpm@${pmPins.pnpm."12".version}";
-      };
+      inherit (pmPins.pnpm."12") version;
+      toolchain = node.toolchain { packageManager = "pnpm@${version}"; };
     in
-    assert toolchain.packageManager.version == "12.21.0";
+    assert toolchain.packageManager.version == version;
     nodeRun "pnpm-exact" toolchain ''
-      pnpm --version | grep -q '^12\.21\.0$'
+      pnpm --version | grep -qx '${version}'
     '';
 
   # The other pinned majors resolve on this node without being built, and the
   # nixpkgs fallback still handles majors that are not pinned.
   node-package-manager-pins =
+    # Every pnpm line upstream still releases is pinned.
+    assert
+      (builtins.attrNames pmPins.pnpm) == [
+        "10"
+        "11"
+        "12"
+      ];
+    assert (pinnedPm "pnpm" "10").version == pmPins.pnpm."10".version;
+    assert (pinnedPm "pnpm" "11").version == pmPins.pnpm."11".version;
     assert (pinnedPm "pnpm" "12").version == pmPins.pnpm."12".version;
     assert (pinnedPm "bun" "1").version == pmPins.bun."1".version;
     assert (pinnedPm "yarn" "1").version == pmPins.yarn."1".version;
@@ -153,7 +164,7 @@ in
     assert builtins.elem "aarch64-linux" (builtins.attrNames pmPins.bun."1".platforms);
     assert builtins.elem "aarch64-darwin" (builtins.attrNames pmPins.bun."1".platforms);
     # A major with no pin comes from nixpkgs; the range must contain it.
-    assert (node.toolchain { packageManager = "pnpm@10"; }).packageManager.pname == "pnpm";
+    assert (node.toolchain { packageManager = "yarn@3"; }).packageManager.pname == "yarn-berry";
     # fromPackageJson's packageManager argument overrides the file's spec.
     assert
       (node.fromPackageJson {
@@ -162,10 +173,13 @@ in
       }).packageManager.version == pmPins.pnpm."12".version;
     pkgs.runCommand "crucible-check-node-package-manager-pins" { } "touch $out";
 
-  # Build and run a pinned yarn and bun, so a tarball layout change fails a
-  # check instead of a downstream shell.
+  # Build and run every pinned pnpm, yarn and bun, so a tarball layout
+  # change fails a check instead of a downstream shell. pnpm 10 is a raw
+  # binary, 11 and 12 tarballs with dist/, all from their GitHub releases.
   node-pinned-package-manager-builds =
     let
+      pnpm10 = pinnedPm "pnpm" "10";
+      pnpm11 = pinnedPm "pnpm" "11";
       classic = pinnedPm "yarn" "1";
       berry = pinnedPm "yarn" "4";
       bun = pinnedPm "bun" "1";
@@ -180,6 +194,8 @@ in
       }
       ''
         export HOME=$TMPDIR
+        ${pnpm10}/bin/pnpm --version | grep -q '^${pmPins.pnpm."10".version}$'
+        ${pnpm11}/bin/pnpm --version | grep -q '^${pmPins.pnpm."11".version}$'
         ${classic}/bin/yarn --version | grep -q '^${pmPins.yarn."1".version}$'
         ${berry}/bin/yarn --version | grep -q '^${pmPins.yarn."4".version}$'
         ${bun}/bin/bun --version | grep -q '^${pmPins.bun."1".version}$'

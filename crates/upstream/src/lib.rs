@@ -2,8 +2,10 @@
 //! so the trimming and parsing rules can be tested without a network or a
 //! process.
 
+pub mod attestation;
 pub mod gpg;
 pub mod http;
 pub mod manifest;
+pub mod npm;
 pub mod pnpm_lock;
 pub mod sri;

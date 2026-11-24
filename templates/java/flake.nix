@@ -1,5 +1,5 @@
 {
-  description = "A Nix-flake-based Java development environment";
+  description = "Java 25 (JDK, Gradle, Maven, Lombok) from nixpkgs";
 
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable"; # unstable Nixpkgs
   inputs.crucible = {

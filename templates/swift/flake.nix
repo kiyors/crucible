@@ -1,5 +1,5 @@
 {
-  description = "A Nix-flake-based Swift development environment";
+  description = "Swift and SourceKit-LSP from nixpkgs";
 
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable"; # unstable Nixpkgs
   inputs.crucible = {

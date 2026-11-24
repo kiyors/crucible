@@ -1,5 +1,5 @@
 {
-  description = "A Rust project with crucible";
+  description = "Rust project pinned from rust-toolchain.toml, with a buildRustPackage package (the default template)";
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";

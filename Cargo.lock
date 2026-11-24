@@ -1995,6 +1995,7 @@ dependencies = [
  "anyhow",
  "base64",
  "indexmap",
+ "p256",
  "pgp",
  "serde",
  "serde_json",

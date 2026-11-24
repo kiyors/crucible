@@ -31,14 +31,14 @@ import ./rust { inherit pkgs crucible; }
     installPhase = "touch $out";
   };
 
-  # The Node template ships a dev shell with pnpm and biome in it.
+  # The Node template ships a dev shell with pnpm in it.
   node-template =
     let
       nodeTemplate = builtins.readFile ../templates/node/flake.nix;
     in
     assert lib.assertMsg (
-      builtins.match ".*nodePackages.pnpm.*" nodeTemplate != null
-    ) "the node template must ship pnpm in its dev shell";
+      builtins.match ".*packageManager = \"pnpm@[0-9]+\".*" nodeTemplate != null
+    ) "the node template must pin pnpm as its package manager";
     pkgs.runCommand "crucible-check-node-template" { } "touch $out";
 
   # `crucible doctor`, run here with the fork first on PATH so it passes. The

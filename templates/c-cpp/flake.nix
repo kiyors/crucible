@@ -1,5 +1,5 @@
 {
-  description = "A Nix-flake-based C/C++ development environment";
+  description = "C/C++ tools from nixpkgs: clang, CMake, Conan, vcpkg, linters and gdb on Linux";
 
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable"; # stable Nixpkgs
   inputs.crucible = {

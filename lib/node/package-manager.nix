@@ -1,8 +1,8 @@
 # One exact package-manager release from data/node/package-managers.json,
 # installed from the archive upstream ships for it and run by this toolchain's
-# Node.js. Native pnpm releases ship a standalone binary per system; bun ships
-# one zip per platform from oven-sh/bun's GitHub release; yarn is a JavaScript
-# package and needs the toolchain's node to execute it.
+# Node.js. pnpm and bun ship native binaries per system from their GitHub
+# releases; yarn is a JavaScript package and needs the toolchain's node to
+# execute it.
 {
   lib,
   stdenv,
@@ -24,6 +24,11 @@ let
     else
       pin;
   src = fetchurl { inherit (source) url hash; };
+  # pnpm 10's asset is one raw executable; 11 and 12 ship a tarball with the
+  # binary and its `dist/` tree (node-gyp and the rest of the JavaScript side)
+  # beside it. bun's zip is handled by its name below.
+  layout = pin.layout or "tarball";
+  pnpmBinary = layout == "binary";
   # pnpm's exe; yarn's bin has this name too.
   exe = name;
 in
@@ -31,8 +36,8 @@ stdenv.mkDerivation {
   pname = name;
   inherit version src;
 
-  # npm tarballs wrap everything in package/; keep that root so the install
-  # paths below name it, instead of letting mkDerivation cd into it.
+  # Keep the fetched archive's root so the install paths below name it
+  # directly, instead of letting mkDerivation cd into a single top directory.
   sourceRoot = ".";
 
   nativeBuildInputs = [
@@ -45,10 +50,9 @@ stdenv.mkDerivation {
 
   dontConfigure = true;
   dontBuild = true;
-  # bun's GitHub zip is unpacked by installPhase itself, as the executable
-  # it holds sits at the zip's root; pnpm and yarn stay on the auto-unpack,
-  # since their npm tarballs extract as archives.
-  dontUnpack = name == "bun";
+  # bun's zip and pnpm 10's raw binary are installed straight from $src;
+  # pnpm 11/12's tarballs and yarn's npm tarball are auto-unpacked.
+  dontUnpack = name == "bun" || (name == "pnpm" && pnpmBinary);
 
   installPhase = ''
     runHook preInstall
@@ -56,9 +60,25 @@ stdenv.mkDerivation {
   ''
   + (
     if name == "pnpm" then
+      # The real binary lives in libexec so, for 11 and 12, its `dist/` can sit
+      # beside it; pnpm finds that tree from its own path, not from bin/.
       ''
-        install -m 0755 package/pnpm $out/bin/pnpm
-        wrapProgram $out/bin/pnpm --prefix PATH : ${lib.makeBinPath [ nodejs ]}
+        mkdir -p $out/libexec/pnpm
+      ''
+      + (
+        if pnpmBinary then
+          ''
+            install -m 0755 $src $out/libexec/pnpm/pnpm
+          ''
+        else
+          ''
+            install -m 0755 pnpm $out/libexec/pnpm/pnpm
+            cp -R dist $out/libexec/pnpm/dist
+          ''
+      )
+      + ''
+        makeWrapper $out/libexec/pnpm/pnpm $out/bin/pnpm \
+          --prefix PATH : ${lib.makeBinPath [ nodejs ]}
       ''
     else if name == "bun" then
       # bun is not an npm package: GitHub's release ships a zip per platform,
@@ -94,6 +114,11 @@ stdenv.mkDerivation {
     runHook preInstallCheck
     export HOME=$TMPDIR
     $out/bin/${exe} --version
+  ''
+  + lib.optionalString (name == "pnpm" && !pnpmBinary) ''
+    test -x $out/libexec/pnpm/dist/node-gyp-bin/node-gyp
+  ''
+  + ''
     runHook postInstallCheck
   '';
 
@@ -102,8 +127,14 @@ stdenv.mkDerivation {
   };
 
   meta = {
-    description = "${name} ${version} from npm, run by Node.js ${nodejs.version}";
-    homepage = "https://www.npmjs.com/package/${name}";
+    description = "${name} ${version} from upstream, run by Node.js ${nodejs.version}";
+    homepage =
+      if name == "pnpm" then
+        "https://github.com/pnpm/pnpm"
+      else if name == "bun" then
+        "https://github.com/oven-sh/bun"
+      else
+        "https://yarnpkg.com";
     license = lib.licenses.mit;
     mainProgram = exe;
     platforms = import ../common/systems.nix;

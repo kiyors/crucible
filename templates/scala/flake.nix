@@ -1,5 +1,5 @@
 {
-  description = "A Nix-flake-based Scala development environment";
+  description = "Scala 3 and sbt on Java 25 from nixpkgs";
 
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable"; # unstable Nixpkgs
   inputs.crucible = {

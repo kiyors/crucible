@@ -1,50 +1,40 @@
 {
-  description = "A Nix-flake-based Node.js development environment";
+  description = "Node.js with pnpm pinned from crucible and run by that Node.js";
 
-  inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable"; # unstable Nixpkgs
-  inputs.crucible = {
-    url = "github:kiyors/crucible";
-    inputs.nixpkgs.follows = "nixpkgs";
+  inputs = {
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+    crucible = {
+      url = "github:kiyors/crucible";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
-    inputs:
-
+    { nixpkgs, crucible, ... }:
     let
-      supportedSystems = [
+      # crucible pins toolchains for these systems; x86_64-darwin is not one.
+      systems = [
         "x86_64-linux"
         "aarch64-linux"
-        "x86_64-darwin"
         "aarch64-darwin"
       ];
-      forEachSupportedSystem =
-        f:
-        inputs.nixpkgs.lib.genAttrs supportedSystems (
-          system:
-          f {
-            pkgs = import inputs.nixpkgs {
-              inherit system;
-              overlays = [ inputs.self.overlays.default ];
-            };
-          }
-        );
+      forAllSystems = nixpkgs.lib.genAttrs systems;
+
+      # pnpm comes from pnpm's GitHub releases, checked by crucible against
+      # GitHub's artifact attestation, and runs on this toolchain's Node.js.
+      # Vite+ is off; add `vitePlus = true` when the project uses it.
+      nodeFor =
+        system:
+        crucible.lib.${system}.node.toolchain {
+          vitePlus = false;
+          packageManager = "pnpm@12";
+        };
     in
     {
-      overlays.default = _final: prev: rec {
-        inherit (prev) nodejs;
-      };
-
-      devShells = forEachSupportedSystem (
-        { pkgs }:
-        {
-          default = pkgs.mkShellNoCC {
-            packages = with pkgs; [
-              nodejs
-              nodePackages.pnpm
-              biome
-            ];
-          };
-        }
-      );
+      devShells = forAllSystems (system: {
+        default = nixpkgs.legacyPackages.${system}.mkShellNoCC {
+          packages = [ (nodeFor system) ];
+        };
+      });
     };
 }

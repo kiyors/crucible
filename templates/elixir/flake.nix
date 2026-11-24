@@ -1,5 +1,5 @@
 {
-  description = "A Nix-flake-based Elixir development environment";
+  description = "Elixir 1.17 and Erlang/OTP 27 from nixpkgs, with Hex, mix and rebar3";
 
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable"; # unstable Nixpkgs
   inputs.crucible = {

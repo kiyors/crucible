@@ -5,8 +5,8 @@
 //! launcher whose optional dependencies hold one native executable per
 //! platform, next to the `lib.*.d.ts` files it reads from beside itself. Those
 //! platform packages need no Node.js, so they are what is pinned, by the
-//! sha512 integrity the registry records for each tarball; only metadata is
-//! downloaded here.
+//! sha512 integrity the registry records for each tarball, once the
+//! registry's signature over it checks out; only metadata is downloaded here.
 //!
 //! The tag, not the highest version, decides: tsrs versions are prereleases
 //! such as `7.1.0-beta.tsrs4`, and SemVer compares `tsrs10` before `tsrs9`.
@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{json, Plan};
 use crate::http::Http;
+use crate::npm;
 
 const REGISTRY: &str = "https://registry.npmjs.org";
 
@@ -52,6 +53,8 @@ struct Manifest {
 struct Dist {
     integrity: String,
     tarball: String,
+    #[serde(default)]
+    signatures: Vec<npm::Signature>,
 }
 
 /// The pinned format of `data/tsrs/tsrs.json`.
@@ -133,6 +136,15 @@ fn source(package: &str, version: &str, manifest: &Manifest) -> Result<Source> {
             manifest.dist.integrity
         );
     }
+    npm::verify(
+        package,
+        version,
+        &manifest.dist.integrity,
+        &manifest.dist.signatures,
+        // tsrs is newer than npm's key rotation, so no retired-key
+        // signature needs its publish time.
+        None,
+    )?;
     Ok(Source {
         url: manifest.dist.tarball.clone(),
         hash: manifest.dist.integrity.clone(),
@@ -188,6 +200,7 @@ mod tests {
             dist: Dist {
                 integrity: "sha1-deadbeef".to_string(),
                 tarball: "x.tgz".to_string(),
+                signatures: Vec::new(),
             },
         };
         assert!(source("@tsrs/darwin-arm64", "1.0.0", &manifest).is_err());

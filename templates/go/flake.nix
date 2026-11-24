@@ -1,57 +1,32 @@
 {
-  description = "A Nix-flake-based Go development environment";
+  description = "Go with the newest supported release pinned from crucible";
 
-  inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable"; # unstable Nixpkgs
-  inputs.crucible = {
-    url = "github:kiyors/crucible";
-    inputs.nixpkgs.follows = "nixpkgs";
+  inputs = {
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+    crucible = {
+      url = "github:kiyors/crucible";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
-    inputs:
-
+    { nixpkgs, crucible, ... }:
     let
-      goVersion = 24; # Change this to update the whole stack
-
-      supportedSystems = [
+      systems = [
         "x86_64-linux"
         "aarch64-linux"
-        "x86_64-darwin"
         "aarch64-darwin"
       ];
-      forEachSupportedSystem =
-        f:
-        inputs.nixpkgs.lib.genAttrs supportedSystems (
-          system:
-          f {
-            pkgs = import inputs.nixpkgs {
-              inherit system;
-              overlays = [ inputs.self.overlays.default ];
-            };
-          }
-        );
+      forAllSystems = nixpkgs.lib.genAttrs systems;
+
+      # The newest supported line by default; pass an exact release to pin one.
+      goFor = system: crucible.lib.${system}.go.toolchain { };
     in
     {
-      overlays.default = final: _prev: {
-        go = final."go_1_${toString goVersion}";
-      };
-
-      devShells = forEachSupportedSystem (
-        { pkgs }:
-        {
-          default = pkgs.mkShellNoCC {
-            packages = with pkgs; [
-              # go (version is specified by overlay)
-              go
-
-              # goimports, godoc, etc.
-              gotools
-
-              # https://github.com/golangci/golangci-lint
-              golangci-lint
-            ];
-          };
-        }
-      );
+      devShells = forAllSystems (system: {
+        default = nixpkgs.legacyPackages.${system}.mkShellNoCC {
+          packages = [ (goFor system) ];
+        };
+      });
     };
 }

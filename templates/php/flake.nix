@@ -1,5 +1,5 @@
 {
-  description = "A Nix-flake-based PHP development environment";
+  description = "PHP and Composer from nixpkgs";
 
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable"; # unstable Nixpkgs
   inputs.crucible = {
