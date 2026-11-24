@@ -1,9 +1,12 @@
 name: update
 
 # The scheduled pin refresh: run `crucible update` with the latest released
-# CLI (falling back to `nix run .#crucible-full` before the first release exists),
-# and when data/ changed, run the check workflow's builds on x86_64-linux,
-# aarch64-linux and macOS on the refreshed data, then commit it straight to
+# CLI when the CLI's source has not changed since that release, and otherwise
+# (or before the first release) with `nix run .#crucible-full` built from this
+# checkout. An older release writes data/ in the shape it knew, dropping what
+# newer code pins (free-threaded Python, say), so it must not run. Then, when
+# data/ changed, run the check workflow's builds on x86_64-linux,
+# aarch64-linux and macOS on the refreshed data, and commit it straight to
 # main. A refresh is data only, so nothing here needs a pull request, a review
 # or the "Allow GitHub Actions to create and approve pull requests" setting.
 #
@@ -35,6 +38,10 @@ jobs:
       data_changed: ${{ steps.changed.outputs.data_changed }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The release tag, to compare the CLI's source against.
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Download the latest released CLI
         id: download
@@ -48,6 +55,13 @@ jobs:
           tag="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName 2>/dev/null || true)"
           if [ -z "${tag:-}" ] || [ "$tag" = "null" ]; then
             echo "no release found; using nix run .#crucible-full -- update instead"
+            echo "mode=nix" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Everything package.nix builds the CLI from. Any change since the
+          # tag means the release is not this checkout's updater.
+          if ! git diff --quiet "$tag" HEAD -- Cargo.toml Cargo.lock crates data/node/release-keys.asc; then
+            echo "the CLI changed since $tag; using nix run .#crucible-full -- update instead"
             echo "mode=nix" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -81,8 +95,8 @@ jobs:
           echo "mode=released" >> "$GITHUB_OUTPUT"
 
       # The fallback builds the CLI from this checkout, so it needs Nix; the
-      # released path does not. This is the only way to refresh the pins
-      # before the first release.
+      # released path does not. It runs before the first release and whenever
+      # the CLI has moved past the latest one.
       - uses: ./.github/actions/setup-nix
         if: steps.download.outputs.mode == 'nix'
 

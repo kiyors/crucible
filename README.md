@@ -1019,8 +1019,10 @@ the latest released CLI (`crucible-<version>-<target>.tar.gz`, verified against 
 `SHA256SUMS` and its attestation with `gh attestation verify`), runs `crucible update`, and when
 `data/` changed, runs the check workflow's builds on x86_64-linux, aarch64-linux and macOS. When
 those pass it commits the refreshed `data/` and pushes it straight to `main`: a pin refresh is
-data only, so it needs no pull request, review or merge. Before the first release it falls back
-to `nix run .#crucible-full -- update` with the repo's own CLI.
+data only, so it needs no pull request, review or merge. Before the first release, and whenever
+`Cargo.toml`, `Cargo.lock` or `crates/` changed since the latest release's tag, it runs
+`nix run .#crucible-full -- update` with the repo's own CLI instead: an older release would
+write `data/` in the shape it knew and drop what newer code pins.
 
 A push made with the default `GITHUB_TOKEN` does not start other workflows, so `check` does not
 re-run on that commit; the update workflow's `checks` job is the check for it. A refresh whose
