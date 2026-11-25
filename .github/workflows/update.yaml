@@ -222,12 +222,43 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           patch="$RUNNER_TEMP/data/data.patch"
+
+          # One line per pin: label<TAB>version. Comparing the before and
+          # after manifests is the commit message, so it names only pins that
+          # actually moved -- not the whole pin table and no workflow prose.
+          manifest() {
+            local dir="$1"
+            {
+              printf 'cargo\t%s\n' "$(jq -r .version "$dir/rust/cargo.json")"
+              printf 'rust stable\t%s\n' "$(jq -r .version "$dir/rust/stable.json")"
+              printf 'rust beta\t%s\n' "$(jq -r .version "$dir/rust/beta.json")"
+              printf 'rust nightly\t%s\n' "$(jq -r '.version + " " + .date' "$dir/rust/nightly.json")"
+              printf 'node lts\t%s\n' "$(jq -r '.releases[.lts].version' "$dir/node/node.json")"
+              printf 'node current\t%s\n' "$(jq -r '.releases[.current].version' "$dir/node/node.json")"
+              printf 'vite+\t%s\n' "$(jq -r .version "$dir/node/vite-plus.json")"
+              jq -r '.pnpm|to_entries[]|"pnpm \(.key)\t\(.value.version)"' "$dir/node/package-managers.json"
+              jq -r '.yarn|to_entries[]|"yarn \(.key)\t\(.value.version)"' "$dir/node/package-managers.json"
+              jq -r '.bun|to_entries[]|"bun \(.key)\t\(.value.version)"' "$dir/node/package-managers.json"
+              jq -r '.[]|"deno\t\(.version)"' "$dir/deno/deno.json"
+              jq -r '.releases|to_entries[]|"python \(.key)\t\(.value.version + (if .value.freethreaded then "t" else "" end))"' "$dir/python/python.json"
+              printf 'uv\t%s\n' "$(jq -r .version "$dir/python/uv.json")"
+              jq -r '.releases|to_entries[]|"go \(.key)\t\(.value.version)"' "$dir/go/go.json"
+              jq -r '.releases|to_entries[]|"zig \(.key)\t\(.value.version)"' "$dir/zig/zig.json"
+              printf 'tsrs\t%s\n' "$(jq -r .version "$dir/tsrs/tsrs.json")"
+              if [ -f "$dir/elm/elm.json" ]; then
+                jq -r 'to_entries[]|"elm\t\(.key)"' "$dir/elm/elm.json"
+              fi
+            } | sort
+          }
+
           for _ in 1 2 3; do
             # The patch was cut against the tip of main the update job saw,
             # which may have moved while the checks ran; rebuild on the tip as
             # it is now rather than push a non-fast-forward.
             git fetch --depth=1 origin main
             git reset --hard FETCH_HEAD
+            rm -rf "$RUNNER_TEMP/data-before"
+            cp -a data "$RUNNER_TEMP/data-before"
             git apply "$patch" || {
               # A main that already carries this refresh (a manual update, or
               # an earlier run) makes the forward patch fail; the reverse
@@ -245,30 +276,30 @@ jobs:
               echo "data/ already matches main; nothing to publish"
               exit 0
             fi
-            pin() { jq -r "$2" "data/$1.json"; }
-            cargo="$(pin rust/cargo .version)"
-            stable="$(pin rust/stable .version)"
-            zig="$(pin zig/zig '.releases[.stable].version')"
+
+            manifest "$RUNNER_TEMP/data-before" > "$RUNNER_TEMP/pins.before"
+            manifest data > "$RUNNER_TEMP/pins.after"
+            awk -F '\t' '
+              NR == FNR { old[$1] = $2; next }
+              ($1 in old) && old[$1] != $2 { printf "%s\t%s\t%s\n", $1, old[$1], $2 }
+            ' "$RUNNER_TEMP/pins.before" "$RUNNER_TEMP/pins.after" > "$RUNNER_TEMP/changed"
+
             {
-              echo "update: cargo $cargo, rust $stable, zig $zig"
-              echo
-              echo "Refreshed by the scheduled update workflow, which ran the"
-              echo "check builds on x86_64-linux, aarch64-linux and macOS on"
-              echo "this data before pushing it. Every pin after the refresh:"
-              echo
-              echo "- huacnlee/cargo v$cargo"
-              echo "- rust stable: $stable"
-              echo "- rust beta: $(pin rust/beta .version)"
-              echo "- rust nightly: $(pin rust/nightly '.version + " " + .date')"
-              echo "- node lts: $(pin node/node '.releases[.lts].version')"
-              echo "- vite+: $(pin node/vite-plus .version)"
-              echo "- deno: $(pin deno/deno '[.[].version] | join(", ")')"
-              echo "- python: $(pin python/python '[.releases[] | .version + (if .freethreaded then "t" else "" end)] | join(", ")')"
-              echo "- uv: $(pin python/uv .version)"
-              echo "- go: $(pin go/go '.releases[.stable].version')"
-              echo "- zig: $zig"
-              echo "- tsrs: $(pin tsrs/tsrs .version)"
+              # The subject is only the families that moved, in a few words.
+              families=$(awk -F '\t' '{print $1}' "$RUNNER_TEMP/changed" \
+                | sed 's/ .*//' | sort -u | paste -sd, - | sed 's/,/, /g')
+              printf 'update: %s\n' "${families:-pins}"
+              printf '\n'
+              if [ -s "$RUNNER_TEMP/changed" ]; then
+                while IFS=$'\t' read -r label old new; do
+                  printf -- '- %s: %s -> %s\n' "$label" "$old" "$new"
+                done < "$RUNNER_TEMP/changed"
+              else
+                # A hash-only refresh has no version change: name the files.
+                git diff --cached --name-only -- data | sed 's/^/- /'
+              fi
             } > "$RUNNER_TEMP/message"
+
             git commit -F "$RUNNER_TEMP/message"
             if git push origin HEAD:main; then
               exit 0
