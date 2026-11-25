@@ -12,6 +12,7 @@ cd dev && nix fmt -- --fail-on-change     # formatting, deadnix, statix, typos
 cd dev && nix flake check                 # git hooks (treefmt, gitleaks)
 # The CLI is a Cargo workspace at the repo root (crates/*):
 nix shell .#rust.stock -c cargo test --workspace                         # unit tests
+nix shell .#rust.stock -c cargo test -p init --test sync                 # source sync pairs
 nix shell .#rust.stock -c cargo clippy --workspace --all-targets         # lints
 nix shell .#rust.stock -c cargo build -p crucible --no-default-features  # user build (no update/pin)
 actionlint                                # the workflows
@@ -64,6 +65,26 @@ shellcheck scripts/linux-from-macos.sh
     `lib/python/python.nix` ↔ `archive` in `crates/pins/src/update/python.rs`
   - `platforms` and `downloadUrl` in `lib/go/toolchain.nix` ↔ `PLATFORMS` and `DL` in
     `crates/pins/src/update/go.rs`
+  - `layout` in `data/node/package-managers.json` ↔ `pin.layout or "tarball"` in
+    `lib/node/package-manager.nix` and the layouts in
+    `crates/pins/src/update/package_managers.rs`
+  - the npm keys endpoint documented in `crates/upstream/src/npm.rs` ↔ its pinned `KEYS` array
+  - the attestation `API`, `REPOSITORY`, `RELEASE` and asset names in
+    `crates/upstream/src/attestation.rs` ↔ the pnpm asset URLs Nix fetches from
+    `data/node/package-managers.json`
+  - `PLATFORMS` in `crates/pins/src/update/{cargo,vite_plus,deno,zig,tsrs,package_managers}.rs`
+    and `crates/upstream/src/pnpm_lock.rs` ↔ `lib/common/systems.nix`
+  - template names in `templates.nix` ↔ `moved` in `tests/init.nix` ↔ the README list ↔ the
+    CLI's `github:kiyors/templates` names (the external repo is checked by hand for now;
+    Phase 4.6 reconciles the two sources)
+  - `systems` in `dev/flake.nix` ↔ `lib/common/systems.nix` (dev currently has an extra
+    `x86_64-darwin`, removed in Phase 0.3; the check requires the supported systems to be
+    present, not an exact match, until then)
+  - versions described as current in `README.md` ↔ the pins in `data/**/*.json`; the check
+    reads the version from the prose and finds it in the data, never the reverse, so a
+    scheduled pin update does not need a source edit
+- `crates/init/tests/sync.rs` enforces every pair above. Edit both sides of a pair together, or
+  the check fails with the file names to fix.
 - **Package builds use `.rustPlatform`** (stock cargo). The fork cannot build in the sandbox,
   because it keeps its build directory under `~/.cargo/targets`.
 - **The sysroot's real copies are deliberate** (`bin/*`, `librustc_driver`). Do not "optimize"
