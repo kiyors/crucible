@@ -30,6 +30,7 @@ let
 
   rust = pkgs.callPackage ./components.nix { };
   assertNative = import ../common/cross.nix { inherit lib pkgs; };
+  joinWithSetupHook = import ../common/join.nix { inherit lib pkgs; };
 
   defaultComponents = [
     "rustc"
@@ -171,7 +172,7 @@ let
 
       withCargo =
         name: cargo':
-        pkgs.symlinkJoin {
+        joinWithSetupHook {
           name = "${name}-${base.version}";
           paths = [
             base
@@ -183,10 +184,7 @@ let
           # store path) would win over the shell's own rustc. Overwriting it
           # makes the toolchain authoritative; a shellHook still runs after
           # setup hooks if a project really wants something else.
-          postBuild = lib.optionalString hasSrc ''
-            mkdir -p $out/nix-support
-            echo 'export RUST_SRC_PATH="${rustSrcPath}"' > $out/nix-support/setup-hook
-          '';
+          setupHook = if hasSrc then ''export RUST_SRC_PATH="${rustSrcPath}"'' else null;
           passthru = {
             inherit (base) version;
             inherit manifest;

@@ -22,6 +22,8 @@ let
 
   pep440 = import ./pep440.nix { inherit lib; };
   assertNative = import ../common/cross.nix { inherit lib pkgs; };
+  errors = import ../common/errors.nix { };
+  joinWithSetupHook = import ../common/join.nix { inherit lib pkgs; };
   pythonFor = pkgs.callPackage ./python.nix { };
   uvPkgs = pkgs.callPackage ./uv.nix { };
 
@@ -109,14 +111,18 @@ let
     else
       pins false ++ pins true;
 
-  notPinned = spec: ''
-    crucible: Python "${spec}" matches no pinned release (${
-      lib.concatMapStringsSep ", " label pinnedReleases
-    }).
-    For another release, pass the SHA256SUMS of a python-build-standalone release that has it as
-    `sha256sums`, for example a `flake = false` input with the url
-    https://github.com/astral-sh/python-build-standalone/releases/download/<build>/SHA256SUMS
-  '';
+  notPinned =
+    spec:
+    errors.notPinned {
+      name = "Python";
+      inherit spec;
+      releases = lib.concatMapStringsSep ", " label pinnedReleases;
+      next = ''
+        For another release, pass the SHA256SUMS of a python-build-standalone release that has it as
+        `sha256sums`, for example a `flake = false` input with the url
+        https://github.com/astral-sh/python-build-standalone/releases/download/<build>/SHA256SUMS
+      '';
+    };
 
   # `version` is a line ("3.14"), "3" (the newest pinned line), a PEP 440
   # specifier (">=3.12,<3.15") or an exact release. Pinned releases need
@@ -157,22 +163,23 @@ let
       python = pythonFor release;
       uvPkg = if uv then uvPkgs.withPython python else null;
     in
-    pkgs.symlinkJoin {
+    joinWithSetupHook {
       name = "python-toolchain-${python.version}";
       paths = [ python ] ++ lib.optional (uvPkg != null) uvPkg;
       # Overwritten, not defaulted: a UV_PYTHON or UV_PYTHON_DOWNLOADS from the
       # login shell (or a Home Manager toolchain on another release) would
       # otherwise win over this dev shell's Python. UV_MANAGED_PYTHON and the
       # older UV_PYTHON_PREFERENCE would contradict UV_NO_MANAGED_PYTHON.
-      postBuild = lib.optionalString (uvPkg != null) ''
-        mkdir -p $out/nix-support
-        cat > $out/nix-support/setup-hook <<'EOF'
-        export UV_PYTHON=${python}/bin/python3
-        export UV_NO_MANAGED_PYTHON=1
-        export UV_PYTHON_DOWNLOADS=never
-        unset UV_MANAGED_PYTHON UV_PYTHON_PREFERENCE
-        EOF
-      '';
+      setupHook =
+        if uvPkg != null then
+          ''
+            export UV_PYTHON=${python}/bin/python3
+            export UV_NO_MANAGED_PYTHON=1
+            export UV_PYTHON_DOWNLOADS=never
+            unset UV_MANAGED_PYTHON UV_PYTHON_PREFERENCE
+          ''
+        else
+          null;
       passthru = {
         inherit (python) version pythonVersion sitePackages;
         inherit python;
@@ -270,5 +277,4 @@ in
 {
   inherit toolchain fromPythonVersion fromPyprojectToml;
   uv-unwrapped = uvPkgs.unwrapped;
-  latest = toolchain { };
 }

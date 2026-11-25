@@ -126,6 +126,15 @@ in
   # that file only from VP_HOME or the user's config directory. So vp gets a
   # root of its own, apart from any standalone vp install, seeded with that
   # config on first run.
+  #
+  # Decision (architecture plan 2.7): VP_ENV_FORBIDDEN stays `--set-default`,
+  # not `--set`. A standalone `nix run .#vite-plus` can then still be pointed
+  # at a different setup by an explicit VP_ENV_FORBIDDEN=0. The tradeoff is a
+  # narrow breach of "vp never manages Node.js" outside a dev shell: an
+  # inherited value wins there. Inside one, the Node.js toolchain's setup hook
+  # overwrites it to 1, which is where the invariant is authoritative. Forcing
+  # `--set` would close the hole but remove a deliberate standalone override,
+  # so we keep the current behaviour and document the boundary here.
   withNode =
     node:
     let

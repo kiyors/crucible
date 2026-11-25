@@ -25,6 +25,8 @@ let
 
   semver = import ./semver.nix { inherit lib; };
   assertNative = import ../common/cross.nix { inherit lib pkgs; };
+  errors = import ../common/errors.nix { };
+  joinWithSetupHook = import ../common/join.nix { inherit lib pkgs; };
   nodeFor = pkgs.callPackage ./node.nix { };
   vitePlusPkgs = pkgs.callPackage ./vite-plus.nix { };
 
@@ -81,11 +83,17 @@ let
       ) platforms;
     };
 
-  notPinned = spec: ''
-    crucible: Node.js "${spec}" matches no pinned release (${lib.concatStringsSep ", " pinnedVersions}).
-    For another release, pass its SHASUMS256.txt as `shasums` (a `flake = false` input) or its
-    `sha256`; `nix run github:kiyors/crucible#crucible-full -- pin node <version>` prints both.
-  '';
+  notPinned =
+    spec:
+    errors.notPinned {
+      name = "Node.js";
+      inherit spec;
+      releases = lib.concatStringsSep ", " pinnedVersions;
+      next = ''
+        For another release, pass its SHASUMS256.txt as `shasums` (a `flake = false` input) or its
+        `sha256`; `nix run github:kiyors/crucible#crucible-full -- pin node <version>` prints both.
+      '';
+    };
 
   # `version` is "lts", "current", "lts/<codename>", a line ("24"), an npm
   # range ("^22.12.0 || >=24") or an exact release. Pinned releases need
@@ -250,7 +258,7 @@ let
       crucible: Vite+ needs Node.js ${vitePlusPkgs.engines.node}, and this toolchain has ${node.version}.
       Pick another `version`, or pass `vitePlus = false`.
     '';
-    pkgs.symlinkJoin {
+    joinWithSetupHook {
       name = "node-toolchain-${node.version}";
       paths = [ node ] ++ lib.optional (vp != null) vp ++ lib.optional (pm != null) pm;
       # Overwritten, not defaulted: a VP_ENV_FORBIDDEN=0 from the login shell
@@ -258,13 +266,14 @@ let
       # from a standalone vp install would bring that install's "managed"
       # config, instead of this toolchain's Node.js. A shellHook still runs
       # after setup hooks.
-      postBuild = lib.optionalString (vp != null) ''
-        mkdir -p $out/nix-support
-        cat > $out/nix-support/setup-hook <<'EOF'
-        export VP_ENV_FORBIDDEN=1
-        unset VP_HOME
-        EOF
-      '';
+      setupHook =
+        if vp != null then
+          ''
+            export VP_ENV_FORBIDDEN=1
+            unset VP_HOME
+          ''
+        else
+          null;
       passthru = {
         inherit (node) version;
         inherit node;
@@ -358,6 +367,4 @@ in
 {
   inherit toolchain fromPackageJson;
   vite-plus-unwrapped = vitePlusPkgs.unwrapped;
-  lts = toolchain { };
-  current = toolchain { version = "current"; };
 }

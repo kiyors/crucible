@@ -22,6 +22,7 @@ let
 
   goFor = pkgs.callPackage ./go.nix { };
   assertNative = import ../common/cross.nix { inherit lib pkgs; };
+  errors = import ../common/errors.nix { };
 
   # Pinned by `crucible update`: the newest release of every supported line.
   pinned = lib.importJSON ../../data/go/go.json;
@@ -43,11 +44,17 @@ let
   lineOf = spec: match "([0-9]+\\.[0-9]+)" spec;
   exact = spec: match "(([0-9]+\\.[0-9]+)(\\.[0-9]+|(rc|beta)[0-9]+))" spec;
 
-  notPinned = spec: ''
-    crucible: Go "${spec}" matches no pinned release (${lib.concatStringsSep ", " pinnedVersions}).
-    For another release, pass its per-system `hashes`;
-    `nix run github:kiyors/crucible#crucible-full -- pin go <version>` prints them.
-  '';
+  notPinned =
+    spec:
+    errors.notPinned {
+      name = "Go";
+      inherit spec;
+      releases = lib.concatStringsSep ", " pinnedVersions;
+      next = ''
+        For another release, pass its per-system `hashes`;
+        `nix run github:kiyors/crucible#crucible-full -- pin go <version>` prints them.
+      '';
+    };
 
   # `version` is "stable", a line ("1.27") or an exact release, with or
   # without the "go" prefix. Pinned releases need nothing else; any other
@@ -173,5 +180,4 @@ let
 in
 {
   inherit toolchain fromGoMod;
-  stable = toolchain { };
 }

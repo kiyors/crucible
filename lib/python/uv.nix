@@ -61,9 +61,16 @@ in
   # whatever a .python-version says (a project picks its Python through
   # fromPythonVersion or fromPyprojectToml instead), UV_NO_MANAGED_PYTHON keeps
   # uv off interpreters it installed itself, and UV_PYTHON_DOWNLOADS=never
-  # stops it fetching one when the request does not match. Defaults, so a
-  # user can still point a single command elsewhere; the toolchain's setup
-  # hook overwrites them in a dev shell.
+  # stops it fetching one when the request does not match.
+  #
+  # Decision (architecture plan 2.7): keep these as `--set-default`, not
+  # `--set`. A standalone `nix run .#uv` can then still be pointed at another
+  # interpreter by exporting UV_PYTHON for a single command. The tradeoff is
+  # that an inherited UV_PYTHON wins outside a dev shell, so "uv uses this
+  # Python" is authoritative only inside one, where the toolchain's setup hook
+  # overwrites these variables. Forcing it everywhere would remove that
+  # deliberate override; we keep the convenience and document the boundary
+  # instead of changing behaviour silently.
   withPython =
     python:
     runCommand "uv-${version}"
