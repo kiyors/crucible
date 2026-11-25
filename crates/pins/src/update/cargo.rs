@@ -1,7 +1,9 @@
 //! `update cargo`: pin a huacnlee/cargo release.
 //!
 //! Every release publishes `SHA256SUMS`, so no tarball has to be downloaded to
-//! learn its hash.
+//! learn its hash. The file itself is checked against the sha256 GitHub
+//! recorded for that release asset, the same anchor python/uv use: the hashes
+//! in it are only as good as the file they came in.
 
 use std::fs;
 use std::path::Path;
@@ -10,11 +12,12 @@ use anyhow::{Context, Result};
 use serde::Serialize;
 use serde_json::{Map, Value};
 
-use super::{json, parse_sha256sums, Plan};
+use super::{json, parse_sha256sums_checked, Plan};
 use crate::http::Http;
-use crate::source::hash_of;
+use crate::source::{self, hash_of};
 
 const REPO: &str = "huacnlee/cargo";
+const SUMS: &str = "SHA256SUMS";
 
 /// Nix system -> Rust host triple, in `lib/common/systems.nix` order.
 pub(crate) const PLATFORMS: [(&str, &str); 3] = [
@@ -37,13 +40,11 @@ struct Sources {
 pub(crate) fn plan(http: &Http, version: Option<String>, root: &Path) -> Result<Plan> {
     let path = root.join("data/rust/cargo.json");
     let current = read_version(&path)?;
-    let version = match version {
-        Some(version) => version,
-        None => latest_version(http)?,
-    };
+    let release = release(http, version.as_deref())?;
+    let version = source::tag(&release)?;
     println!("huacnlee/cargo: {current} -> {version}");
 
-    let sums = parse_sha256sums(&sha256sums(http, &version)?);
+    let sums = checksums(http, &release)?;
     let mut platforms = Map::new();
     for (system, triple) in PLATFORMS {
         let file = format!("cargo-{version}-{triple}.tar.gz");
@@ -75,31 +76,51 @@ fn read_version(path: &Path) -> Result<String> {
         .with_context(|| format!("{} has no version", path.display()))
 }
 
-fn latest_version(http: &Http) -> Result<String> {
-    let body = http.get(&format!(
-        "https://api.github.com/repos/{REPO}/releases/latest"
-    ))?;
-    let json: Value =
-        serde_json::from_slice(&body).context("failed to parse the latest release")?;
-    let tag = json
-        .get("tag_name")
-        .and_then(Value::as_str)
-        .context("the latest release has no tag_name")?;
-    Ok(tag.strip_prefix('v').unwrap_or(tag).to_string())
+/// An explicit `--version` pins that tag rather than whatever is newest; both
+/// carry the same asset digest in their release JSON.
+fn release(http: &Http, version: Option<&str>) -> Result<Value> {
+    let endpoint = match version {
+        Some(version) => format!("releases/tags/v{version}"),
+        None => "releases/latest".to_string(),
+    };
+    let body = http.get(&format!("https://api.github.com/repos/{REPO}/{endpoint}"))?;
+    serde_json::from_slice(&body).context("failed to parse the release")
 }
 
 fn release_url(version: &str, file: &str) -> String {
     format!("https://github.com/{REPO}/releases/download/v{version}/{file}")
 }
 
-fn sha256sums(http: &Http, version: &str) -> Result<String> {
-    let url = format!("https://github.com/{REPO}/releases/download/v{version}/SHA256SUMS");
-    String::from_utf8(http.get(&url)?).with_context(|| format!("{url} is not UTF-8"))
+/// Fetch `SHA256SUMS`, refusing it unless its bytes match the digest GitHub
+/// recorded for the asset, then parse every row strictly.
+fn checksums(http: &Http, release: &Value) -> Result<Vec<(String, String)>> {
+    let text = source::checked_asset(http, REPO, release, SUMS)?;
+    parse_sha256sums_checked(&text)
+}
+
+/// The pure counterpart of [`checksums`]: verify an already-fetched body
+/// against the release JSON and parse it, so a captured `SHA256SUMS` can be
+/// checked offline.
+#[cfg(test)]
+fn verify_sums(release: &Value, body: &[u8]) -> Result<Vec<(String, String)>> {
+    let text = source::verified_asset(release, SUMS, body)?;
+    parse_sha256sums_checked(&text)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const DIGEST: &str = "5c635caa1ce13ffc61036e5d19be120cec7a066829d4f1c77a6907a5780ec623";
+    const BODY: &[u8] =
+        b"4c9634493bfb3d6fc926a5cee14271afa2e33008a7793932148e31c4b4d543dd  a.tar.gz\n";
+
+    fn release(digest: &str) -> Value {
+        serde_json::json!({
+            "tag_name": "v0.103.0-1",
+            "assets": [{ "name": "SHA256SUMS", "digest": format!("sha256:{digest}") }]
+        })
+    }
 
     #[test]
     fn builds_release_urls() {
@@ -107,5 +128,18 @@ mod tests {
             release_url("0.103.0-1", "cargo-0.103.0-1-aarch64-apple-darwin.tar.gz"),
             "https://github.com/huacnlee/cargo/releases/download/v0.103.0-1/cargo-0.103.0-1-aarch64-apple-darwin.tar.gz"
         );
+    }
+
+    #[test]
+    fn verifies_the_sums_against_the_release_asset_digest() {
+        let sums = verify_sums(&release(DIGEST), BODY).unwrap();
+        assert_eq!(sums.len(), 1);
+        assert_eq!(sums[0].1, "a.tar.gz");
+
+        let tampered =
+            b"4c9634493bfb3d6fc926a5cee14271afa2e33008a7793932148e31c4b4d543dd  b.tar.gz\n";
+        assert!(verify_sums(&release(DIGEST), tampered).is_err());
+        assert!(verify_sums(&release("zz"), BODY).is_err());
+        assert!(verify_sums(&release(DIGEST), b"not a sums row\n").is_err());
     }
 }

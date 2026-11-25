@@ -68,18 +68,31 @@ pub(crate) fn checked_asset(
     release: &Value,
     name: &str,
 ) -> Result<String> {
-    let tag = release
-        .get("tag_name")
-        .and_then(Value::as_str)
-        .context("the latest release has no tag_name")?;
-    let digest = asset_digest(release, name)
-        .with_context(|| format!("{repo} {tag} has no {name} with a sha256 digest"))?;
+    let tag = release_tag(release)?;
     let url = release_url(repo, tag, name);
     let body = http.get(&url)?;
-    if sri::sri(&body) != sri::from_hex(digest)? {
-        bail!("{url} does not match the digest GitHub recorded for it");
+    verified_asset(release, name, &body)
+        .with_context(|| format!("{url} is not the release asset GitHub recorded"))
+}
+
+/// The pure half of [`checked_asset`]: check an already-fetched asset body
+/// against the digest in the release JSON and decode it as UTF-8. Keeping the
+/// check separate from the fetch makes the trust decision testable offline.
+pub(crate) fn verified_asset(release: &Value, name: &str, body: &[u8]) -> Result<String> {
+    let tag = release_tag(release)?;
+    let digest = asset_digest(release, name)
+        .with_context(|| format!("release {tag} has no {name} with a sha256 digest"))?;
+    if sri::sri(body) != sri::from_hex(digest)? {
+        bail!("{name} does not match the digest GitHub recorded for it");
     }
-    String::from_utf8(body).with_context(|| format!("{url} is not UTF-8"))
+    String::from_utf8(body.to_vec()).with_context(|| format!("{name} is not UTF-8"))
+}
+
+fn release_tag(release: &Value) -> Result<&str> {
+    release
+        .get("tag_name")
+        .and_then(Value::as_str)
+        .context("the latest release has no tag_name")
 }
 
 /// The hex sha256 of a release asset, from its `digest` ("sha256:<hex>").
@@ -132,6 +145,36 @@ mod tests {
         assert_eq!(asset_digest(&release, "sha256.sum"), Some("ab12"));
         assert_eq!(asset_digest(&release, "old.sum"), None);
         assert_eq!(asset_digest(&release, "missing"), None);
+    }
+
+    fn release(digest: &str) -> Value {
+        serde_json::json!({
+            "tag_name": "v0.103.0-1",
+            "assets": [
+                { "name": "SHA256SUMS", "digest": format!("sha256:{digest}") },
+                { "name": "unsigned.txt", "digest": null }
+            ]
+        })
+    }
+
+    #[test]
+    fn trusts_an_asset_only_when_the_recorded_digest_matches() {
+        // sha256 of exactly these bytes, as GitHub records it.
+        let digest = "5c635caa1ce13ffc61036e5d19be120cec7a066829d4f1c77a6907a5780ec623";
+        let body = b"4c9634493bfb3d6fc926a5cee14271afa2e33008a7793932148e31c4b4d543dd  a.tar.gz\n";
+        assert_eq!(
+            verified_asset(&release(digest), "SHA256SUMS", body).unwrap(),
+            String::from_utf8(body.to_vec()).unwrap()
+        );
+        let tampered =
+            b"0000000000000000000000000000000000000000000000000000000000000000  a.tar.gz\n";
+        let err = verified_asset(&release(digest), "SHA256SUMS", tampered)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("does not match the digest"), "{err}");
+        assert!(verified_asset(&release(digest), "unsigned.txt", body).is_err());
+        assert!(verified_asset(&release(digest), "missing", body).is_err());
+        assert!(verified_asset(&release("zz"), "SHA256SUMS", body).is_err());
     }
 
     fn parse_sums(text: &str) -> Vec<(String, String)> {

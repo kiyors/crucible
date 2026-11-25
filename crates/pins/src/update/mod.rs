@@ -123,6 +123,12 @@ fn node_plan(http: &crate::http::Http, root: &Path) -> Result<Plan> {
 /// Parse a `SHA256SUMS`-style file (the fork's `SHA256SUMS`, Node's
 /// `SHASUMS256.txt`, Vite+'s `vp-checksums.txt`): `<64 hex>  <file>` or
 /// `<64 hex> *<file>`.
+///
+/// Lenient for the callers whose checksum file has no independent trust
+/// anchor (`pin`, Node and bun) and which only ever need the rows they ask
+/// for. A file whose hashes *are* anchored to a GitHub asset digest must use
+/// [`parse_sha256sums_checked`] instead: a dropped row there would let a
+/// malformed line hide in a file we just proved authentic.
 pub(crate) fn parse_sha256sums(text: &str) -> Vec<(String, String)> {
     text.lines()
         .filter_map(|line| {
@@ -130,8 +136,6 @@ pub(crate) fn parse_sha256sums(text: &str) -> Vec<(String, String)> {
             let hex = fields.next()?;
             let file = fields.next()?;
             let file = file.strip_prefix('*').unwrap_or(file);
-            // Strict on purpose: a malformed line must not silently become a
-            // bogus hash.
             let is_hex = hex.len() == 64
                 && hex
                     .bytes()
@@ -142,6 +146,45 @@ pub(crate) fn parse_sha256sums(text: &str) -> Vec<(String, String)> {
             Some((hex.to_string(), file.to_string()))
         })
         .collect()
+}
+
+/// The strict counterpart of [`parse_sha256sums`]: every row must be a
+/// lowercase 64-digit sha256 and exactly one filename, separated by either
+/// two spaces or a `*`. Blank lines are the only rows skipped. A bad row
+/// fails with its line number, so a verified checksum file cannot hide it.
+pub(crate) fn parse_sha256sums_checked(text: &str) -> Result<Vec<(String, String)>> {
+    let mut sums = Vec::new();
+    for (index, line) in text.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let number = index + 1;
+        let malformed = || {
+            anyhow::anyhow!(
+                "malformed checksum row on line {number}: {line:?}; expected 64 lowercase hex \
+                 digits, two spaces or `*`, then a filename"
+            )
+        };
+        // coreutils writes `<hex>  <file>` for text and `<hex> *<file>` for
+        // binary; anything else is a malformed row, not a name with spaces.
+        let Some((hex, rest)) = line.split_once(' ') else {
+            return Err(malformed());
+        };
+        let file = rest
+            .strip_prefix(' ')
+            .or_else(|| rest.strip_prefix('*'))
+            .filter(|file| !file.is_empty() && !file.chars().any(char::is_whitespace))
+            .ok_or_else(malformed)?;
+        let is_hex = hex.len() == 64
+            && hex
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte));
+        if !is_hex {
+            return Err(malformed());
+        }
+        sums.push((hex.to_string(), file.to_string()));
+    }
+    Ok(sums)
 }
 
 /// A run-wide exclusive lock, created next to the pins.
@@ -227,26 +270,51 @@ mod tests {
         dir
     }
 
-    #[test]
-    fn parses_both_sha256sums_separators() {
-        let text = "\
+    const HEX: &str = "4c9634493bfb3d6fc926a5cee14271afa2e33008a7793932148e31c4b4d543dd";
+    const ROWS: [(&str, &str); 2] = [
+        (HEX, "cargo-0.1.0-x86_64-unknown-linux-gnu.tar.gz"),
+        (HEX, "cargo-0.1.0-aarch64-apple-darwin.tar.gz"),
+    ];
+    const VALID: &str = "\
 4c9634493bfb3d6fc926a5cee14271afa2e33008a7793932148e31c4b4d543dd  cargo-0.1.0-x86_64-unknown-linux-gnu.tar.gz
 4c9634493bfb3d6fc926a5cee14271afa2e33008a7793932148e31c4b4d543dd *cargo-0.1.0-aarch64-apple-darwin.tar.gz
-not a sums line
-4C9634493BFB3D6FC926A5CEE14271AFA2E33008A7793932148E31C4B4D543DD  uppercase.tar.gz
 ";
+
+    #[test]
+    fn parses_both_sha256sums_separators() {
+        let expected = ROWS.map(|(hex, file)| (hex.to_string(), file.to_string()));
+        assert_eq!(parse_sha256sums(VALID), expected);
+        assert_eq!(parse_sha256sums_checked(VALID).unwrap(), expected);
+    }
+
+    #[test]
+    fn strict_parser_names_the_bad_line() {
+        let text = format!(
+            "{VALID}not a sums line\n4C9634493BFB3D6FC926A5CEE14271AFA2E33008A7793932148E31C4B4D543DD  uppercase.tar.gz\n"
+        );
+        let err = parse_sha256sums_checked(&text).unwrap_err().to_string();
+        assert!(err.contains("line 3"), "{err}");
+        assert!(err.contains("not a sums line"), "{err}");
+        // The unverified caller still drops the bad rows and keeps the good
+        // ones; that is the whole reason the two parsers are separate.
+        assert_eq!(parse_sha256sums(&text).len(), 2);
+
+        let uppercase = format!("{VALID}{}  uppercase.tar.gz\n", HEX.to_uppercase());
+        let err = parse_sha256sums_checked(&uppercase)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("line 3"), "{err}");
+
+        let extra = format!("{HEX}  a.tar.gz  extra\n");
+        assert!(parse_sha256sums_checked(&extra).is_err());
+        let one_space = format!("{HEX} a.tar.gz\n");
+        assert!(parse_sha256sums_checked(&one_space).is_err());
+        // Blank lines are not rows.
         assert_eq!(
-            parse_sha256sums(text),
-            [
-                (
-                    "4c9634493bfb3d6fc926a5cee14271afa2e33008a7793932148e31c4b4d543dd".to_string(),
-                    "cargo-0.1.0-x86_64-unknown-linux-gnu.tar.gz".to_string(),
-                ),
-                (
-                    "4c9634493bfb3d6fc926a5cee14271afa2e33008a7793932148e31c4b4d543dd".to_string(),
-                    "cargo-0.1.0-aarch64-apple-darwin.tar.gz".to_string(),
-                ),
-            ]
+            parse_sha256sums_checked(&format!("\n{VALID}\n"))
+                .unwrap()
+                .len(),
+            2
         );
     }
 

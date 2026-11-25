@@ -1,0 +1,4 @@
+4c9634493bfb3d6fc926a5cee14271afa2e33008a7793932148e31c4b4d543dd *vp-x86_64-unknown-linux-gnu.tar.gz
+4c9634493bfb3d6fc926a5cee14271afa2e33008a7793932148e31c4b4d543dd *vp-aarch64-unknown-linux-gnu.tar.gz
+4c9634493bfb3d6fc926a5cee14271afa2e33008a7793932148e31c4b4d543dd *vp-aarch64-apple-darwin.tar.gz
+723a40e3253f25b64dad638e498b063bf42d5d78521378a5a5421d0eddc8f7d4  vp-install-lock.yaml
