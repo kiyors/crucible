@@ -23,7 +23,11 @@ let
   inherit (pins) version;
 
   source =
-    pins.platforms.${system} or (throw "crucible: Vite+ ${version} has no build for ${system}.");
+    pins.platforms.${system} or (throw ''
+      crucible: Vite+ ${version} has no build for ${system}. Use a system in
+      lib/common/systems.nix, or wait for the next scheduled crucible update to pin one.
+      If you maintain the pins yourself, use `#crucible-full` and run `crucible update node`.
+    '');
 
   packages = lib.filterAttrs (_: p: !(p ? systems) || builtins.elem system p.systems) pins.packages;
 

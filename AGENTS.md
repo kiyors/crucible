@@ -12,7 +12,7 @@ cd dev && nix fmt -- --fail-on-change     # formatting, deadnix, statix, typos
 cd dev && nix flake check                 # git hooks (treefmt, gitleaks)
 # The CLI is a Cargo workspace at the repo root (crates/*):
 nix shell .#rust.stock -c cargo test --workspace                         # unit tests
-nix shell .#rust.stock -c cargo test -p init --test sync                 # source sync pairs
+nix shell .#rust.stock -c cargo test -p init --test sync                 # source sync pairs (skipped inside the restricted CLI package build)
 nix shell .#rust.stock -c cargo clippy --workspace --all-targets         # lints
 nix shell .#rust.stock -c cargo build -p crucible --no-default-features  # user build (no update/pin)
 actionlint                                # the workflows
