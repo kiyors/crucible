@@ -10,11 +10,12 @@ use anyhow::{bail, Context, Result};
 
 use crate::http::Http;
 use crate::manifest::Manifest;
+use crate::source::{checked_asset, release_url};
 use crate::sri;
 use crate::update::python::{self, PBS};
 
 // The URL rules live in `channel`, so `init` can use them without `net`.
-pub use init::channel::manifest_url;
+pub(crate) use init::channel::manifest_url;
 
 pub fn run(channel: &str) -> Result<()> {
     let url = manifest_url(channel)?;
@@ -74,6 +75,33 @@ pub fn node(version: &str) -> Result<()> {
     Ok(())
 }
 
+/// `crucible pin go <version>`: the `hashes` argument for a release that is not
+/// pinned. The index is the same one `update go` reads, so the hashes printed
+/// here are the ones Nix will use.
+pub fn go(version: &str) -> Result<()> {
+    use crate::update::go::{exact_version, index, sources};
+
+    let version = exact_version(version)?;
+    let releases = index(&Http::new())?;
+    let release = releases
+        .iter()
+        .find(|release| release.version == format!("go{version}"))
+        .with_context(|| format!("go.dev lists no Go release {version}"))?;
+    let platforms = sources(release)?;
+
+    println!("go: {version}");
+    println!();
+    println!("toolchain {{");
+    println!("  version = \"{version}\";");
+    println!("  hashes = {{");
+    for (system, source) in &platforms {
+        println!("    {system} = \"{}\";", source.hash);
+    }
+    println!("  }};");
+    println!("}};");
+    Ok(())
+}
+
 /// `crucible pin python <x.y.z>`: the `sha256sums` input for a release that is
 /// not pinned, with its hash. The build is the newest python-build-standalone
 /// one that carries the release for every system; its `SHA256SUMS` is checked
@@ -83,7 +111,7 @@ pub fn python(version: &str) -> Result<()> {
     let version = python_release_version(version)?;
     let http = Http::new();
     let (release, build) = python::find_release(&http, version)?;
-    let sums = python::checked_asset(&http, PBS, &release, "SHA256SUMS")?;
+    let sums = checked_asset(&http, PBS, &release, "SHA256SUMS")?;
     // Fails here, rather than at evaluation time, for a release the build's
     // SHA256SUMS lacks an archive of for one of crucible's systems.
     python::sources(
@@ -92,7 +120,7 @@ pub fn python(version: &str) -> Result<()> {
         &build,
         false,
     )?;
-    let url = python::release_url(PBS, &build, "SHA256SUMS");
+    let url = release_url(PBS, &build, "SHA256SUMS");
     let hash = sri::sri(sums.as_bytes());
 
     println!("python: {version}");
@@ -128,7 +156,7 @@ fn python_release_version(version: &str) -> Result<&str> {
 
 /// An exact Node.js release, `v` prefix optional: SHASUMS256.txt exists per
 /// release only, not per line.
-pub fn node_version(version: &str) -> Result<&str> {
+fn node_version(version: &str) -> Result<&str> {
     let version = version.strip_prefix('v').unwrap_or(version);
     let parts: Vec<&str> = version.split('.').collect();
     let exact = parts.len() == 3

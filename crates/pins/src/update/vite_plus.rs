@@ -12,10 +12,10 @@ use indexmap::IndexMap;
 use serde::Serialize;
 use serde_json::Value;
 
-use super::node::Source;
 use super::{json, parse_sha256sums, Plan};
 use crate::http::Http;
 use crate::pnpm_lock::{Graph, Lockfile};
+use crate::source::{hash_of as source_hash_of, Source};
 use crate::sri;
 
 const REPO: &str = "voidzero-dev/vite-plus";
@@ -23,11 +23,15 @@ const LOCKFILE: &str = "vp-install-lock.yaml";
 
 /// Nix system -> Rust host triple of the release archive, in
 /// `lib/common/systems.nix` order.
-const PLATFORMS: [(&str, &str); 3] = [
+pub(crate) const PLATFORMS: [(&str, &str); 3] = [
     ("x86_64-linux", "x86_64-unknown-linux-gnu"),
     ("aarch64-linux", "aarch64-unknown-linux-gnu"),
     ("aarch64-darwin", "aarch64-apple-darwin"),
 ];
+
+// The literal stays for the text-based sync check; `platforms` is the
+// canonical system list that the compiler checks it against.
+const _: () = assert!(crate::platforms::matches(PLATFORMS));
 
 /// The pinned format of `data/node/vite-plus.json`.
 #[derive(Serialize)]
@@ -39,19 +43,13 @@ struct Pins {
 }
 
 /// Fetch and validate `data/node/vite-plus.json`, without writing it.
-pub fn plan(http: &Http, root: &Path) -> Result<Plan> {
+pub(crate) fn plan(http: &Http, root: &Path) -> Result<Plan> {
     let version = latest_version(http)?;
     println!("vite-plus: {version}");
 
     let sums = parse_sha256sums(&download(http, &version, "vp-checksums.txt")?);
-    let hash_of = |file: &str| -> Result<String> {
-        let hex = sums
-            .iter()
-            .find(|(_, entry)| entry == file)
-            .map(|(hex, _)| hex)
-            .with_context(|| format!("vp-checksums.txt of v{version} has no {file}"))?;
-        sri::from_hex(hex)
-    };
+    let hash_of =
+        |file: &str| source_hash_of(&sums, file, &format!("vp-checksums.txt of v{version}"));
 
     let mut platforms = IndexMap::new();
     for (system, triple) in PLATFORMS {

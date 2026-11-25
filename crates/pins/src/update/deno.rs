@@ -15,17 +15,22 @@ use serde::{Deserialize, Serialize};
 
 use super::{json, Plan};
 use crate::http::Http;
+use crate::source::Source;
 use crate::sri;
 
 /// denoland/deno's release list: newest first, with each release's assets.
 const RELEASES: &str = "https://api.github.com/repos/denoland/deno/releases?per_page=100";
 
 /// Nix system -> the deno release zip, in `lib/common/systems.nix` order.
-const DENO_ASSETS: [(&str, &str); 3] = [
+pub(crate) const DENO_ASSETS: [(&str, &str); 3] = [
     ("x86_64-linux", "deno-x86_64-unknown-linux-gnu.zip"),
     ("aarch64-linux", "deno-aarch64-unknown-linux-gnu.zip"),
     ("aarch64-darwin", "deno-aarch64-apple-darwin.zip"),
 ];
+
+// The literal stays for the text-based sync check; `platforms` is the
+// canonical system list that the compiler checks it against.
+const _: () = assert!(crate::platforms::matches(DENO_ASSETS));
 
 /// The majors whose newest stable release is pinned. Deno 2 is the current
 /// line; 1.46.3 was the last 1.x release, a year and a half before 2.0.
@@ -59,14 +64,8 @@ struct Pin {
     platforms: IndexMap<String, Source>,
 }
 
-#[derive(Debug, Serialize)]
-struct Source {
-    url: String,
-    hash: String,
-}
-
 /// Fetch and validate `data/deno/deno.json`, without writing it.
-pub fn plan(http: &Http, root: &Path) -> Result<Plan> {
+pub(crate) fn plan(http: &Http, root: &Path) -> Result<Plan> {
     let releases: Vec<Release> = serde_json::from_slice(&http.get(RELEASES)?)
         .context("failed to parse the deno release list")?;
     let mut pins = IndexMap::new();

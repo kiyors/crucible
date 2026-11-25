@@ -10,7 +10,7 @@ use clap::{Parser, Subcommand};
 mod templates;
 
 #[cfg(feature = "net")]
-use pins::{pin, update, update::Scope};
+use pins::{pin, update};
 
 // A bare `crucible` prints the commands instead of picking one for the
 // user: `doctor` reads the environment and exits non-zero on a broken one,
@@ -38,8 +38,11 @@ enum Command {
     #[cfg(feature = "net")]
     Update {
         /// What to refresh
-        #[arg(value_enum, default_value = "all")]
-        what: Scope,
+        #[arg(
+            default_value = "all",
+            value_parser = clap::builder::PossibleValuesParser::new(pins::update::SCOPES)
+        )]
+        what: String,
         /// Use this huacnlee/cargo version instead of the latest release
         /// (with `cargo` or the default `all` scope)
         #[arg(long)]
@@ -164,7 +167,7 @@ fn run() -> Result<ExitCode> {
             version,
             root,
         } => {
-            update::run(what, version, &root)?;
+            update::run(update::parse_scope(&what)?, version, &root)?;
             Ok(ExitCode::SUCCESS)
         }
         #[cfg(feature = "net")]
@@ -179,7 +182,7 @@ fn run() -> Result<ExitCode> {
         }
         #[cfg(feature = "net")]
         Command::Pin(Pin::Go { version }) => {
-            update::go::pin(&version)?;
+            pin::go(&version)?;
             Ok(ExitCode::SUCCESS)
         }
         #[cfg(feature = "net")]

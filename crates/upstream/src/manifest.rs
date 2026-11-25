@@ -15,7 +15,13 @@ pub const HOSTS: [&str; 3] = [
     "aarch64-apple-darwin",
 ];
 
-/// One component of an upstream `channel-rust-*.toml`.
+// The literal stays because the source sync test reads it as text; the
+// canonical table in `platforms` is what a compiler checks it against.
+const _: () = assert!(crate::platforms::same(&HOSTS, &crate::platforms::hosts()));
+
+/// One component of an upstream `channel-rust-*.toml`. Only `pkg` and its
+/// versions are read outside this module (by `pin rust` and the updater);
+/// everything else is internal to `trim` and `missing`.
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct Manifest {
     #[serde(default)]
@@ -33,48 +39,49 @@ pub struct Package {
     #[serde(default)]
     pub version: String,
     #[serde(default)]
-    pub target: IndexMap<String, Target>,
+    target: IndexMap<String, Target>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
-pub struct Target {
+struct Target {
     #[serde(default)]
-    pub available: bool,
+    available: bool,
     #[serde(default)]
-    pub url: Option<String>,
+    url: Option<String>,
     #[serde(default)]
-    pub hash: Option<String>,
+    hash: Option<String>,
     #[serde(default)]
-    pub xz_url: Option<String>,
+    xz_url: Option<String>,
     #[serde(default)]
-    pub xz_hash: Option<String>,
+    xz_hash: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Rename {
-    pub to: String,
+    to: String,
 }
 
-/// The pinned format of `data/rust/*.json`.
+/// The pinned format of `data/rust/*.json`. `serde` reads every field here, so
+/// none of them need to be visible outside this module.
 #[derive(Clone, Debug, Serialize)]
 pub struct Trimmed {
     pub date: String,
     pub version: String,
-    pub profiles: IndexMap<String, Vec<String>>,
-    pub renames: IndexMap<String, Rename>,
-    pub pkg: IndexMap<String, TrimmedPackage>,
+    profiles: IndexMap<String, Vec<String>>,
+    renames: IndexMap<String, Rename>,
+    pkg: IndexMap<String, TrimmedPackage>,
 }
 
 #[derive(Clone, Debug, Serialize)]
-pub struct TrimmedPackage {
-    pub version: String,
-    pub target: IndexMap<String, Artifact>,
+struct TrimmedPackage {
+    version: String,
+    target: IndexMap<String, Artifact>,
 }
 
 #[derive(Clone, Debug, Serialize)]
-pub struct Artifact {
-    pub url: Option<String>,
-    pub hash: Option<String>,
+struct Artifact {
+    url: Option<String>,
+    hash: Option<String>,
 }
 
 impl Manifest {

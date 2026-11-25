@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{json, Plan};
 use crate::http::Http;
+use crate::source::Source;
 use crate::sri;
 
 /// Every release, stable or not, with its files. Must stay the source of the
@@ -27,53 +28,52 @@ pub const DL: &str = "https://dl.google.com/go";
 const SUPPORTED_LINES: usize = 2;
 
 /// Nix system -> Go `GOOS-GOARCH`, in `lib/common/systems.nix` order.
-pub const PLATFORMS: [(&str, &str); 3] = [
+pub(crate) const PLATFORMS: [(&str, &str); 3] = [
     ("x86_64-linux", "linux-amd64"),
     ("aarch64-linux", "linux-arm64"),
     ("aarch64-darwin", "darwin-arm64"),
 ];
 
-/// One entry of the index, newest first upstream.
+// The literal stays for the text-based sync check; `platforms` is the
+// canonical system list that the compiler checks it against.
+const _: () = assert!(crate::platforms::matches(PLATFORMS));
+
+/// One entry of the index, newest first upstream. Only `version` is read
+/// outside this module, by `pin go`.
 #[derive(Debug, Deserialize)]
 pub struct Release {
     /// `go1.27.4`, `go1.27rc3`, or `go1.20` for the first release of a line
     /// before Go 1.21.
-    pub version: String,
-    pub stable: bool,
-    pub files: Vec<File>,
+    pub(crate) version: String,
+    stable: bool,
+    files: Vec<File>,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct File {
-    pub filename: String,
-    pub sha256: String,
+struct File {
+    filename: String,
+    sha256: String,
     /// `archive`, `installer` or `source`.
-    pub kind: String,
+    kind: String,
 }
 
 /// The pinned format of `data/go/go.json`.
 #[derive(Debug, Serialize)]
-pub struct Pins {
+struct Pins {
     /// The newest line.
-    pub stable: String,
+    stable: String,
     /// Line (`1.27`) -> its newest release, oldest line first.
-    pub releases: IndexMap<String, Pin>,
+    releases: IndexMap<String, Pin>,
 }
 
 #[derive(Debug, Serialize)]
-pub struct Pin {
-    pub version: String,
-    pub platforms: IndexMap<String, Source>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct Source {
-    pub url: String,
-    pub hash: String,
+struct Pin {
+    version: String,
+    platforms: IndexMap<String, Source>,
 }
 
 /// Fetch and validate `data/go/go.json`, without writing it.
-pub fn plan(http: &Http, root: &Path) -> Result<Plan> {
+pub(crate) fn plan(http: &Http, root: &Path) -> Result<Plan> {
     let pins = pins(&index(http)?)?;
     for (line, pin) in &pins.releases {
         println!("go {line}: {}", pin.version);
@@ -81,36 +81,14 @@ pub fn plan(http: &Http, root: &Path) -> Result<Plan> {
     Ok(vec![(root.join("data/go/go.json"), json(&pins)?)])
 }
 
-/// `crucible pin go <version>`: the `hashes` argument for a release that is
-/// not pinned.
-pub fn pin(version: &str) -> Result<()> {
-    let version = exact_version(version)?;
-    let releases = index(&Http::new())?;
-    let release = releases
-        .iter()
-        .find(|release| release.version == format!("go{version}"))
-        .with_context(|| format!("go.dev lists no Go release {version}"))?;
-    let platforms = sources(release)?;
-
-    println!("go: {version}");
-    println!();
-    println!("toolchain {{");
-    println!("  version = \"{version}\";");
-    println!("  hashes = {{");
-    for (system, source) in &platforms {
-        println!("    {system} = \"{}\";", source.hash);
-    }
-    println!("  }};");
-    println!("}};");
-    Ok(())
-}
-
-fn index(http: &Http) -> Result<Vec<Release>> {
+/// The go.dev index, with every file of every release. `pin::go` reads the
+/// hashes of an unpinned release from it too.
+pub(crate) fn index(http: &Http) -> Result<Vec<Release>> {
     serde_json::from_slice(&http.get(INDEX)?).context("failed to parse the go.dev release index")
 }
 
 /// The newest stable release of each supported line, oldest line first.
-pub fn pins(releases: &[Release]) -> Result<Pins> {
+fn pins(releases: &[Release]) -> Result<Pins> {
     let mut newest: IndexMap<(u64, u64), (&Release, u64)> = IndexMap::new();
     for release in releases.iter().filter(|release| release.stable) {
         let Some((major, minor, patch)) = parse_version(&release.version) else {
@@ -148,7 +126,7 @@ pub fn pins(releases: &[Release]) -> Result<Pins> {
 }
 
 /// `{ system: { url, hash } }` for one release, from the index's hashes.
-pub fn sources(release: &Release) -> Result<IndexMap<String, Source>> {
+pub(crate) fn sources(release: &Release) -> Result<IndexMap<String, Source>> {
     let mut platforms = IndexMap::new();
     for (system, platform) in PLATFORMS {
         let filename = format!("{}.{platform}.tar.gz", release.version);
@@ -187,7 +165,7 @@ fn parse_version(version: &str) -> Option<(u64, u64, u64)> {
 
 /// An exact release such as `1.25.3`, `go` prefix optional; `1.27rc1` too,
 /// since the index lists pre-releases. Lines are already pinned or too old.
-pub fn exact_version(version: &str) -> Result<&str> {
+pub(crate) fn exact_version(version: &str) -> Result<&str> {
     let version = version.strip_prefix("go").unwrap_or(version);
     let valid = match version
         .split_once("rc")

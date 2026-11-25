@@ -9,7 +9,6 @@ publish.workspace = true
 
 [dependencies]
 anyhow.workspace = true
-clap.workspace = true
 indexmap.workspace = true
 init.workspace = true
 serde.workspace = true

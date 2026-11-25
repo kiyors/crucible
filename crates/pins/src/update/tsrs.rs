@@ -20,16 +20,21 @@ use serde::{Deserialize, Serialize};
 use super::{json, Plan};
 use crate::http::Http;
 use crate::npm;
+use crate::source::Source;
 
 const REGISTRY: &str = "https://registry.npmjs.org";
 
 /// Nix system -> the npm package holding that system's executable, in
 /// `lib/common/systems.nix` order. The Linux packages are the glibc builds.
-const PLATFORMS: [(&str, &str); 3] = [
+pub(crate) const PLATFORMS: [(&str, &str); 3] = [
     ("x86_64-linux", "@tsrs/linux-x64-gnu"),
     ("aarch64-linux", "@tsrs/linux-arm64-gnu"),
     ("aarch64-darwin", "@tsrs/darwin-arm64"),
 ];
+
+// The literal stays for the text-based sync check; `platforms` is the
+// canonical system list that the compiler checks it against.
+const _: () = assert!(crate::platforms::matches(PLATFORMS));
 
 /// The parts of the `tsrs` packument this reads.
 #[derive(Debug, Deserialize)]
@@ -56,14 +61,8 @@ struct Pins {
     platforms: IndexMap<String, Source>,
 }
 
-#[derive(Debug, Serialize)]
-struct Source {
-    url: String,
-    hash: String,
-}
-
 /// Fetch and validate `data/tsrs/tsrs.json`, without writing it.
-pub fn plan(http: &Http, root: &Path) -> Result<Plan> {
+pub(crate) fn plan(http: &Http, root: &Path) -> Result<Plan> {
     let packument: Packument = get(http, &format!("{REGISTRY}/tsrs"))?;
     let launcher = latest(&packument)?;
     let version = launcher.version.clone();

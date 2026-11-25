@@ -14,76 +14,74 @@ use serde_json::Value;
 
 use super::{json, parse_sha256sums, Plan};
 use crate::http::Http;
-use crate::sri;
+use crate::source::{hash_of, Source};
 
 pub const DIST: &str = "https://nodejs.org/dist";
 const SCHEDULE: &str = "https://raw.githubusercontent.com/nodejs/Release/main/schedule.json";
 
 /// Nix system -> nodejs.org platform, in `lib/common/systems.nix` order.
-pub const PLATFORMS: [(&str, &str); 3] = [
+pub(crate) const PLATFORMS: [(&str, &str); 3] = [
     ("x86_64-linux", "linux-x64"),
     ("aarch64-linux", "linux-arm64"),
     ("aarch64-darwin", "darwin-arm64"),
 ];
 
+// The literal stays for the text-based sync check; `platforms` is the
+// canonical system list that the compiler checks it against.
+const _: () = assert!(crate::platforms::matches(PLATFORMS));
+
 /// One entry of `index.json`, newest first upstream.
 #[derive(Debug, Deserialize)]
-pub struct Release {
-    pub version: String,
-    pub date: String,
+struct Release {
+    version: String,
+    date: String,
     /// The LTS codename, or `false`.
-    pub lts: Value,
+    lts: Value,
     #[serde(default)]
-    pub npm: Option<String>,
+    npm: Option<String>,
     #[serde(default)]
-    pub modules: Option<String>,
+    modules: Option<String>,
 }
 
 /// One release line of `schedule.json`. Dates are `YYYY-MM-DD`, which compare
 /// correctly as strings.
 #[derive(Debug, Deserialize)]
-pub struct Line {
-    pub start: String,
-    pub end: String,
+struct Line {
+    start: String,
+    end: String,
     #[serde(default)]
-    pub lts: Option<String>,
+    lts: Option<String>,
 }
 
 /// The pinned format of `data/node/node.json`.
 #[derive(Debug, Serialize)]
-pub struct Pins {
+struct Pins {
     /// The newest line in long-term support.
-    pub lts: String,
+    lts: String,
     /// The newest line released at all.
-    pub current: String,
+    current: String,
     /// Major -> its newest release, oldest line first.
-    pub releases: IndexMap<String, Pin>,
+    releases: IndexMap<String, Pin>,
 }
 
 #[derive(Debug, Serialize)]
-pub struct Pin {
-    pub version: String,
-    pub date: String,
+struct Pin {
+    version: String,
+    date: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub lts: Option<String>,
+    lts: Option<String>,
     /// End of upstream support, so `doctor` can warn before it arrives.
-    pub end: String,
+    end: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub npm: Option<String>,
+    npm: Option<String>,
     /// `process.versions.modules`, the ABI native addons are built for.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub modules: Option<String>,
-    pub platforms: IndexMap<String, Source>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct Source {
-    pub url: String,
-    pub hash: String,
+    modules: Option<String>,
+    platforms: IndexMap<String, Source>,
 }
 
 /// Fetch and validate `data/node/node.json`, without writing it.
-pub fn plan(http: &Http, root: &Path) -> Result<Plan> {
+pub(crate) fn plan(http: &Http, root: &Path) -> Result<Plan> {
     let releases: Vec<Release> = serde_json::from_slice(&http.get(&format!("{DIST}/index.json"))?)
         .context("failed to parse index.json")?;
     let schedule: IndexMap<String, Line> =
@@ -126,27 +124,25 @@ pub fn plan(http: &Http, root: &Path) -> Result<Plan> {
 }
 
 /// `{ system: { url, hash } }` for one release, from its `SHASUMS256.txt`.
-pub fn sources(sums: &[(String, String)], version: &str) -> Result<IndexMap<String, Source>> {
+pub(crate) fn sources(
+    sums: &[(String, String)],
+    version: &str,
+) -> Result<IndexMap<String, Source>> {
     let mut platforms = IndexMap::new();
     for (system, platform) in PLATFORMS {
         let file = format!("node-v{version}-{platform}.tar.xz");
-        let hex = sums
-            .iter()
-            .find(|(_, entry)| *entry == file)
-            .map(|(hex, _)| hex)
-            .with_context(|| format!("SHASUMS256.txt of v{version} has no {file}"))?;
         platforms.insert(
             system.to_string(),
             Source {
                 url: format!("{DIST}/v{version}/{file}"),
-                hash: sri::from_hex(hex)?,
+                hash: hash_of(sums, &file, &format!("SHASUMS256.txt of v{version}"))?,
             },
         );
     }
     Ok(platforms)
 }
 
-pub fn shasums(http: &Http, version: &str) -> Result<String> {
+pub(crate) fn shasums(http: &Http, version: &str) -> Result<String> {
     let url = format!("{DIST}/v{version}/SHASUMS256.txt");
     let body = http.get(&url)?;
     // The hashes are only as trustworthy as the file they came from, so check

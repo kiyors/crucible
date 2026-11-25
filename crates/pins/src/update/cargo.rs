@@ -12,16 +12,20 @@ use serde_json::{Map, Value};
 
 use super::{json, parse_sha256sums, Plan};
 use crate::http::Http;
-use crate::sri;
+use crate::source::hash_of;
 
 const REPO: &str = "huacnlee/cargo";
 
 /// Nix system -> Rust host triple, in `lib/common/systems.nix` order.
-const PLATFORMS: [(&str, &str); 3] = [
+pub(crate) const PLATFORMS: [(&str, &str); 3] = [
     ("x86_64-linux", "x86_64-unknown-linux-gnu"),
     ("aarch64-linux", "aarch64-unknown-linux-gnu"),
     ("aarch64-darwin", "aarch64-apple-darwin"),
 ];
+
+// The literal stays for the text-based sync check; `platforms` is the
+// canonical system list that the compiler checks it against.
+const _: () = assert!(crate::platforms::matches(PLATFORMS));
 
 #[derive(Serialize)]
 struct Sources {
@@ -30,7 +34,7 @@ struct Sources {
 }
 
 /// Fetch and validate `data/rust/cargo.json`, without writing it.
-pub fn plan(http: &Http, version: Option<String>, root: &Path) -> Result<Plan> {
+pub(crate) fn plan(http: &Http, version: Option<String>, root: &Path) -> Result<Plan> {
     let path = root.join("data/rust/cargo.json");
     let current = read_version(&path)?;
     let version = match version {
@@ -43,12 +47,7 @@ pub fn plan(http: &Http, version: Option<String>, root: &Path) -> Result<Plan> {
     let mut platforms = Map::new();
     for (system, triple) in PLATFORMS {
         let file = format!("cargo-{version}-{triple}.tar.gz");
-        let hex = sums
-            .iter()
-            .find(|(_, entry)| *entry == file)
-            .map(|(hex, _)| hex)
-            .with_context(|| format!("SHA256SUMS of v{version} has no {file}"))?;
-        let hash = sri::from_hex(hex)?;
+        let hash = hash_of(&sums, &file, &format!("SHA256SUMS of v{version}"))?;
         println!("  {system}: {hash}");
 
         let platform = Map::from_iter([

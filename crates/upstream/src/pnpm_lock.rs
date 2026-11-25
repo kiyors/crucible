@@ -15,13 +15,14 @@ use sha2::{Digest, Sha256};
 
 const REGISTRY: &str = "https://registry.npmjs.org";
 
-/// A lockfile platform, in npm's `os`/`cpu`/`libc` vocabulary.
+/// A lockfile platform, in npm's `os`/`cpu`/`libc` vocabulary. No caller
+/// outside `upstream` reads these fields; the updater only needs `Graph`.
 pub struct Platform {
-    pub system: &'static str,
-    pub os: &'static str,
-    pub cpu: &'static str,
+    pub(crate) system: &'static str,
+    pub(crate) os: &'static str,
+    pub(crate) cpu: &'static str,
     /// `None` where npm has no libc to compare (macOS).
-    pub libc: Option<&'static str>,
+    pub(crate) libc: Option<&'static str>,
 }
 
 /// The systems of `lib/common/systems.nix`, in the same order.
@@ -45,6 +46,17 @@ pub const PLATFORMS: [Platform; 3] = [
         libc: None,
     },
 ];
+
+// The literal stays because the source sync test reads `system:` fields as
+// text; the canonical table in `platforms` is what a compiler checks it against.
+const _: () = assert!(crate::platforms::same(
+    &[
+        PLATFORMS[0].system,
+        PLATFORMS[1].system,
+        PLATFORMS[2].system,
+    ],
+    &crate::platforms::SYSTEMS
+));
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]

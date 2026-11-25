@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{json, parse_sha256sums, Plan};
 use crate::http::Http;
+use crate::source::{hash_of, Source};
 use crate::{attestation, npm, sri};
 
 const REGISTRY: &str = "https://registry.npmjs.org";
@@ -29,14 +30,14 @@ const BUN_RELEASES_DOWNLOAD: &str = "https://github.com/oven-sh/bun/releases/dow
 /// One pnpm line: its major, how the asset is laid out, and the release asset
 /// holding each system's build, in `lib/common/systems.nix` order. 10 ships a
 /// single executable; 11 and 12 ship a tarball with the binary and `dist/`.
-struct PnpmLine {
-    major: &'static str,
+pub(crate) struct PnpmLine {
+    pub(crate) major: &'static str,
     layout: &'static str,
-    platforms: [(&'static str, &'static str); 3],
+    pub(crate) platforms: [(&'static str, &'static str); 3],
 }
 
 /// The pnpm lines upstream still releases, with their GitHub asset names.
-const PNPM: [PnpmLine; 3] = [
+pub(crate) const PNPM: [PnpmLine; 3] = [
     PnpmLine {
         major: "10",
         layout: "binary",
@@ -69,11 +70,20 @@ const PNPM: [PnpmLine; 3] = [
     },
 ];
 /// Nix system -> bun release zip, in `lib/common/systems.nix` order.
-const BUN_ASSETS: [(&str, &str); 3] = [
+pub(crate) const BUN_ASSETS: [(&str, &str); 3] = [
     ("x86_64-linux", "bun-linux-x64.zip"),
     ("aarch64-linux", "bun-linux-aarch64.zip"),
     ("aarch64-darwin", "bun-darwin-aarch64.zip"),
 ];
+
+// The literals stay for the text-based sync check; `platforms` is the
+// canonical system list that the compiler checks them against.
+const _: () = assert!(
+    crate::platforms::matches(BUN_ASSETS)
+        && crate::platforms::matches(PNPM[0].platforms)
+        && crate::platforms::matches(PNPM[1].platforms)
+        && crate::platforms::matches(PNPM[2].platforms)
+);
 /// Yarn runs on Node.js, so one tarball covers every system. 1 is classic, 4
 /// is Berry (`@yarnpkg/cli-dist`); both are installed by the same Nix module.
 const YARN_MAJORS: [(&str, &str); 2] = [("1", "yarn"), ("4", "@yarnpkg%2Fcli-dist")];
@@ -139,14 +149,8 @@ struct JsPin {
     hash: String,
 }
 
-#[derive(Debug, Serialize)]
-struct Source {
-    url: String,
-    hash: String,
-}
-
 /// Fetch and validate `data/node/package-managers.json`, without writing it.
-pub fn plan(http: &Http, root: &Path) -> Result<Plan> {
+pub(crate) fn plan(http: &Http, root: &Path) -> Result<Plan> {
     let pins = Pins {
         pnpm: pnpm_pins(http)?,
         bun: bun_pins(http)?,
@@ -241,16 +245,11 @@ fn bun_pins(http: &Http) -> Result<IndexMap<String, NativePin>> {
         let sums = parse_sha256sums(&shasums(http, &tag)?);
         let mut platforms = IndexMap::new();
         for (system, asset) in BUN_ASSETS {
-            let hex = sums
-                .iter()
-                .find(|(_, entry)| entry.as_str() == asset)
-                .map(|(hex, _)| hex.clone())
-                .with_context(|| format!("{tag}'s SHASUMS256.txt has no {asset}"))?;
             platforms.insert(
                 system.to_string(),
                 Source {
                     url: format!("{BUN_RELEASES_DOWNLOAD}/{tag}/{asset}"),
-                    hash: sri::from_hex(&hex)?,
+                    hash: hash_of(&sums, asset, &format!("{tag}'s SHASUMS256.txt"))?,
                 },
             );
         }

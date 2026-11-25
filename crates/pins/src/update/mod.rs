@@ -5,27 +5,28 @@
 //! file is then replaced atomically, in a fixed order: a half-written pin is
 //! worse than a stale one because the flake would fail to evaluate.
 
-pub mod cargo;
-pub mod deno;
-pub mod go;
-pub mod node;
-pub mod package_managers;
-pub mod python;
-pub mod rust;
-pub mod tsrs;
-pub mod vite_plus;
-pub mod zig;
+// The CLI uses `run` and `Scope` only. The language modules stay inside the
+// crate: their helpers are implementation detail, not pins' public API.
+pub(crate) mod cargo;
+pub(crate) mod deno;
+pub(crate) mod go;
+pub(crate) mod node;
+pub(crate) mod package_managers;
+pub(crate) mod python;
+pub(crate) mod rust;
+pub(crate) mod tsrs;
+pub(crate) mod vite_plus;
+pub(crate) mod zig;
 
 use std::fs;
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
-use clap::ValueEnum;
 use serde::Serialize;
 
 /// What `update` refreshes; everything by default, as the scheduled job runs it.
-#[derive(Clone, Copy, Debug, ValueEnum)]
+#[derive(Clone, Copy, Debug)]
 pub enum Scope {
     All,
     Cargo,
@@ -42,6 +43,33 @@ pub enum Scope {
     Zig,
     /// tsrs, the TypeScript type checker
     Tsrs,
+}
+
+/// The accepted `--what` values, in help order. The CLI uses these for clap's
+/// value parser so its help and invalid-value errors stay the same now that
+/// `pins` no longer depends on clap.
+pub const SCOPES: [&str; 9] = [
+    "all", "cargo", "rust", "node", "deno", "python", "go", "zig", "tsrs",
+];
+
+/// Turn a `--what` value into a scope. Clap rejects values outside `SCOPES`
+/// before this runs; the error is here for other callers.
+pub fn parse_scope(value: &str) -> Result<Scope> {
+    match value {
+        "all" => Ok(Scope::All),
+        "cargo" => Ok(Scope::Cargo),
+        "rust" => Ok(Scope::Rust),
+        "node" => Ok(Scope::Node),
+        "deno" => Ok(Scope::Deno),
+        "python" => Ok(Scope::Python),
+        "go" => Ok(Scope::Go),
+        "zig" => Ok(Scope::Zig),
+        "tsrs" => Ok(Scope::Tsrs),
+        other => bail!(
+            "crucible: unknown update scope {other:?}; expected one of {}",
+            SCOPES.join(", ")
+        ),
+    }
 }
 
 /// The files a run will write, already serialized, in write order.
@@ -220,6 +248,17 @@ not a sums line
                 ),
             ]
         );
+    }
+
+    #[test]
+    fn every_advertised_scope_parses() {
+        for value in SCOPES {
+            assert!(
+                parse_scope(value).is_ok(),
+                "crucible: {value} is advertised"
+            );
+        }
+        assert!(parse_scope("nope").is_err());
     }
 
     #[test]

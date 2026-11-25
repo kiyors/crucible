@@ -13,42 +13,41 @@ use serde_json::Value;
 
 use super::{json, Plan};
 use crate::http::Http;
+use crate::source::Source;
 use crate::sri;
 
-pub const DIST: &str = "https://ziglang.org/download";
+const DIST: &str = "https://ziglang.org/download";
 
 /// Nix system -> ziglang.org platform, in `lib/common/systems.nix` order, as
 /// `PLATFORMS` in `lib/zig/toolchain.nix`.
-pub const PLATFORMS: [(&str, &str); 3] = [
+pub(crate) const PLATFORMS: [(&str, &str); 3] = [
     ("x86_64-linux", "x86_64-linux"),
     ("aarch64-linux", "aarch64-linux"),
     ("aarch64-darwin", "aarch64-macos"),
 ];
 
+// The literal stays for the text-based sync check; `platforms` is the
+// canonical system list that the compiler checks it against.
+const _: () = assert!(crate::platforms::matches(PLATFORMS));
+
 /// The pinned format of `data/zig/zig.json`.
 #[derive(Debug, Serialize)]
-pub struct Pins {
+struct Pins {
     /// The line of the newest pinned release.
-    pub stable: String,
+    stable: String,
     /// Minor line ("0.15") -> its newest patch release.
-    pub releases: IndexMap<String, Pin>,
+    releases: IndexMap<String, Pin>,
 }
 
 #[derive(Debug, Serialize)]
-pub struct Pin {
-    pub version: String,
-    pub date: String,
-    pub platforms: IndexMap<String, Source>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct Source {
-    pub url: String,
-    pub hash: String,
+struct Pin {
+    version: String,
+    date: String,
+    platforms: IndexMap<String, Source>,
 }
 
 /// Fetch and validate `data/zig/zig.json`, without writing it.
-pub fn plan(http: &Http, root: &Path) -> Result<Plan> {
+pub(crate) fn plan(http: &Http, root: &Path) -> Result<Plan> {
     let index: IndexMap<String, Value> =
         serde_json::from_slice(&http.get(&format!("{DIST}/index.json"))?)
             .context("failed to parse index.json")?;

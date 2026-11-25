@@ -32,7 +32,7 @@ const MAX_DAYS: u32 = 30;
 const WORKERS: usize = 6;
 
 /// Fetch and validate stable, beta and nightly, without writing anything.
-pub fn plan(http: &Http, root: &Path) -> Result<Plan> {
+pub(crate) fn plan(http: &Http, root: &Path) -> Result<Plan> {
     let data = root.join("data").join("rust");
     let mut plan = Plan::new();
 

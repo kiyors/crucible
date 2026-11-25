@@ -7,5 +7,6 @@ pub mod gpg;
 pub mod http;
 pub mod manifest;
 pub mod npm;
+pub mod platforms;
 pub mod pnpm_lock;
 pub mod sri;
