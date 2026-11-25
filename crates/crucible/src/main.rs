@@ -41,7 +41,7 @@ enum Command {
         #[arg(value_enum, default_value = "all")]
         what: Scope,
         /// Use this huacnlee/cargo version instead of the latest release
-        /// (`update cargo` only)
+        /// (with `cargo` or the default `all` scope)
         #[arg(long)]
         version: Option<String>,
         /// Repository root holding data/
@@ -51,21 +51,21 @@ enum Command {
     /// Check that the toolchains on PATH work: cargo is the fork, and Node.js,
     /// Python, Go, Zig and Deno match the project
     Doctor,
-    /// Write a flake.nix whose dev shell uses this directory's
-    /// rust-toolchain.toml and package.json; with a directory, create a new
-    /// project there from a template instead
+    /// Write a flake.nix in this directory from its project files; with a
+    /// directory, create a new project there from a template instead
     Init {
-        /// Replace an existing flake.nix
+        /// Replace an existing flake.nix (only when no directory is given)
         #[arg(long)]
         force: bool,
-        /// Create a new project in this directory, from the template
+        /// Create a new project in this directory from a template; the
+        /// directory must not already exist
         directory: Option<PathBuf>,
-        /// Template name from the nix-templates repo (default: empty)
+        /// Template name from github:kiyors/templates (default: empty)
         template: Option<String>,
     },
     /// Add a template to the project in the current directory
     Add {
-        /// Template name from the nix-templates repo (default: empty)
+        /// Template name from github:kiyors/templates (default: empty)
         template: Option<String>,
     },
     /// Print what a project needs to pin a toolchain version
@@ -110,9 +110,21 @@ fn main() -> ExitCode {
     match run() {
         Ok(code) => code,
         Err(err) => {
-            eprintln!("error: {err:#}");
+            eprintln!("{}", format_error(&err));
             ExitCode::FAILURE
         }
+    }
+}
+
+/// Library errors rarely carry the `crucible:` prefix, so add it once at the
+/// CLI boundary instead of repeating it in every context string. A handful of
+/// messages (gpg.rs) already start with it, so leave those alone.
+fn format_error(err: &anyhow::Error) -> String {
+    let message = format!("{err:#}");
+    if message.starts_with("crucible:") {
+        message
+    } else {
+        format!("crucible: {message}")
     }
 }
 
@@ -175,5 +187,31 @@ fn run() -> Result<ExitCode> {
             pin::python(&version)?;
             Ok(ExitCode::SUCCESS)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use anyhow::anyhow;
+
+    #[test]
+    fn errors_get_one_prefix_and_keep_their_chain() {
+        assert_eq!(
+            format_error(&anyhow!("no python3 is on PATH")),
+            "crucible: no python3 is on PATH"
+        );
+        assert_eq!(
+            format_error(&anyhow!("no such file").context("failed to read flake.nix")),
+            "crucible: failed to read flake.nix: no such file"
+        );
+    }
+
+    #[test]
+    fn an_existing_prefix_is_not_doubled() {
+        assert_eq!(
+            format_error(&anyhow!("crucible: refresh data/node/release-keys.asc")),
+            "crucible: refresh data/node/release-keys.asc"
+        );
     }
 }

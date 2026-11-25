@@ -1,7 +1,7 @@
 //! `crucible init <directory>` and `crucible add`: create a new project, or
 //! add a template to one that already exists. Both shell out to the same
 //! `nix flake new` and `nix flake init --template` the user's shell functions
-//! used, so the nix-templates repo stays the single source of truth for what
+//! used, so github:kiyors/templates stays the single source of truth for what
 //! a template installs. Per-tool setup comes later.
 
 use std::path::Path;

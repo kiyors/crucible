@@ -19,9 +19,9 @@ serde_yaml_ng.workspace = true
 sha2.workspace = true
 ureq.workspace = true
 
-# The trimming tests parse the TOML fixture and compare JSON output.
+# The trimming tests parse the TOML fixture; serde_json is already a normal
+# dependency, so only toml needs to be listed here.
 [dev-dependencies]
-serde_json.workspace = true
 toml.workspace = true
 
 [lints]
