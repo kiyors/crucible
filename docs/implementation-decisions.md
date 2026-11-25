@@ -113,12 +113,15 @@ glue:
 - **Swift** — SDK integration across all three systems is a large, separate
   project; there is no simple per-system release-archive plus version-file pair
   to pin.
-- **Elixir** — needs a two-axis OTP × Elixir pin model: `mix.exs` names the two
-  versions independently, so one scalar pin cannot describe the toolchain, and
-  `init` has no `mix.exs` detector today.
-- **HashiCorp** — ten independent release APIs with no project version file to
-  read; one pin pipeline would have to fan out across ten versions and trust
-  models.
+- **Elixir** — needs a two-axis OTP × Elixir pin model: Elixir publishes one
+  platform-independent zip per compiler × OTP-major, while OTP publishes only
+  source tarballs. `mix.exs` names the compiler range but no OTP version; only
+  `.tool-versions` names both, and `init` has no detector for either today.
+- **HashiCorp** — no project version file to read, so pinning would install the
+  newest pins without a project-level guarantee. Seven tools share
+  `releases.hashicorp.com`'s GPG-signed index, but tflint and terragrunt need
+  bespoke GitHub handling and damon has no release assets at all; four tools are
+  unfree/BUSL. A subset promotion (Terraform first) is conceivable.
 
 Each would need the exact A.3.3 checklist from the plan, in full:
 
