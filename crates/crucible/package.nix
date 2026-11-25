@@ -28,6 +28,8 @@ rustPlatform.buildRustPackage {
       (root + "/Cargo.toml")
       (root + "/Cargo.lock")
       (root + "/data/node/release-keys.asc")
+      # doctor's unit tests include_str! the shared parser corpora.
+      (root + "/tests/corpora")
       (root + "/templates/default/flake.nix")
       (root + "/templates/node/flake.nix")
       (root + "/templates/python/flake.nix")

@@ -519,36 +519,37 @@ mod tests {
         assert_eq!(version_matches("22", ""), None);
     }
 
+    /// The npm semver subset has two deliberate copies (Part D tradeoff):
+    /// this one and lib/node/semver.nix. They share one corpus so a new case
+    /// has to be decided the same way on both sides. `expected: null` means
+    /// reject, which is None here and a `throw` in Nix.
     #[test]
     fn compares_ranges() {
-        assert_eq!(version_matches("^22", "v22.23.5"), Some(true));
-        assert_eq!(version_matches("^10.2", "10.4.1"), Some(true));
-        assert_eq!(version_matches("^10.2", "10.1.9"), Some(false));
-        assert_eq!(version_matches("^10.2", "11.0.0"), Some(false));
-        assert_eq!(version_matches("^0.2.3", "0.2.9"), Some(true));
-        assert_eq!(version_matches("^0.2.3", "0.3.0"), Some(false));
-        assert_eq!(version_matches("^0.0.3", "0.0.4"), Some(false));
-        assert_eq!(version_matches("~1.22", "1.22.22"), Some(true));
-        assert_eq!(version_matches("~1.22.1", "1.23.0"), Some(false));
-        assert_eq!(version_matches(">=9 <11", "10.4.1"), Some(true));
-        assert_eq!(version_matches(">=9 <11", "11.0.0"), Some(false));
-        assert_eq!(version_matches(">= 9 < 11", "9.0.0"), Some(true));
-        assert_eq!(version_matches(">9", "9.9.9"), Some(false));
-        assert_eq!(version_matches(">9.1", "9.2.0"), Some(true));
-        assert_eq!(version_matches("<=10.2", "10.2.7"), Some(true));
-        assert_eq!(version_matches("<=10.2", "10.3.0"), Some(false));
-        assert_eq!(version_matches("1.2 - 2", "2.9.0"), Some(true));
-        assert_eq!(version_matches("1.2 - 2", "3.0.0"), Some(false));
-        assert_eq!(version_matches("1.2 - 2", "1.1.0"), Some(false));
-        assert_eq!(version_matches("8 || 10.x", "10.4.1"), Some(true));
-        assert_eq!(version_matches("8 || 9", "10.4.1"), Some(false));
-        assert_eq!(version_matches("*", "10.4.1"), Some(true));
-        // What doctor cannot decide is None, not a mismatch.
-        assert_eq!(version_matches("latest", "10.4.1"), None);
-        assert_eq!(version_matches("^10.0.0-rc.1", "10.4.1"), None);
-        assert_eq!(version_matches("^10", "10.0.0-rc.1"), None);
+        let corpus: serde_json::Value =
+            serde_json::from_str(include_str!("../../../tests/corpora/semver.json")).unwrap();
+        let cases = corpus["cases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let range = case["range"].as_str().unwrap();
+            let version = case["version"].as_str().unwrap();
+            let expected = case["expected"].as_bool();
+            assert_eq!(
+                version_matches(range, version),
+                expected,
+                "shared semver corpus: {range} / {version}"
+            );
+        }
+    }
+
+    /// Where the two copies deliberately differ, keep the Rust side's answer
+    /// here rather than in the shared corpus: Nix reads `~>` and `1.x.3` as
+    /// ranges and ignores a range's pre-release tag, while doctor refuses all
+    /// three. These are not corpus cases because Nix disagrees on them.
+    #[test]
+    fn rejects_the_semver_subset_nix_extends() {
         assert_eq!(version_matches("~>10", "10.4.1"), None);
         assert_eq!(version_matches("1.x.3", "1.0.3"), None);
+        assert_eq!(version_matches("^10.0.0-rc.1", "10.4.1"), None);
     }
 
     #[test]

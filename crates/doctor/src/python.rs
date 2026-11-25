@@ -442,31 +442,37 @@ mod tests {
     use super::super::test_support::*;
     use super::*;
 
+    /// PEP 440 has two deliberate copies (Part D tradeoff): this one and
+    /// lib/python/pep440.nix. They share one corpus so a new case has to be
+    /// decided the same way on both sides. `expected: null` means reject,
+    /// which is None here and a `throw` in Nix.
     #[test]
     fn reads_pep_440_specifiers() {
-        assert_eq!(pep440_matches("3.14", "3.14.2"), Some(true));
-        assert_eq!(pep440_matches("3", "3.14.2"), Some(true));
-        assert_eq!(pep440_matches("3.14", "3.13.9"), Some(false));
-        assert_eq!(pep440_matches("3.14.2", "3.14.3"), Some(false));
-        assert_eq!(pep440_matches(">=3.12,<3.15", "3.14.2"), Some(true));
-        assert_eq!(pep440_matches(">=3.12, <3.14", "3.14.0"), Some(false));
-        assert_eq!(pep440_matches(">= 3.12", "3.12.0"), Some(true));
-        assert_eq!(pep440_matches("==3.14.*", "3.14.9"), Some(true));
-        assert_eq!(pep440_matches("!=3.13.*", "3.13.1"), Some(false));
-        assert_eq!(pep440_matches("==3.14", "3.14.0"), Some(true));
-        assert_eq!(pep440_matches("==3.14", "3.14.1"), Some(false));
-        assert_eq!(pep440_matches("!=3.14.1", "3.14.2"), Some(true));
-        assert_eq!(pep440_matches("~=3.13.2", "3.13.9"), Some(true));
-        assert_eq!(pep440_matches("~=3.13.2", "3.14.0"), Some(false));
-        assert_eq!(pep440_matches("~=3.12", "3.14.0"), Some(true));
-        assert_eq!(pep440_matches(">3.13", "3.13.1"), Some(true));
-        assert_eq!(pep440_matches("<=3.13", "3.13.1"), Some(false));
-        // What doctor cannot decide is None, not a mismatch.
-        assert_eq!(pep440_matches(">=3.14.0a1", "3.14.2"), None);
-        assert_eq!(pep440_matches(">=3.12", "3.15.0a2"), None);
-        assert_eq!(pep440_matches("~=3", "3.14.0"), None);
-        assert_eq!(pep440_matches(">=3.*", "3.14.0"), None);
+        let corpus: serde_json::Value =
+            serde_json::from_str(include_str!("../../../tests/corpora/pep440.json")).unwrap();
+        let cases = corpus["cases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let spec = case["spec"].as_str().unwrap();
+            let version = case["version"].as_str().unwrap();
+            let expected = case["expected"].as_bool();
+            assert_eq!(
+                pep440_matches(spec, version),
+                expected,
+                "shared PEP 440 corpus: {spec} / {version}"
+            );
+        }
+    }
+
+    /// Where the two copies deliberately differ, keep the Rust side's answer
+    /// here rather than in the shared corpus: Nix expands Poetry's caret,
+    /// accepts an empty spec as "any", and its release parser reads a
+    /// pre-release's numeric prefix, while doctor refuses all three.
+    #[test]
+    fn rejects_the_pep_440_subset_nix_extends() {
+        assert_eq!(pep440_matches("^3.11", "3.13.9"), None);
         assert_eq!(pep440_matches("", "3.14.0"), None);
+        assert_eq!(pep440_matches(">=3.12", "3.15.0a2"), None);
     }
 
     #[test]

@@ -8,6 +8,29 @@ let
 
   pins = lib.importJSON ../../data/python/python.json;
   uvPins = lib.importJSON ../../data/python/uv.json;
+
+  # PEP 440 has two deliberate parser copies (Rust in doctor, Nix here). They
+  # share a corpus so a new case has to get the same answer on both sides. A
+  # throw is the Nix side of Rust's None, so both read as null.
+  pep440 = import ../../lib/python/pep440.nix { inherit lib; };
+  pep440Corpus = lib.importJSON ../corpora/pep440.json;
+  pep440Case =
+    {
+      spec,
+      version,
+      expected,
+      ...
+    }:
+    let
+      result = builtins.tryEval (pep440.satisfies version spec);
+      got = if result.success then result.value else null;
+    in
+    assert lib.assertMsg (got == expected) ''
+      crucible: the shared PEP 440 corpus disagrees for ${spec} / ${version}:
+      expected ${builtins.toJSON expected}, got ${builtins.toJSON got}; edit
+      lib/python/pep440.nix or crates/doctor/src/python.rs
+    '';
+    true;
   newest = lib.last (
     lib.sort (a: b: lib.versionOlder a.version b.version) (builtins.attrValues pins.releases)
   );
@@ -173,6 +196,7 @@ in
   # .python-version, requires-python, Poetry's python and the default, all
   # resolved offline.
   python-project-files =
+    assert builtins.all pep440Case pep440Corpus.cases;
     assert line fromApp == "3.13";
     assert line fromRequires == "3.13";
     # Poetry's caret "^3.11" is ">=3.11,<4", so the newest pinned 3.x wins.

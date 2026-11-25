@@ -10,6 +10,29 @@ let
   lts = pins.releases.${pins.lts};
   pmPins = lib.importJSON ../../data/node/package-managers.json;
 
+  # PEP 440 and semver have two deliberate parser copies (Rust in doctor, Nix
+  # here). They share a corpus so a new case has to get the same answer on both
+  # sides. A throw is the Nix side of Rust's None, so both read as null.
+  semver = import ../../lib/node/semver.nix { inherit lib; };
+  semverCorpus = lib.importJSON ../corpora/semver.json;
+  semverCase =
+    {
+      range,
+      version,
+      expected,
+      ...
+    }:
+    let
+      result = builtins.tryEval (semver.satisfies version range);
+      got = if result.success then result.value else null;
+    in
+    assert lib.assertMsg (got == expected) ''
+      crucible: the shared semver corpus disagrees for ${range} / ${version}:
+      expected ${builtins.toJSON expected}, got ${builtins.toJSON got}; edit
+      lib/node/semver.nix or crates/doctor/src/lib.rs
+    '';
+    true;
+
   # Resolve a pinned major without building it, for the evaluation checks.
   pinnedPm = name: major: (node.toolchain { packageManager = "${name}@${major}"; }).packageManager;
 
@@ -101,6 +124,7 @@ in
 
   # engines.node and packageManager from package.json.
   node-from-package-json =
+    assert builtins.all semverCase semverCorpus.cases;
     assert lib.versions.major fromApp.version == "24";
     assert fromDevEngines.packageManager.pname == "pnpm";
     nodeRun "from-package-json" fromApp ''

@@ -1,0 +1,30 @@
+{
+  "about": "One corpus for the two deliberate copies of the PEP 440 subset: doctor's pep440_matches (crates/doctor/src/python.rs) and lib/python/pep440.nix's satisfies. Both parsers read these cases. expected is true/false for a decision, or null when the parser must reject the input (Rust None, Nix throw). Keep only cases where both copies agree; the few deliberate differences (Poetry's caret, empty specs and pre-release versions) are asserted separately in each copy's unit tests.",
+  "cases": [
+    { "spec": "3.14", "version": "3.14.2", "expected": true },
+    { "spec": "3", "version": "3.14.2", "expected": true },
+    { "spec": "3.14", "version": "3.13.9", "expected": false },
+    { "spec": "3.14.2", "version": "3.14.3", "expected": false },
+    { "spec": ">=3.12,<3.15", "version": "3.14.2", "expected": true },
+    { "spec": ">=3.12, <3.14", "version": "3.14.0", "expected": false },
+    { "spec": ">= 3.12", "version": "3.12.0", "expected": true },
+    { "spec": ">=3.13,<3.15,!=3.14.5", "version": "3.14.9", "expected": true },
+    { "spec": "==3.14.*", "version": "3.14.9", "expected": true },
+    { "spec": "!=3.13.*", "version": "3.13.1", "expected": false },
+    { "spec": "==3.14", "version": "3.14.0", "expected": true },
+    { "spec": "==3.14", "version": "3.14.1", "expected": false },
+    { "spec": "===3.14.0", "version": "3.14.0", "expected": true },
+    { "spec": "!=3.14.1", "version": "3.14.2", "expected": true },
+    { "spec": "!=3.14.0", "version": "3.14.1", "expected": true },
+    { "spec": "v3.14", "version": "3.14.9", "expected": true },
+    { "spec": "~=3.13.2", "version": "3.13.9", "expected": true },
+    { "spec": "~=3.13.2", "version": "3.14.0", "expected": false },
+    { "spec": "~=3.12", "version": "3.14.0", "expected": true },
+    { "spec": ">3.13", "version": "3.13.1", "expected": true },
+    { "spec": "<4", "version": "3.15.0", "expected": true },
+    { "spec": "<=3.13", "version": "3.13.1", "expected": false },
+    { "spec": ">=3.14.0a1", "version": "3.14.2", "expected": null },
+    { "spec": "~=3", "version": "3.14.0", "expected": null },
+    { "spec": ">=3.*", "version": "3.14.0", "expected": null }
+  ]
+}
