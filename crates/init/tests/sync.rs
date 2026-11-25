@@ -213,16 +213,7 @@ fn systems_nix_matches_hosts_systems_and_dev_flake() {
 
     let dev = text("dev/flake.nix");
     let dev_systems = strings(fragment(&dev, "dev/flake.nix", "systems = [", "];"));
-    // Phase 0.3 removes x86_64-darwin from dev/flake.nix: it is the one known
-    // divergence. Until then, require systems.nix to be a subset rather than
-    // failing on a system that nixpkgs no longer supports.
-    for system in &systems {
-        assert!(
-            dev_systems.contains(system),
-            "crucible: dev/flake.nix is missing system {system}; edit dev/flake.nix or \\
-             lib/common/systems.nix"
-        );
-    }
+    assert_systems(&dev_systems, &systems, "dev/flake.nix");
 }
 
 #[test]
@@ -681,25 +672,38 @@ fn template_name_lists_match() {
         "crucible: templates.nix declares no templates; edit templates.nix"
     );
 
+    // The Nix check derives the list from templates.nix and the directories
+    // themselves, so there is no hardcoded list to drift here either. Read
+    // the same two sources and assert the check still wires them up.
     let init = text("tests/init.nix");
-    let moved: BTreeSet<String> = strings(fragment(&init, "tests/init.nix", "moved = [", "];"))
-        .into_iter()
+    assert!(
+        init.contains("declared = import ../templates.nix;")
+            && init.contains("builtins.readDir ../templates")
+            && init.contains("evaluate attrs"),
+        "crucible: tests/init.nix must compare templates.nix attrs with the templates/ \\
+         directories and evaluate them; edit tests/init.nix"
+    );
+    let dir = repo().join("templates");
+    let mut expected: BTreeSet<String> = fs::read_dir(&dir)
+        .unwrap_or_else(|e| panic!("crucible: cannot read templates/ ({e})"))
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+        .filter_map(|entry| entry.file_name().into_string().ok())
+        // `hash` is the flake attr for the `hashi` directory.
+        .map(|name| if name == "hashi" { "hash" } else { &name }.to_string())
         .collect();
-
-    // `hash` is the flake attr for the `hashi` directory; `c` and `cpp` are
-    // aliases of `c-cpp` and have no directory of their own.
-    let mut expected = moved.clone();
-    expected.insert("default".to_string());
-    expected.remove("hashi");
-    expected.insert("hash".to_string());
-    let mut named = attrs.clone();
-    named.remove("c");
-    named.remove("cpp");
+    // `c` and `cpp` alias `c-cpp` and have no directory of their own.
+    expected.insert("c".to_string());
+    expected.insert("cpp".to_string());
     assert_eq!(
-        named, expected,
+        attrs, expected,
         "crucible: template attrs and template directories disagree; edit templates.nix, \\
          tests/init.nix and README.md"
     );
+    // The README lists canonical template names, not the c/cpp aliases.
+    let mut named = attrs.clone();
+    named.remove("c");
+    named.remove("cpp");
 
     let readme = text("README.md");
     let mut documented = BTreeSet::new();

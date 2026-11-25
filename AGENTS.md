@@ -74,12 +74,11 @@ shellcheck scripts/linux-from-macos.sh
     `data/node/package-managers.json`
   - `PLATFORMS` in `crates/pins/src/update/{cargo,vite_plus,deno,zig,tsrs,package_managers}.rs`
     and `crates/upstream/src/pnpm_lock.rs` ↔ `lib/common/systems.nix`
-  - template names in `templates.nix` ↔ `moved` in `tests/init.nix` ↔ the README list ↔ the
-    CLI's `github:kiyors/templates` names (the external repo is checked by hand for now;
-    Phase 4.6 reconciles the two sources)
-  - `systems` in `dev/flake.nix` ↔ `lib/common/systems.nix` (dev currently has an extra
-    `x86_64-darwin`, removed in Phase 0.3; the check requires the supported systems to be
-    present, not an exact match, until then)
+  - template names in `templates.nix` ↔ the `templates/` directories (compared by `tests/init.nix`)
+    ↔ the README list ↔ the CLI's `github:kiyors/templates` names (the external repo is checked
+    by hand for now; Phase 4.6 reconciles the two sources)
+  - `systems` in `dev/flake.nix` ↔ `lib/common/systems.nix` (same systems, same order;
+    `x86_64-darwin` is excluded because pinned nixpkgs dropped it)
   - versions described as current in `README.md` ↔ the pins in `data/**/*.json`; the check
     reads the version from the prose and finds it in the data, never the reverse, so a
     scheduled pin update does not need a source edit

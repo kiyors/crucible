@@ -14,6 +14,7 @@ let
     ;
 
   zigFor = pkgs.callPackage ./zig.nix { };
+  assertNative = import ../common/cross.nix { inherit lib pkgs; };
   pinned = lib.importJSON ../../data/zig/zig.json;
   pinnedLines = attrValues pinned.releases;
   pinnedVersions = map (r: r.version) pinnedLines;
@@ -74,12 +75,7 @@ let
 
   assemble =
     { release }:
-    # zig runs on the build machine, so a cross package set (pkgsCross.*)
-    # would select a binary for the wrong one.
-    assert lib.assertMsg (pkgs.stdenv.buildPlatform.config == pkgs.stdenv.hostPlatform.config) ''
-      crucible: Zig toolchains are built for the machine that runs them; take one from the
-      native package set.
-    '';
+    assert (assertNative "Zig" "");
     let
       zig = zigFor release;
     in
