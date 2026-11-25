@@ -1013,16 +1013,23 @@ nix run .#crucible-full -- update zig                      # every tagged Zig re
 nix run .#crucible-full -- update tsrs                     # the tsrs release npm tags latest
 ```
 
-The fork's hashes come from each release's `SHA256SUMS`, the Rust ones from the channel
-manifests, Node.js's from each release's `SHASUMS256.txt`, Vite+'s from its `vp-checksums.txt`
-and its pnpm lockfile, Deno's from the sha256 digests GitHub records for denoland/deno's release
-assets, and Zig's from ziglang.org's per-platform `index.json`, so nothing is downloaded but
-metadata. Node.js's `SHASUMS256.txt` files are verified against their GPG signatures before their
-hashes are used, with the active Node.js release keys vendored in `data/node/release-keys.asc`;
-bun's `SHASUMS256.txt` is unsigned and trusted over HTTPS only. Package-manager pins come from
-pnpm's GitHub release assets (checked against GitHub's artifact attestation metadata, without a
-local Sigstore signature check), the npm registry's `dist.integrity` (yarn and tsrs), and
-oven-sh/bun's `SHASUMS256.txt`. Go's hashes come from go.dev's release index (`?mode=json&include=all`), which
+Cargo, Vite+, the Node.js package managers, Deno, Zig and tsrs accept pinned versions only: if a
+project asks for another one, the error says which versions are pinned and to wait for the next
+scheduled update. If you maintain the pins yourself, `#crucible-full` and the `update` commands
+above refresh them.
+
+The fork's hashes come from each release's `SHA256SUMS`, Vite+'s from its `vp-checksums.txt` and
+pnpm lockfile, and bun's from `SHASUMS256.txt`; each of those checksum files is itself checked
+against the sha256 GitHub recorded for the release asset. Deno's hashes come from GitHub's
+recorded asset digests, the Rust ones from the channel manifests, Node.js's from each release's
+`SHASUMS256.txt`, and Zig's from ziglang.org's per-platform `index.json`, so nothing is
+downloaded but metadata. Node.js's `SHASUMS256.txt` files are verified against their GPG
+signatures before their hashes are used, with the active Node.js release keys vendored in
+`data/node/release-keys.asc`. Package-manager pins come from pnpm's GitHub release assets
+(checked against GitHub's artifact attestation metadata, without a local Sigstore signature
+check), the npm registry's `dist.integrity` (yarn and tsrs), and oven-sh/bun's release
+`SHASUMS256.txt`. Go and Zig publish no signed index, so their HTTPS metadata is the documented
+trust anchor rather than a cryptographic verification. Go's hashes come from go.dev's release index (`?mode=json&include=all`), which
 also decides the supported lines: the two newest with a stable release, as Go's release policy
 has it. Which Node.js lines are supported comes from the Release working group's
 `schedule.json`. CPython's hashes come from the newest python-build-standalone build's
