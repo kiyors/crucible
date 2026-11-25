@@ -16,11 +16,12 @@ use std::path::Path;
 use anyhow::{bail, Context, Result};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
-use super::{json, Plan};
+use super::{json, Fetch, Plan};
 use crate::http::Http;
 use crate::npm;
-use crate::source::Source;
+use crate::source::{self, Source};
 
 const REGISTRY: &str = "https://registry.npmjs.org";
 
@@ -83,8 +84,67 @@ pub(crate) fn plan(http: &Http, root: &Path) -> Result<Plan> {
     )])
 }
 
-fn get<T: for<'de> Deserialize<'de>>(http: &Http, url: &str) -> Result<T> {
+fn get<F: Fetch, T: for<'de> Deserialize<'de>>(http: &F, url: &str) -> Result<T> {
     serde_json::from_slice(&http.get(url)?).with_context(|| format!("failed to parse {url}"))
+}
+
+/// Re-verify each pinned platform package's npm registry signature over the
+/// integrity that is in `data/`. The pinned version selects the manifest; the
+/// registry's `latest` tag is deliberately not consulted, so a newer release
+/// cannot invalidate this pin.
+pub(crate) fn verify<F: Fetch>(http: &F, root: &Path) -> Result<()> {
+    let pins = source::read_json(root, "data/tsrs/tsrs.json")?;
+    let version = pins
+        .get("version")
+        .and_then(Value::as_str)
+        .context("data/tsrs/tsrs.json has no version")?;
+    let mut failures = Vec::new();
+    for (system, package) in PLATFORMS {
+        let url = format!("{REGISTRY}/{}/{version}", package.replace('/', "%2F"));
+        let manifest: Manifest = match get(http, &url) {
+            Ok(manifest) => manifest,
+            Err(err) => {
+                failures.push(format!("tsrs {version} {system}: {err:#}"));
+                continue;
+            }
+        };
+        let expected = match npm::checked_integrity(package, version, &manifest.dist, None) {
+            Ok(integrity) => integrity,
+            Err(err) => {
+                failures.push(format!("tsrs {version} {system}: {err:#}"));
+                continue;
+            }
+        };
+        let pinned = match source::platform_hash(&pins, system) {
+            Ok(pinned) => pinned,
+            Err(err) => {
+                failures.push(format!("tsrs {version} {system}: {err:#}"));
+                continue;
+            }
+        };
+        if pinned != expected {
+            failures.push(format!(
+                "tsrs {version} {system}: pinned {pinned}, signed registry integrity is {expected}"
+            ));
+        }
+        let pinned_url = pins
+            .get("platforms")
+            .and_then(|platforms| platforms.get(system))
+            .and_then(|source| source.get("url"))
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        if pinned_url != manifest.dist.tarball {
+            failures.push(format!(
+                "tsrs {version} {system}: pinned {pinned_url}, registry serves {}",
+                manifest.dist.tarball
+            ));
+        }
+    }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        bail!("{}", failures.join("; "))
+    }
 }
 
 /// The manifest of the version npm's `latest` tag names.

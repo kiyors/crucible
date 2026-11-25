@@ -16,14 +16,14 @@
 
 use std::path::Path;
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::{json, parse_sha256sums, Plan};
+use super::{json, parse_sha256sums, Fetch, Plan};
 use crate::http::Http;
-use crate::source::{checked_asset, hash_of, Source};
+use crate::source::{self, checked_asset, hash_of, Source};
 use crate::{attestation, npm, sri};
 
 const REGISTRY: &str = "https://registry.npmjs.org";
@@ -330,9 +330,216 @@ fn js_pins(http: &Http, name: &str, packages: &[(&str, &str)]) -> Result<IndexMa
     Ok(pins)
 }
 
-fn fetch(http: &Http, package: &str) -> Result<Packument> {
+fn fetch<F: Fetch>(http: &F, package: &str) -> Result<Packument> {
     let url = format!("{REGISTRY}/{package}");
     serde_json::from_slice(&http.get(&url)?).with_context(|| format!("failed to parse {url}"))
+}
+
+/// Re-verify every pinned package manager. pnpm's pinned digest must still
+/// carry a matching GitHub attestation, bun's zips must still match the
+/// GitHub-anchored `SHASUMS256.txt`, and yarn's tarball must still be signed by
+/// a pinned npm key. Each sub-check reports its own failure so one bad family
+/// does not hide the others.
+pub(crate) fn verify<F: Fetch>(http: &F, root: &Path) -> Result<()> {
+    let pins = source::read_json(root, "data/node/package-managers.json")?;
+    let mut failures = Vec::new();
+    if let Some(pnpm) = pins.get("pnpm") {
+        verify_pnpm(http, pnpm, &mut failures);
+    } else {
+        failures.push("data/node/package-managers.json has no pnpm pins".to_string());
+    }
+    if let Some(bun) = pins.get("bun") {
+        verify_bun(http, bun, &mut failures);
+    } else {
+        failures.push("data/node/package-managers.json has no bun pins".to_string());
+    }
+    if let Some(yarn) = pins.get("yarn") {
+        verify_yarn(http, yarn, &mut failures);
+    } else {
+        failures.push("data/node/package-managers.json has no yarn pins".to_string());
+    }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        bail!("{}", failures.join("; "))
+    }
+}
+
+/// The asset name is the last path segment of the pinned GitHub URL.
+fn asset_name(source: &Value) -> Option<&str> {
+    source
+        .get("url")
+        .and_then(Value::as_str)
+        .and_then(|url| url.rsplit('/').next())
+        .filter(|name| !name.is_empty())
+}
+
+fn verify_pnpm<F: Fetch>(http: &F, pins: &Value, failures: &mut Vec<String>) {
+    let Some(entries) = pins.as_object() else {
+        failures.push("pnpm pins are not an object".to_string());
+        return;
+    };
+    for (major, pin) in entries {
+        let Some(version) = pin.get("version").and_then(Value::as_str) else {
+            failures.push(format!("pnpm {major} has no version"));
+            continue;
+        };
+        let tag = format!("v{version}");
+        let release = match source::release_by_tag(http, "pnpm/pnpm", &tag) {
+            Ok(release) => release,
+            Err(err) => {
+                failures.push(format!("pnpm {version}: {err:#}"));
+                continue;
+            }
+        };
+        let Some(platforms) = pin.get("platforms").and_then(Value::as_object) else {
+            failures.push(format!("pnpm {version} has no platforms"));
+            continue;
+        };
+        for (system, pinned_source) in platforms {
+            let Some(asset) = asset_name(pinned_source) else {
+                failures.push(format!("pnpm {version} {system} has no asset URL"));
+                continue;
+            };
+            let Some(hex) = source::asset_digest(&release, asset) else {
+                failures.push(format!("pnpm {version} {system}: no digest for {asset}"));
+                continue;
+            };
+            // The attestation is keyed by digest and ties it to this tag and
+            // asset name; a pinned hash with no matching attestation fails.
+            if let Err(err) = attestation::verify(http, hex, asset, &tag) {
+                failures.push(format!(
+                    "pnpm {version} {system}: attestation for {asset}: {err:#}"
+                ));
+                continue;
+            }
+            let expected = match sri::from_hex(hex) {
+                Ok(expected) => expected,
+                Err(err) => {
+                    failures.push(format!("pnpm {version} {system}: bad digest: {err:#}"));
+                    continue;
+                }
+            };
+            let pinned = pinned_source
+                .get("hash")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            if pinned != expected {
+                failures.push(format!(
+                    "pnpm {version} {system}: pinned {pinned}, GitHub recorded {expected}"
+                ));
+            }
+        }
+    }
+}
+
+fn verify_bun<F: Fetch>(http: &F, pins: &Value, failures: &mut Vec<String>) {
+    let Some(entries) = pins.as_object() else {
+        failures.push("bun pins are not an object".to_string());
+        return;
+    };
+    for (major, pin) in entries {
+        let Some(version) = pin.get("version").and_then(Value::as_str) else {
+            failures.push(format!("bun {major} has no version"));
+            continue;
+        };
+        let tag = format!("bun-v{version}");
+        let release = match source::release_by_tag(http, "oven-sh/bun", &tag) {
+            Ok(release) => release,
+            Err(err) => {
+                failures.push(format!("bun {version}: {err:#}"));
+                continue;
+            }
+        };
+        // GitHub's recorded digest anchors the file; parse it strictly enough
+        // to warn on dropped rows without rejecting an otherwise good pin.
+        let sums = match checked_asset(http, "oven-sh/bun", &release, "SHASUMS256.txt") {
+            Ok(text) => parse_sha256sums(&text),
+            Err(err) => {
+                failures.push(format!("bun {version} SHASUMS256.txt: {err:#}"));
+                continue;
+            }
+        };
+        let Some(platforms) = pin.get("platforms").and_then(Value::as_object) else {
+            failures.push(format!("bun {version} has no platforms"));
+            continue;
+        };
+        for (system, pinned_source) in platforms {
+            let Some(asset) = asset_name(pinned_source) else {
+                failures.push(format!("bun {version} {system} has no asset URL"));
+                continue;
+            };
+            let upstream = match hash_of(&sums, asset, &format!("{tag}'s SHASUMS256.txt")) {
+                Ok(hash) => hash,
+                Err(err) => {
+                    failures.push(format!("bun {version} {system}: {err:#}"));
+                    continue;
+                }
+            };
+            let pinned = pinned_source
+                .get("hash")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            if pinned != upstream {
+                failures.push(format!(
+                    "bun {version} {system}: pinned {pinned}, SHASUMS256.txt says {upstream}"
+                ));
+            }
+        }
+    }
+}
+
+fn verify_yarn<F: Fetch>(http: &F, pins: &Value, failures: &mut Vec<String>) {
+    let Some(entries) = pins.as_object() else {
+        failures.push("yarn pins are not an object".to_string());
+        return;
+    };
+    for (major, pin) in entries {
+        let Some((_, package)) = YARN_MAJORS.iter().find(|(line, _)| line == major) else {
+            failures.push(format!("yarn {major} has no known registry package"));
+            continue;
+        };
+        let Some(version) = pin.get("version").and_then(Value::as_str) else {
+            failures.push(format!("yarn {major} has no version"));
+            continue;
+        };
+        let packument = match fetch(http, package) {
+            Ok(packument) => packument,
+            Err(err) => {
+                failures.push(format!("yarn {version}: {err:#}"));
+                continue;
+            }
+        };
+        let Some(dist) = packument.versions.get(version).map(|entry| &entry.dist) else {
+            failures.push(format!("the npm registry has no yarn {version}"));
+            continue;
+        };
+        let integrity = match npm::checked_integrity(
+            package,
+            version,
+            dist,
+            packument.time.get(version).map(String::as_str),
+        ) {
+            Ok(integrity) => integrity,
+            Err(err) => {
+                failures.push(format!("yarn {version}: {err:#}"));
+                continue;
+            }
+        };
+        let pinned = pin.get("hash").and_then(Value::as_str).unwrap_or("");
+        if pinned != integrity {
+            failures.push(format!(
+                "yarn {version}: pinned {pinned}, signed registry integrity is {integrity}"
+            ));
+        }
+        let pinned_url = pin.get("url").and_then(Value::as_str).unwrap_or("");
+        if pinned_url != dist.tarball {
+            failures.push(format!(
+                "yarn {version}: pinned {pinned_url}, registry serves {}",
+                dist.tarball
+            ));
+        }
+    }
 }
 
 /// The newest non-prerelease version of `major`, with its dist metadata.

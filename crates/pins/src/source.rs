@@ -6,11 +6,13 @@
 //! means a change to a URL rule or to how a checksum is trusted has one place
 //! to land; the language modules keep only their own archive naming.
 
+use std::path::Path;
+
 use anyhow::{bail, Context, Result};
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::http::Http;
+use crate::attestation::Fetch;
 use crate::sri;
 
 /// One platform's artifact, as written into `data/<lang>/*.json`.
@@ -41,13 +43,44 @@ pub(crate) fn release_url(repo: &str, tag: &str, file: &str) -> String {
     )
 }
 
-/// The newest release of `repo`, as the GitHub API reports it.
-pub(crate) fn latest_release(http: &Http, repo: &str) -> Result<Value> {
+/// Read one of the pinned JSON files. Only `update --check` reads pins; the
+/// updater itself builds new ones in memory and never parses its own output.
+pub(crate) fn read_json(root: &Path, relative: &str) -> Result<Value> {
+    let path = root.join(relative);
+    let text = std::fs::read_to_string(&path)
+        .with_context(|| format!("failed to read {}", path.display()))?;
+    serde_json::from_str(&text).with_context(|| format!("failed to parse {}", path.display()))
+}
+
+/// The SRI hash pinned for `system` in one pin file.
+pub(crate) fn platform_hash(pins: &Value, system: &str) -> Result<String> {
+    pins.get("platforms")
+        .and_then(|platforms| platforms.get(system))
+        .and_then(|source| source.get("hash"))
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .with_context(|| format!("pinned data has no hash for {system}"))
+}
+
+/// The newest release of `repo`, as the GitHub API reports it. `update` uses
+/// this to pick a version; `update --check` never does, because that would fail
+/// on every upstream release after the pin was made.
+pub(crate) fn latest_release<F: Fetch>(http: &F, repo: &str) -> Result<Value> {
     let body = http.get(&format!(
         "https://api.github.com/repos/{repo}/releases/latest"
     ))?;
     serde_json::from_slice(&body)
         .with_context(|| format!("failed to parse {repo}'s latest release"))
+}
+
+/// One exact release of `repo`, named by its tag. This is what provenance checks
+/// use: the pinned version identifies the release, so a newer one upstream does
+/// not change what is being verified.
+pub(crate) fn release_by_tag<F: Fetch>(http: &F, repo: &str, tag: &str) -> Result<Value> {
+    let body = http.get(&format!(
+        "https://api.github.com/repos/{repo}/releases/tags/{tag}"
+    ))?;
+    serde_json::from_slice(&body).with_context(|| format!("failed to parse {repo}'s {tag} release"))
 }
 
 /// The release's tag, without a leading `v`.
@@ -62,8 +95,8 @@ pub(crate) fn tag(release: &Value) -> Result<String> {
 /// A release's checksum file, after checking it against the sha256 GitHub
 /// computed when it was uploaded: the hashes in it are only as good as the
 /// file, and neither project signs it.
-pub(crate) fn checked_asset(
-    http: &Http,
+pub(crate) fn checked_asset<F: Fetch>(
+    http: &F,
     repo: &str,
     release: &Value,
     name: &str,
@@ -96,7 +129,7 @@ fn release_tag(release: &Value) -> Result<&str> {
 }
 
 /// The hex sha256 of a release asset, from its `digest` ("sha256:<hex>").
-fn asset_digest<'a>(release: &'a Value, name: &str) -> Option<&'a str> {
+pub(crate) fn asset_digest<'a>(release: &'a Value, name: &str) -> Option<&'a str> {
     release
         .get("assets")?
         .as_array()?

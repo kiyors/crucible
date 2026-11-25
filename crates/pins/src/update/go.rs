@@ -11,10 +11,11 @@ use std::path::Path;
 use anyhow::{bail, Context, Result};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
-use super::{json, Plan};
+use super::{json, Fetch, Plan};
 use crate::http::Http;
-use crate::source::Source;
+use crate::source::{self, Source};
 use crate::sri;
 
 /// Every release, stable or not, with its files. Must stay the source of the
@@ -83,8 +84,64 @@ pub(crate) fn plan(http: &Http, root: &Path) -> Result<Plan> {
 
 /// The go.dev index, with every file of every release. `pin::go` reads the
 /// hashes of an unpinned release from it too.
-pub(crate) fn index(http: &Http) -> Result<Vec<Release>> {
+pub(crate) fn index<F: Fetch>(http: &F) -> Result<Vec<Release>> {
     serde_json::from_slice(&http.get(INDEX)?).context("failed to parse the go.dev release index")
+}
+
+/// Check that each pinned hash still appears in go.dev's index for the pinned
+/// version. This is **drift detection, not origin authentication**: go.dev
+/// publishes no signed index, so an attacker who can serve a forged index can
+/// also make this check pass. It exists to catch an updater that wrote hashes
+/// no upstream index ever carried. The version comes from `data/`, so the
+/// index growing with new releases does not change what is checked.
+pub(crate) fn verify<F: Fetch>(http: &F, root: &Path) -> Result<()> {
+    let pins = source::read_json(root, "data/go/go.json")?;
+    let index = index(http)?;
+    let mut failures = Vec::new();
+    for (line, pin) in pins
+        .get("releases")
+        .and_then(Value::as_object)
+        .context("data/go/go.json has no releases")?
+    {
+        let Some(version) = pin.get("version").and_then(Value::as_str) else {
+            failures.push(format!("go {line} has no version"));
+            continue;
+        };
+        let Some(release) = index
+            .iter()
+            .find(|release| release.version == format!("go{version}"))
+        else {
+            failures.push(format!("go.dev's index has no go{version}"));
+            continue;
+        };
+        let upstream = match sources(release) {
+            Ok(upstream) => upstream,
+            Err(err) => {
+                failures.push(format!("go {version}: {err:#}"));
+                continue;
+            }
+        };
+        for (system, source) in upstream {
+            let pinned = match source::platform_hash(pin, &system) {
+                Ok(pinned) => pinned,
+                Err(err) => {
+                    failures.push(format!("go {version} {system}: {err:#}"));
+                    continue;
+                }
+            };
+            if pinned != source.hash {
+                failures.push(format!(
+                    "go {version} {system}: pinned {pinned}, go.dev's index says {}",
+                    source.hash
+                ));
+            }
+        }
+    }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        bail!("{}", failures.join("; "))
+    }
 }
 
 /// The newest stable release of each supported line, oldest line first.

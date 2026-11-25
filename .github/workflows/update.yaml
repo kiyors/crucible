@@ -165,12 +165,43 @@ jobs:
       - name: Build toolchains and run checks
         run: nix flake check -L
 
+  provenance:
+    # Re-verify the provenance of the freshly written pins with the CLI built
+    # from this checkout: even when `update` used a released binary, only this
+    # tree's `--check` knows about all the current trust anchors. It runs on
+    # the refreshed data rather than main, so it applies the same patch the
+    # checks job did. Publication is gated on this job below.
+    #
+    # This workflow only runs on a schedule or a manual dispatch on the base
+    # repository, so `github.token` is always available here; pull-request
+    # forks never reach it. Attestation lookups are GitHub API calls: without
+    # a token they share a 60 requests/hour bucket and a 403 is not retried,
+    # so a rate-limited run fails with a hint to set GITHUB_TOKEN.
+    needs: update
+    if: needs.update.outputs.data_changed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup-nix
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: data
+          path: ${{ runner.temp }}/data
+      - name: Apply the data refresh
+        run: git apply "$RUNNER_TEMP/data/data.patch"
+      - name: Re-verify pin provenance
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: nix run .#crucible-full -- update --check
+
   publish:
-    needs: [update, checks]
+    needs: [update, checks, provenance]
     if: >-
       always()
       && needs.update.outputs.data_changed == 'true'
       && needs.checks.result == 'success'
+      && needs.provenance.result == 'success'
     permissions:
       contents: write
       actions: read

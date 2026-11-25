@@ -1,9 +1,12 @@
-//! `crucible update`: rewrite the pinned JSON in `data/`.
+//! `crucible update`: rewrite the pinned JSON in `data/`, and
+//! `crucible update --check`: re-verify the provenance of what is already there.
 //!
 //! Every pin is fetched and checked before the first file is touched, so a
-//! failed update leaves the previous pins intact instead of a mixed set. Each
-//! file is then replaced atomically, in a fixed order: a half-written pin is
-//! worse than a stale one because the flake would fail to evaluate.
+//! failed update leaves the previous pins intact instead of a mixed set. All
+//! files are then staged before any is renamed, and a failure anywhere rolls
+//! the whole set back: a half-written pin is worse than a stale one because the
+//! flake would fail to evaluate. `--check` shares the trust decisions but never
+//! plans a new version, writes a file or takes the update lock.
 
 // The CLI uses `run` and `Scope` only. The language modules stay inside the
 // crate: their helpers are implementation detail, not pins' public API.
@@ -24,6 +27,11 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
 use serde::Serialize;
+
+// `--check` needs to re-fetch upstream metadata without touching the network
+// in tests. The one operation it needs is already abstracted for attestation,
+// so reuse that trait instead of defining a second one here.
+pub(crate) use crate::attestation::Fetch;
 
 /// What `update` refreshes; everything by default, as the scheduled job runs it.
 #[derive(Clone, Copy, Debug)]
@@ -107,10 +115,7 @@ pub fn run(scope: Scope, version: Option<String>, root: &Path) -> Result<()> {
         Scope::Tsrs => tsrs::plan(&http, root)?,
     };
 
-    for (path, bytes) in plan {
-        write_atomic(&path, &bytes)?;
-    }
-    Ok(())
+    write_plan(&plan)
 }
 
 fn node_plan(http: &crate::http::Http, root: &Path) -> Result<Plan> {
@@ -118,6 +123,84 @@ fn node_plan(http: &crate::http::Http, root: &Path) -> Result<Plan> {
     plan.extend(vite_plus::plan(http, root)?);
     plan.extend(package_managers::plan(http, root)?);
     Ok(plan)
+}
+
+/// Re-fetch and re-verify the provenance of the pins already in `root`.
+///
+/// The scheduled workflow runs this on the data an update just produced, so a
+/// compromised or buggy updater cannot push hashes that no upstream trust
+/// anchor vouches for. It deliberately does **not** recompute "latest": every
+/// check reads the pinned version first and asks upstream about that exact
+/// release, so a new upstream release does not invalidate an older pin.
+///
+/// Every family is attempted even when an earlier one failed; the failures are
+/// reported together so CI shows the whole picture in one run. Each family
+/// takes the injected `Fetch`, so every trust decision — including GPG and the
+/// npm/attestation signatures — is exercised offline in tests with canned
+/// responses; none needs a live network to be checked.
+pub fn check(scope: Scope, root: &Path) -> Result<()> {
+    let http = crate::http::Http::new();
+    check_with(scope, root, &http)
+}
+
+fn check_with<F: Fetch>(scope: Scope, root: &Path, http: &F) -> Result<()> {
+    let mut failures = Vec::new();
+    match scope {
+        Scope::All => {
+            record("cargo", cargo::verify(http, root), &mut failures);
+            record("rust manifests", rust::verify(http, root), &mut failures);
+            record("node", node::verify(http, root), &mut failures);
+            record("vite-plus", vite_plus::verify(http, root), &mut failures);
+            record(
+                "package managers",
+                package_managers::verify(http, root),
+                &mut failures,
+            );
+            record("deno", deno::verify(http, root), &mut failures);
+            record("python and uv", python::verify(http, root), &mut failures);
+            record("go", go::verify(http, root), &mut failures);
+            record("zig", zig::verify(http, root), &mut failures);
+            record("tsrs", tsrs::verify(http, root), &mut failures);
+        }
+        Scope::Cargo => record("cargo", cargo::verify(http, root), &mut failures),
+        Scope::Rust => record("rust manifests", rust::verify(http, root), &mut failures),
+        Scope::Node => {
+            record("node", node::verify(http, root), &mut failures);
+            record("vite-plus", vite_plus::verify(http, root), &mut failures);
+            record(
+                "package managers",
+                package_managers::verify(http, root),
+                &mut failures,
+            );
+        }
+        Scope::Deno => record("deno", deno::verify(http, root), &mut failures),
+        Scope::Python => record("python and uv", python::verify(http, root), &mut failures),
+        Scope::Go => record("go", go::verify(http, root), &mut failures),
+        Scope::Zig => record("zig", zig::verify(http, root), &mut failures),
+        Scope::Tsrs => record("tsrs", tsrs::verify(http, root), &mut failures),
+    }
+
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        bail!(
+            "crucible: {} provenance check(s) failed:\n  - {}",
+            failures.len(),
+            failures.join("\n  - ")
+        )
+    }
+}
+
+/// Keep going after a failed family and collect its error for the final report.
+fn record(name: &str, result: Result<()>, failures: &mut Vec<String>) {
+    match result {
+        Ok(()) => println!("crucible: {name}: provenance verified"),
+        Err(err) => {
+            let message = format!("{name}: {err:#}");
+            eprintln!("crucible: {message}");
+            failures.push(message);
+        }
+    }
 }
 
 /// Parse a `SHA256SUMS`-style file (the fork's `SHA256SUMS`, Node's
@@ -130,22 +213,44 @@ fn node_plan(http: &crate::http::Http, root: &Path) -> Result<Plan> {
 /// [`parse_sha256sums_checked`] instead: a dropped row there would let a
 /// malformed line hide in a file we just proved authentic.
 pub(crate) fn parse_sha256sums(text: &str) -> Vec<(String, String)> {
-    text.lines()
-        .filter_map(|line| {
-            let mut fields = line.split_whitespace();
-            let hex = fields.next()?;
-            let file = fields.next()?;
-            let file = file.strip_prefix('*').unwrap_or(file);
-            let is_hex = hex.len() == 64
-                && hex
-                    .bytes()
-                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte));
-            if !is_hex {
-                return None;
-            }
-            Some((hex.to_string(), file.to_string()))
-        })
-        .collect()
+    let mut sums = Vec::new();
+    for (index, line) in text.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        match sum_row(line) {
+            Some(row) => sums.push(row),
+            // A dropped row is easy to miss when the caller only asks for a
+            // few files, so say which line was ignored and why. The strict
+            // parser below still rejects the same row for verified files.
+            None => eprintln!(
+                "crucible: warning: ignoring malformed checksum row on line {}: {line:?}; \
+                 expected 64 lowercase hex digits, two spaces or `*`, then a filename",
+                index + 1
+            ),
+        }
+    }
+    sums
+}
+
+/// One valid `<64 lowercase hex>  <file>` (or `*<file>`) row. Shared by both
+/// parsers so the lenient one warns about exactly what the strict one rejects.
+fn sum_row(line: &str) -> Option<(String, String)> {
+    // coreutils writes `<hex>  <file>` for text and `<hex> *<file>` for
+    // binary; anything else is a malformed row, not a name with spaces.
+    let (hex, rest) = line.split_once(' ')?;
+    let file = rest.strip_prefix(' ').or_else(|| rest.strip_prefix('*'))?;
+    if file.is_empty() || file.chars().any(char::is_whitespace) {
+        return None;
+    }
+    let is_hex = hex.len() == 64
+        && hex
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte));
+    if !is_hex {
+        return None;
+    }
+    Some((hex.to_string(), file.to_string()))
 }
 
 /// The strict counterpart of [`parse_sha256sums`]: every row must be a
@@ -159,30 +264,13 @@ pub(crate) fn parse_sha256sums_checked(text: &str) -> Result<Vec<(String, String
             continue;
         }
         let number = index + 1;
-        let malformed = || {
-            anyhow::anyhow!(
+        let (hex, file) = sum_row(line).with_context(|| {
+            format!(
                 "malformed checksum row on line {number}: {line:?}; expected 64 lowercase hex \
                  digits, two spaces or `*`, then a filename"
             )
-        };
-        // coreutils writes `<hex>  <file>` for text and `<hex> *<file>` for
-        // binary; anything else is a malformed row, not a name with spaces.
-        let Some((hex, rest)) = line.split_once(' ') else {
-            return Err(malformed());
-        };
-        let file = rest
-            .strip_prefix(' ')
-            .or_else(|| rest.strip_prefix('*'))
-            .filter(|file| !file.is_empty() && !file.chars().any(char::is_whitespace))
-            .ok_or_else(malformed)?;
-        let is_hex = hex.len() == 64
-            && hex
-                .bytes()
-                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte));
-        if !is_hex {
-            return Err(malformed());
-        }
-        sums.push((hex.to_string(), file.to_string()));
+        })?;
+        sums.push((hex, file));
     }
     Ok(sums)
 }
@@ -229,35 +317,102 @@ fn json<T: Serialize>(value: &T) -> Result<Vec<u8>> {
     Ok(json.into_bytes())
 }
 
-/// Replace `path` in one step, so a crashed or interrupted run never leaves a
-/// partially written manifest behind.
-fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
-    let dir = path
-        .parent()
-        .with_context(|| format!("{} has no parent directory", path.display()))?;
-    fs::create_dir_all(dir)?;
-
-    let tmp = dir.join(format!(
+/// The temporary name a pin is written to before it replaces the real one.
+/// Deterministic per process so a failed run can clean up after itself.
+fn temp_path(path: &Path) -> PathBuf {
+    let dir = path.parent().unwrap_or_else(|| Path::new("."));
+    dir.join(format!(
         ".{}.tmp-{}",
         path.file_name()
             .and_then(|name| name.to_str())
             .unwrap_or("manifest"),
         std::process::id()
-    ));
+    ))
+}
+
+/// Write `bytes` to a temporary file next to `path`; the rename is deliberately
+/// a separate step so every file can be staged before any is replaced.
+fn stage_file(path: &Path, bytes: &[u8]) -> Result<PathBuf> {
+    let dir = path
+        .parent()
+        .with_context(|| format!("{} has no parent directory", path.display()))?;
+    fs::create_dir_all(dir)?;
+
+    let tmp = temp_path(path);
     {
         let mut file = fs::File::create(&tmp)
             .with_context(|| format!("failed to create {}", tmp.display()))?;
         file.write_all(bytes)
             .with_context(|| format!("failed to write {}", tmp.display()))?;
     }
-    fs::rename(&tmp, path).with_context(|| format!("failed to replace {}", path.display()))?;
-    Ok(())
+    Ok(tmp)
+}
+
+/// Stage every file, then replace every destination, then roll the whole set
+/// back if any step failed. The plan is fixed before this runs, so a failure
+/// while staging file 7 of 13 leaves files 1–6 untouched rather than written.
+fn write_plan(plan: &Plan) -> Result<()> {
+    write_plan_with(plan, stage_file, |tmp: &Path, dest: &Path| {
+        fs::rename(tmp, dest)
+    })
+}
+
+/// The seams (`stage`, `rename`) exist so a unit test can fail a specific file
+/// and check that the rollback leaves the original bytes behind. Production
+/// only ever passes the real filesystem operations above.
+fn write_plan_with<S, R>(plan: &Plan, stage: S, rename: R) -> Result<()>
+where
+    S: Fn(&Path, &[u8]) -> Result<PathBuf>,
+    R: Fn(&Path, &Path) -> std::io::Result<()>,
+{
+    // (temporary file, destination, bytes to put back on failure)
+    let mut staged: Vec<(PathBuf, PathBuf, Option<Vec<u8>>)> = Vec::new();
+    let outcome = (|| -> Result<()> {
+        for (path, bytes) in plan {
+            let previous = match fs::read(path) {
+                Ok(bytes) => Some(bytes),
+                Err(err) if err.kind() == ErrorKind::NotFound => None,
+                Err(err) => {
+                    return Err(err).with_context(|| format!("failed to read {}", path.display()));
+                }
+            };
+            let tmp = stage(path, bytes)?;
+            staged.push((tmp, path.clone(), previous));
+        }
+        for (tmp, path, _) in &staged {
+            rename(tmp, path).with_context(|| format!("failed to replace {}", path.display()))?;
+        }
+        Ok(())
+    })();
+
+    if outcome.is_err() {
+        // Best effort: remove every temp, and put the old bytes back. A file
+        // that did not exist before is removed instead. Renamed temps no
+        // longer exist, so removing them is a harmless no-op.
+        for (tmp, path, previous) in staged {
+            let _ = fs::remove_file(&tmp);
+            let restored = match previous {
+                Some(bytes) => fs::write(&path, bytes),
+                None => fs::remove_file(&path),
+            };
+            if let Err(err) = restored {
+                eprintln!(
+                    "crucible: warning: could not restore {}: {err}",
+                    path.display()
+                );
+            }
+        }
+    }
+    outcome
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
     use std::sync::atomic::{AtomicU32, Ordering};
+
+    use crate::http::HttpError;
 
     fn temp_dir(name: &str) -> PathBuf {
         static NEXT: AtomicU32 = AtomicU32::new(0);
@@ -341,6 +496,202 @@ mod tests {
 
         // And the next run succeeds again.
         drop(Lock::acquire(&root).unwrap());
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// A failure while writing the 2nd of 3 files must put all three back.
+    #[test]
+    fn a_failed_rename_rolls_back_every_file() {
+        let root = temp_dir("rollback");
+        let names = ["a.json", "b.json", "c.json"];
+        for name in names {
+            fs::write(root.join(name), format!("old-{name}")).unwrap();
+        }
+        let plan: Plan = names
+            .iter()
+            .map(|name| (root.join(name), format!("new-{name}").into_bytes()))
+            .collect();
+
+        let calls = Cell::new(0);
+        let err = write_plan_with(&plan, stage_file, |tmp, dest| {
+            calls.set(calls.get() + 1);
+            if calls.get() == 2 {
+                return Err(std::io::Error::new(
+                    ErrorKind::PermissionDenied,
+                    "simulated rename failure",
+                ));
+            }
+            fs::rename(tmp, dest)
+        })
+        .unwrap_err();
+        assert!(
+            format!("{err:#}").contains("simulated rename failure"),
+            "{err:#}"
+        );
+        for name in names {
+            assert_eq!(
+                fs::read_to_string(root.join(name)).unwrap(),
+                format!("old-{name}"),
+                "{name} was not rolled back"
+            );
+            assert!(
+                !temp_path(&root.join(name)).exists(),
+                "a temp file was left behind"
+            );
+        }
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// A failure while staging must not leave a temp or touch any pin either.
+    #[test]
+    fn a_failed_stage_rolls_back_every_file() {
+        let root = temp_dir("rollback-stage");
+        let names = ["a.json", "b.json", "c.json"];
+        for name in names {
+            fs::write(root.join(name), format!("old-{name}")).unwrap();
+        }
+        let plan: Plan = names
+            .iter()
+            .map(|name| (root.join(name), format!("new-{name}").into_bytes()))
+            .collect();
+
+        let err = write_plan_with(
+            &plan,
+            |path, bytes| {
+                if path.ends_with("b.json") {
+                    bail!("simulated stage failure");
+                }
+                stage_file(path, bytes)
+            },
+            |tmp: &Path, dest: &Path| fs::rename(tmp, dest),
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("simulated stage failure"),
+            "{err:#}"
+        );
+        for name in names {
+            assert_eq!(
+                fs::read_to_string(root.join(name)).unwrap(),
+                format!("old-{name}")
+            );
+            assert!(!temp_path(&root.join(name)).exists());
+        }
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// A fake `Fetch`, so the check path can be exercised without a network.
+    type Get = Box<dyn Fn(&str) -> std::result::Result<Vec<u8>, HttpError>>;
+
+    struct Fake {
+        get: Get,
+    }
+
+    impl Fetch for Fake {
+        fn get(&self, url: &str) -> std::result::Result<Vec<u8>, HttpError> {
+            (self.get)(url)
+        }
+    }
+
+    fn snapshot(root: &Path) -> Vec<(String, Vec<u8>)> {
+        fn walk(dir: &Path, prefix: &str, out: &mut Vec<(String, Vec<u8>)>) {
+            for entry in fs::read_dir(dir).unwrap() {
+                let entry = entry.unwrap();
+                let name = entry.file_name().to_string_lossy().into_owned();
+                let relative = if prefix.is_empty() {
+                    name
+                } else {
+                    format!("{prefix}/{name}")
+                };
+                if entry.file_type().unwrap().is_dir() {
+                    walk(&entry.path(), &relative, out);
+                } else {
+                    out.push((relative, fs::read(entry.path()).unwrap()));
+                }
+            }
+            out.sort_by(|left, right| left.0.cmp(&right.0));
+        }
+        let mut out = Vec::new();
+        walk(root, "", &mut out);
+        out
+    }
+
+    /// `--check` re-verifies pinned data without writing it or taking the
+    /// lock. The fake answers a cargo release and its anchored checksum file.
+    #[test]
+    fn a_check_run_leaves_the_root_byte_identical() {
+        let root = temp_dir("check-no-write");
+        let dir = root.join("data/rust");
+        fs::create_dir_all(&dir).unwrap();
+        let version = "0.103.0-1";
+        let triples = [
+            ("x86_64-linux", "x86_64-unknown-linux-gnu"),
+            ("aarch64-linux", "aarch64-unknown-linux-gnu"),
+            ("aarch64-darwin", "aarch64-apple-darwin"),
+        ];
+        let hash = crate::sri::from_hex(HEX).unwrap();
+        let mut body = String::new();
+        let mut platforms = String::new();
+        for (system, triple) in triples {
+            let file = format!("cargo-{version}-{triple}.tar.gz");
+            body.push_str(&format!("{HEX}  {file}\n"));
+            if !platforms.is_empty() {
+                platforms.push(',');
+            }
+            platforms.push_str(&format!(
+                "\"{system}\":{{\"url\":\"https://example.test/{file}\",\"hash\":\"{hash}\"}}"
+            ));
+        }
+        let pin = format!(r#"{{"version":"{version}","platforms":{{{platforms}}}}}"#);
+        fs::write(dir.join("cargo.json"), pin).unwrap();
+
+        let fake = Fake {
+            get: Box::new(move |url| {
+                match url {
+                    "https://api.github.com/repos/huacnlee/cargo/releases/tags/v0.103.0-1" => Ok(
+                        serde_json::json!({
+                            "tag_name": format!("v{version}"),
+                            "assets": [{ "name": "SHA256SUMS",
+                                         "digest": "sha256:c5a07f7801b1269d1bbf8b004141c8f6736d5874a3e82a6053904f6b7b8d210f" }]
+                        })
+                        .to_string()
+                        .into_bytes(),
+                    ),
+                    "https://github.com/huacnlee/cargo/releases/download/v0.103.0-1/SHA256SUMS" => {
+                        Ok(body.clone().into_bytes())
+                    }
+                    other => Err(HttpError::NotFound {
+                        url: other.to_string(),
+                    }),
+                }
+            }),
+        };
+
+        let before = snapshot(&root);
+        check_with(Scope::Cargo, &root, &fake).unwrap();
+        assert_eq!(snapshot(&root), before, "a check run changed the root");
+        assert!(!root.join(LOCK).exists(), "a check run created the lock");
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// Failures from different families are collected, not returned early.
+    #[test]
+    fn a_check_reports_every_failed_family() {
+        let root = temp_dir("check-failures");
+        let fake = Fake {
+            get: Box::new(|url| {
+                Err(HttpError::NotFound {
+                    url: url.to_string(),
+                })
+            }),
+        };
+        let err = check_with(Scope::Node, &root, &fake)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("3 provenance check(s) failed"), "{err}");
+        assert!(err.contains("node:"), "{err}");
+        assert!(err.contains("vite-plus:"), "{err}");
+        assert!(err.contains("package managers:"), "{err}");
         fs::remove_dir_all(&root).unwrap();
     }
 }

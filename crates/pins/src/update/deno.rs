@@ -16,13 +16,14 @@
 
 use std::path::Path;
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
-use super::{json, Plan};
+use super::{json, Fetch, Plan};
 use crate::http::Http;
-use crate::source::Source;
+use crate::source::{self, Source};
 use crate::sri;
 
 /// denoland/deno's release list: newest first, with each release's assets.
@@ -110,6 +111,74 @@ pub(crate) fn plan(http: &Http, root: &Path) -> Result<Plan> {
         pins.insert(major.to_string(), Pin { version, platforms });
     }
     Ok(vec![(root.join("data/deno/deno.json"), json(&Pins(pins))?)])
+}
+
+/// The hex sha256 GitHub recorded for one asset of a release.
+fn digest<'a>(release: &'a Release, name: &str) -> Option<&'a str> {
+    release
+        .assets
+        .iter()
+        .find(|asset| asset.name == name)
+        .and_then(|asset| asset.digest.as_deref())
+        .and_then(|digest| digest.strip_prefix("sha256:"))
+}
+
+/// Re-verify the pinned releases against the digests GitHub recorded for
+/// their assets. The pinned version names the release, so a newer one upstream
+/// is irrelevant. Deno publishes no attestation or detached signature, so this
+/// is an asset-digest check, not an independent origin authentication.
+pub(crate) fn verify<F: Fetch>(http: &F, root: &Path) -> Result<()> {
+    let pins = source::read_json(root, "data/deno/deno.json")?;
+    let mut failures = Vec::new();
+    for (major, pin) in pins
+        .as_object()
+        .context("data/deno/deno.json is not an object")?
+    {
+        let Some(version) = pin.get("version").and_then(Value::as_str) else {
+            failures.push(format!("deno {major} has no version"));
+            continue;
+        };
+        let tag = format!("v{version}");
+        let release: Release = match source::release_by_tag(http, "denoland/deno", &tag)
+            .and_then(|value| serde_json::from_value(value).context("bad deno release JSON"))
+        {
+            Ok(release) => release,
+            Err(err) => {
+                failures.push(format!("deno {version}: {err:#}"));
+                continue;
+            }
+        };
+        for (system, asset) in DENO_ASSETS {
+            let Some(hex) = digest(&release, asset) else {
+                failures.push(format!("deno {version}: no digest for {asset}"));
+                continue;
+            };
+            let expected = match sri::from_hex(hex) {
+                Ok(expected) => expected,
+                Err(err) => {
+                    failures.push(format!("deno {version} {asset}: bad digest: {err:#}"));
+                    continue;
+                }
+            };
+            let pinned = match source::platform_hash(pin, system) {
+                Ok(pinned) => pinned,
+                Err(err) => {
+                    failures.push(format!("deno {version} {system}: {err:#}"));
+                    continue;
+                }
+            };
+            if pinned != expected {
+                failures.push(format!(
+                    "deno {version} {system}: pinned {pinned}, GitHub recorded {expected}"
+                ));
+            }
+        }
+    }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        bail!("{}", failures.join("; "))
+    }
 }
 
 /// The newest stable denoland/deno release of `major`: the first of that

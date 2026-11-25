@@ -7,10 +7,12 @@
 use std::path::Path;
 
 use anyhow::{bail, Context, Result};
+use serde_json::Value;
 
-use super::{json, Plan};
+use super::{json, Fetch, Plan};
 use crate::http::{Http, HttpError};
 use crate::manifest::Manifest;
+use crate::source;
 
 const DIST: &str = "https://static.rust-lang.org/dist";
 
@@ -49,7 +51,7 @@ pub(crate) fn plan(http: &Http, root: &Path) -> Result<Plan> {
     Ok(plan)
 }
 
-fn fetch_manifest(http: &Http, url: &str) -> Result<Manifest> {
+fn fetch_manifest<F: Fetch>(http: &F, url: &str) -> Result<Manifest> {
     let body = http.get(url)?;
     parse_manifest(url, &body)
 }
@@ -57,6 +59,40 @@ fn fetch_manifest(http: &Http, url: &str) -> Result<Manifest> {
 fn parse_manifest(url: &str, body: &[u8]) -> Result<Manifest> {
     let text = std::str::from_utf8(body).with_context(|| format!("{url} is not UTF-8"))?;
     toml::from_str(text).with_context(|| format!("failed to parse {url}"))
+}
+
+/// Check that each pinned channel manifest still matches the immutable, dated
+/// upstream manifest for its pin. This is **drift detection, not origin
+/// authentication**: channel manifests are plain HTTPS TOML with no signature.
+/// Using the pinned date rather than the live channel means a new release does
+/// not invalidate an older pin.
+pub(crate) fn verify<F: Fetch>(http: &F, root: &Path) -> Result<()> {
+    let mut failures = Vec::new();
+    for channel in ["stable", "beta", "nightly"] {
+        if let Err(err) = verify_channel(http, root, channel) {
+            failures.push(format!("{err:#}"));
+        }
+    }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        bail!("{}", failures.join("; "))
+    }
+}
+
+fn verify_channel<F: Fetch>(http: &F, root: &Path, channel: &str) -> Result<()> {
+    let pins = source::read_json(root, &format!("data/rust/{channel}.json"))?;
+    let date = pins
+        .get("date")
+        .and_then(Value::as_str)
+        .with_context(|| format!("data/rust/{channel}.json has no date"))?;
+    let url = format!("{DIST}/{date}/channel-rust-{channel}.toml");
+    let manifest = fetch_manifest(http, &url)?;
+    let expected = serde_json::to_value(manifest.trim())?;
+    if expected != pins {
+        bail!("rust {channel} {date}: the dated upstream manifest differs from the pin");
+    }
+    Ok(())
 }
 
 /// The newest nightly that has every required component on every host.

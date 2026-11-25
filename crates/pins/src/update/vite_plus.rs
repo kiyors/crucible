@@ -14,7 +14,7 @@ use indexmap::IndexMap;
 use serde::Serialize;
 use serde_json::Value;
 
-use super::{json, parse_sha256sums_checked, Plan};
+use super::{json, parse_sha256sums_checked, Fetch, Plan};
 use crate::http::Http;
 use crate::pnpm_lock::{Graph, Lockfile};
 use crate::source::{self, hash_of as source_hash_of, Source};
@@ -85,7 +85,7 @@ pub(crate) fn plan(http: &Http, root: &Path) -> Result<Plan> {
 
 /// Fetch `vp-checksums.txt` only after checking its bytes against the digest
 /// GitHub recorded for the asset, then parse every row strictly.
-fn checksums(http: &Http, release: &Value) -> Result<Vec<(String, String)>> {
+fn checksums<F: Fetch>(http: &F, release: &Value) -> Result<Vec<(String, String)>> {
     let text = source::checked_asset(http, REPO, release, SUMS)?;
     parse_sha256sums_checked(&text)
 }
@@ -119,9 +119,51 @@ fn release_url(tag: &str, file: &str) -> String {
     format!("https://github.com/{REPO}/releases/download/{tag}/{file}")
 }
 
-fn download(http: &Http, tag: &str, file: &str) -> Result<String> {
+fn download<F: Fetch>(http: &F, tag: &str, file: &str) -> Result<String> {
     let url = release_url(tag, file);
     String::from_utf8(http.get(&url)?).with_context(|| format!("{url} is not UTF-8"))
+}
+
+/// Re-verify the pinned Vite+ release and its JS graph. The version in `data/`
+/// names the tag, so a newer release does not affect this check. Both the
+/// archives and the lockfile are re-derived from the checksum file that was
+/// itself checked against GitHub's asset digest.
+pub(crate) fn verify<F: Fetch>(http: &F, root: &Path) -> Result<()> {
+    let pins = source::read_json(root, "data/node/vite-plus.json")?;
+    let version = pins
+        .get("version")
+        .and_then(Value::as_str)
+        .context("data/node/vite-plus.json has no version")?;
+    let tag = format!("v{version}");
+    let release = source::release_by_tag(http, REPO, &tag)?;
+    let sums = checksums(http, &release)?;
+
+    for (system, triple) in PLATFORMS {
+        let file = format!("vp-{triple}.tar.gz");
+        let upstream = source_hash_of(&sums, &file, &format!("vp-checksums.txt of v{version}"))?;
+        let pinned = source::platform_hash(&pins, system)?;
+        if upstream != pinned {
+            bail!(
+                "vite-plus {version} {system}: pinned {pinned}, but vp-checksums.txt says {upstream}"
+            );
+        }
+    }
+
+    // The lockfile is part of the pin, so verify it too: its digest must match
+    // the checked sums and its root tarball must be the pinned version, then
+    // every field of the pinned graph must match the re-fetched one.
+    let lock = download(http, &tag, LOCKFILE)?;
+    let graph = check_lock(lock.as_bytes(), &sums, version)?;
+    let expected = serde_json::to_value(&graph)?;
+    for (field, value) in expected
+        .as_object()
+        .context("the Vite+ lockfile graph is not an object")?
+    {
+        if pins.get(field) != Some(value) {
+            bail!("vite-plus {version}: pinned {field} no longer matches the release lockfile");
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

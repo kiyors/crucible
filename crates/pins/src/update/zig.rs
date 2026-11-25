@@ -11,9 +11,9 @@ use indexmap::IndexMap;
 use serde::Serialize;
 use serde_json::Value;
 
-use super::{json, Plan};
+use super::{json, Fetch, Plan};
 use crate::http::Http;
-use crate::source::Source;
+use crate::source::{self, Source};
 use crate::sri;
 
 const DIST: &str = "https://ziglang.org/download";
@@ -77,7 +77,7 @@ pub(crate) fn plan(http: &Http, root: &Path) -> Result<Plan> {
                 continue;
             }
         }
-        lines.insert(line, pin(version, entry)?);
+        lines.insert(line, pin_release(version, entry)?);
     }
     if lines.is_empty() {
         bail!("ziglang.org's index.json lists no tagged releases we can build for");
@@ -101,11 +101,67 @@ pub(crate) fn plan(http: &Http, root: &Path) -> Result<Plan> {
     Ok(vec![(root.join("data/zig/zig.json"), json(&pins)?)])
 }
 
+/// Check that each pinned hash still matches the entry for that pinned version
+/// in ziglang.org's index. This is **drift detection, not origin
+/// authentication**: the index is plain HTTPS JSON with no signature, so a
+/// forged index could satisfy it too. The version comes from `data/`, so new
+/// releases appended to the index do not change what is checked.
+pub(crate) fn verify<F: Fetch>(http: &F, root: &Path) -> Result<()> {
+    let pins = source::read_json(root, "data/zig/zig.json")?;
+    let index: IndexMap<String, Value> =
+        serde_json::from_slice(&http.get(&format!("{DIST}/index.json"))?)
+            .context("failed to parse index.json")?;
+    let mut failures = Vec::new();
+    for (line, pin) in pins
+        .get("releases")
+        .and_then(Value::as_object)
+        .context("data/zig/zig.json has no releases")?
+    {
+        let Some(version) = pin.get("version").and_then(Value::as_str) else {
+            failures.push(format!("zig {line} has no version"));
+            continue;
+        };
+        let Some((key, entry)) = index.iter().find(|(key, entry)| {
+            entry.get("version").and_then(Value::as_str).unwrap_or(key) == version
+        }) else {
+            failures.push(format!("ziglang.org's index has no {version}"));
+            continue;
+        };
+        let upstream = match pin_release(version, entry) {
+            Ok(upstream) => upstream,
+            Err(err) => {
+                failures.push(format!("zig {version} ({key}): {err:#}"));
+                continue;
+            }
+        };
+        for (system, source) in upstream.platforms {
+            let pinned = match source::platform_hash(pin, &system) {
+                Ok(pinned) => pinned,
+                Err(err) => {
+                    failures.push(format!("zig {version} {system}: {err:#}"));
+                    continue;
+                }
+            };
+            if pinned != source.hash {
+                failures.push(format!(
+                    "zig {version} {system}: pinned {pinned}, ziglang.org's index says {}",
+                    source.hash
+                ));
+            }
+        }
+    }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        bail!("{}", failures.join("; "))
+    }
+}
+
 /// `{ system: { url, hash } }` for a tagged release, from index.json's
 /// per-platform entries. A release the index has no build for on a supported
 /// system still gets pinned with the platforms it has: `zig.nix` throws for
 /// the ones it lacks, so a toolchain can never build there silently.
-fn pin(version: &str, entry: &Value) -> Result<Pin> {
+fn pin_release(version: &str, entry: &Value) -> Result<Pin> {
     let mut platforms = IndexMap::new();
     for (system, platform) in PLATFORMS {
         let Some(source) = entry.get(platform) else {
@@ -216,7 +272,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(entry.get("version").and_then(Value::as_str), Some("0.15.2"));
-        let modern = pin("0.15.2", &entry).unwrap();
+        let modern = pin_release("0.15.2", &entry).unwrap();
         assert_eq!(modern.version, "0.15.2");
         assert_eq!(modern.date, "2025-10-11");
         assert_eq!(
@@ -238,7 +294,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(entry.get("version").and_then(Value::as_str), None);
-        let legacy = pin("0.2.0", &entry).unwrap();
+        let legacy = pin_release("0.2.0", &entry).unwrap();
         assert_eq!(legacy.version, "0.2.0");
         assert_eq!(legacy.date, "2018-03-15");
         assert_eq!(
@@ -254,6 +310,6 @@ mod tests {
         assert!(PLATFORMS
             .iter()
             .all(|&(_, platform)| entry.get(platform).is_none()));
-        assert!(pin("0.1.1", &entry).unwrap().platforms.is_empty());
+        assert!(pin_release("0.1.1", &entry).unwrap().platforms.is_empty());
     }
 }

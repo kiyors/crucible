@@ -12,9 +12,9 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::{json, parse_sha256sums, Plan};
+use super::{json, parse_sha256sums, Fetch, Plan};
 use crate::http::Http;
-use crate::source::{hash_of, Source};
+use crate::source::{self, hash_of, Source};
 
 pub const DIST: &str = "https://nodejs.org/dist";
 const SCHEDULE: &str = "https://raw.githubusercontent.com/nodejs/Release/main/schedule.json";
@@ -142,7 +142,7 @@ pub(crate) fn sources(
     Ok(platforms)
 }
 
-pub(crate) fn shasums(http: &Http, version: &str) -> Result<String> {
+pub(crate) fn shasums<F: Fetch>(http: &F, version: &str) -> Result<String> {
     let url = format!("{DIST}/v{version}/SHASUMS256.txt");
     let body = http.get(&url)?;
     // The hashes are only as trustworthy as the file they came from, so check
@@ -150,6 +150,47 @@ pub(crate) fn shasums(http: &Http, version: &str) -> Result<String> {
     let signature = http.get(&format!("{url}.sig"))?;
     crate::gpg::verify_shasums(version, &body, &signature)?;
     String::from_utf8(body).with_context(|| format!("{url} is not UTF-8"))
+}
+
+/// Re-verify every pinned Node.js release: its `SHASUMS256.txt` must still
+/// carry the detached signature from the vendored keyring, and each pinned
+/// hash must still match that signed file. The version comes from `data/`, not
+/// from `index.json`'s newest entry.
+pub(crate) fn verify<F: Fetch>(http: &F, root: &Path) -> Result<()> {
+    let pins = source::read_json(root, "data/node/node.json")?;
+    let mut failures = Vec::new();
+    for (major, pin) in pins
+        .get("releases")
+        .and_then(Value::as_object)
+        .context("data/node/node.json has no releases")?
+    {
+        let Some(version) = pin.get("version").and_then(Value::as_str) else {
+            failures.push(format!("node {major} has no version"));
+            continue;
+        };
+        if let Err(err) = verify_release(http, pin, version) {
+            failures.push(format!("node {version} ({major}): {err:#}"));
+        }
+    }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        bail!("{}", failures.join("; "))
+    }
+}
+
+fn verify_release<F: Fetch>(http: &F, pin: &Value, version: &str) -> Result<()> {
+    let sums = parse_sha256sums(&shasums(http, version)?);
+    for (system, source) in sources(&sums, version)? {
+        let pinned = source::platform_hash(pin, &system)?;
+        if source.hash != pinned {
+            bail!(
+                "{system}: pinned {pinned}, but the signed SHASUMS256.txt says {}",
+                source.hash
+            );
+        }
+    }
+    Ok(())
 }
 
 /// The lines released by `today` and not yet past their end, oldest first.

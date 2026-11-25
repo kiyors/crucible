@@ -8,11 +8,11 @@
 use std::fs;
 use std::path::Path;
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use serde::Serialize;
 use serde_json::{Map, Value};
 
-use super::{json, parse_sha256sums_checked, Plan};
+use super::{json, parse_sha256sums_checked, Fetch, Plan};
 use crate::http::Http;
 use crate::source::{self, hash_of};
 
@@ -93,9 +93,33 @@ fn release_url(version: &str, file: &str) -> String {
 
 /// Fetch `SHA256SUMS`, refusing it unless its bytes match the digest GitHub
 /// recorded for the asset, then parse every row strictly.
-fn checksums(http: &Http, release: &Value) -> Result<Vec<(String, String)>> {
+fn checksums<F: Fetch>(http: &F, release: &Value) -> Result<Vec<(String, String)>> {
     let text = source::checked_asset(http, REPO, release, SUMS)?;
     parse_sha256sums_checked(&text)
+}
+
+/// Re-verify the pin in `root` against upstream, without picking a new
+/// release. The pinned version names the tag; its `SHA256SUMS` is still checked
+/// against the asset digest GitHub recorded before any row is trusted.
+pub(crate) fn verify<F: Fetch>(http: &F, root: &Path) -> Result<()> {
+    let pins = source::read_json(root, "data/rust/cargo.json")?;
+    let version = pins
+        .get("version")
+        .and_then(Value::as_str)
+        .context("data/rust/cargo.json has no version")?;
+    let release = source::release_by_tag(http, REPO, &format!("v{version}"))?;
+    let sums = checksums(http, &release)?;
+    for (system, triple) in PLATFORMS {
+        let file = format!("cargo-{version}-{triple}.tar.gz");
+        let upstream = hash_of(&sums, &file, &format!("SHA256SUMS of v{version}"))?;
+        let pinned = source::platform_hash(&pins, system)?;
+        if upstream != pinned {
+            bail!(
+                "cargo {version} {system}: pinned {pinned}, but v{version}'s SHA256SUMS says {upstream}"
+            );
+        }
+    }
+    Ok(())
 }
 
 /// The pure counterpart of [`checksums`]: verify an already-fetched body

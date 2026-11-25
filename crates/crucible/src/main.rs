@@ -4,6 +4,8 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+#[cfg(feature = "net")]
+use anyhow::bail;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
@@ -47,6 +49,10 @@ enum Command {
         /// (with `cargo` or the default `all` scope)
         #[arg(long)]
         version: Option<String>,
+        /// Re-verify the provenance of the already pinned data without
+        /// writing it or taking the update lock
+        #[arg(long)]
+        check: bool,
         /// Repository root holding data/
         #[arg(long, default_value = ".")]
         root: PathBuf,
@@ -165,9 +171,18 @@ fn run() -> Result<ExitCode> {
         Command::Update {
             what,
             version,
+            check,
             root,
         } => {
-            update::run(update::parse_scope(&what)?, version, &root)?;
+            let scope = update::parse_scope(&what)?;
+            if check {
+                if version.is_some() {
+                    bail!("--check verifies the pinned versions, so --version cannot be used with it");
+                }
+                update::check(scope, &root)?;
+            } else {
+                update::run(scope, version, &root)?;
+            }
             Ok(ExitCode::SUCCESS)
         }
         #[cfg(feature = "net")]

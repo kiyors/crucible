@@ -18,7 +18,7 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::{json, parse_sha256sums, Plan};
+use super::{json, parse_sha256sums, Fetch, Plan};
 use crate::http::Http;
 use crate::source::{self, Source};
 
@@ -151,6 +151,80 @@ pub(crate) fn plan(http: &Http, root: &Path) -> Result<Plan> {
         (root.join("data/python/python.json"), json(&pins)?),
         (root.join("data/python/uv.json"), json(&uv)?),
     ])
+}
+
+/// Re-verify both pinned families. The build tag (and uv's version) come from
+/// `data/`, so a newer release upstream cannot change what is checked.
+pub(crate) fn verify<F: Fetch>(http: &F, root: &Path) -> Result<()> {
+    let mut failures = Vec::new();
+    if let Err(err) = verify_python(http, root) {
+        failures.push(format!("python: {err:#}"));
+    }
+    if let Err(err) = verify_uv(http, root) {
+        failures.push(format!("uv: {err:#}"));
+    }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        bail!("{}", failures.join("; "))
+    }
+}
+
+/// Each CPython archive must still match the `SHA256SUMS` whose bytes match
+/// the digest GitHub recorded for the pinned build's asset.
+fn verify_python<F: Fetch>(http: &F, root: &Path) -> Result<()> {
+    let pins = source::read_json(root, "data/python/python.json")?;
+    let build = pins
+        .get("build")
+        .and_then(Value::as_str)
+        .context("data/python/python.json has no build")?;
+    let release = source::release_by_tag(http, PBS, build)?;
+    let sums = parse_sha256sums(&source::checked_asset(http, PBS, &release, "SHA256SUMS")?);
+    for (line, pin) in pins
+        .get("releases")
+        .and_then(Value::as_object)
+        .context("data/python/python.json has no releases")?
+    {
+        let version = pin
+            .get("version")
+            .and_then(Value::as_str)
+            .with_context(|| format!("python {line} has no version"))?;
+        let freethreaded = pin
+            .get("freethreaded")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        for (system, triple) in PLATFORMS {
+            let file = archive(version, build, triple, freethreaded);
+            let upstream = source::hash_of(&sums, &file, build)?;
+            let pinned = source::platform_hash(pin, system)?;
+            if upstream != pinned {
+                bail!(
+                    "python {version} ({line}) {system}: pinned {pinned}, but {build}'s SHA256SUMS says {upstream}"
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+/// uv's `sha256.sum` is anchored the same way, with its own release tag.
+fn verify_uv<F: Fetch>(http: &F, root: &Path) -> Result<()> {
+    let pins = source::read_json(root, "data/python/uv.json")?;
+    let version = pins
+        .get("version")
+        .and_then(Value::as_str)
+        .context("data/python/uv.json has no version")?;
+    let release = source::release_by_tag(http, UV, version)?;
+    let sums = parse_sha256sums(&source::checked_asset(http, UV, &release, "sha256.sum")?);
+    for (system, triple) in PLATFORMS {
+        let file = format!("uv-{triple}.tar.gz");
+        let upstream = source::hash_of(&sums, &file, version)?;
+        let pinned = source::platform_hash(&pins, system)?;
+        if upstream != pinned {
+            bail!("uv {version} {system}: pinned {pinned}, but sha256.sum says {upstream}");
+        }
+    }
+    Ok(())
 }
 
 /// The lines python.org still fixes, oldest first: "bugfix" and "security".
