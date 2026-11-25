@@ -139,6 +139,30 @@ pub fn python(version: &str) -> Result<()> {
     Ok(())
 }
 
+/// `crucible pin elm <version>`: the verified npm tarballs for a compiler
+/// release the pins do not cover. The registry supplies each URL, so they are
+/// printed beside the hashes for inspection; the snippet is the `hashes`
+/// argument to `lib.<system>.elm.toolchain`.
+pub fn elm(version: &str) -> Result<()> {
+    let (compiler, platforms) = crate::update::elm::pin_sources(&Http::new(), version)?;
+
+    println!("elm: {compiler}");
+    println!();
+    for (system, source) in &platforms {
+        println!("{system}: {} {}", source.url, source.hash);
+    }
+    println!();
+    println!("toolchain {{");
+    println!("  version = \"{compiler}\";");
+    println!("  hashes = {{");
+    for (system, source) in &platforms {
+        println!("    {system} = \"{}\";", source.hash);
+    }
+    println!("  }};");
+    println!("}};");
+    Ok(())
+}
+
 /// An exact CPython release, `x.y.z`: the build's archives name it.
 fn python_release_version(version: &str) -> Result<&str> {
     let valid = version.split('.').count() == 3

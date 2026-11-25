@@ -12,6 +12,7 @@
 // crate: their helpers are implementation detail, not pins' public API.
 pub(crate) mod cargo;
 pub(crate) mod deno;
+pub(crate) mod elm;
 pub(crate) mod go;
 pub(crate) mod node;
 pub(crate) mod package_managers;
@@ -43,6 +44,8 @@ pub enum Scope {
     Node,
     /// Deno
     Deno,
+    /// The Elm compiler, from its npm platform packages
+    Elm,
     /// CPython and uv
     Python,
     /// The supported Go lines
@@ -56,8 +59,8 @@ pub enum Scope {
 /// The accepted `--what` values, in help order. The CLI uses these for clap's
 /// value parser so its help and invalid-value errors stay the same now that
 /// `pins` no longer depends on clap.
-pub const SCOPES: [&str; 9] = [
-    "all", "cargo", "rust", "node", "deno", "python", "go", "zig", "tsrs",
+pub const SCOPES: [&str; 10] = [
+    "all", "cargo", "rust", "node", "deno", "elm", "python", "go", "zig", "tsrs",
 ];
 
 /// Turn a `--what` value into a scope. Clap rejects values outside `SCOPES`
@@ -69,6 +72,7 @@ pub fn parse_scope(value: &str) -> Result<Scope> {
         "rust" => Ok(Scope::Rust),
         "node" => Ok(Scope::Node),
         "deno" => Ok(Scope::Deno),
+        "elm" => Ok(Scope::Elm),
         "python" => Ok(Scope::Python),
         "go" => Ok(Scope::Go),
         "zig" => Ok(Scope::Zig),
@@ -92,7 +96,8 @@ pub fn run(scope: Scope, version: Option<String>, root: &Path) -> Result<()> {
 
     // Plan everything first: the cargo pin, then stable, beta and nightly, then
     // Node, Vite+, the package managers and Deno, then Python and uv, then
-    // Go, Zig and tsrs, so a fetch failure anywhere aborts before any pin changes.
+    // Go, Zig and tsrs, then Elm, so a fetch failure anywhere aborts before any
+    // pin changes.
     let plan = match scope {
         Scope::All => {
             let mut plan = cargo::plan(&http, version, root)?;
@@ -103,12 +108,14 @@ pub fn run(scope: Scope, version: Option<String>, root: &Path) -> Result<()> {
             plan.extend(go::plan(&http, root)?);
             plan.extend(zig::plan(&http, root)?);
             plan.extend(tsrs::plan(&http, root)?);
+            plan.extend(elm::plan(&http, root)?);
             plan
         }
         Scope::Cargo => cargo::plan(&http, version, root)?,
         Scope::Rust => rust::plan(&http, root)?,
         Scope::Node => node_plan(&http, root)?,
         Scope::Deno => deno::plan(&http, root)?,
+        Scope::Elm => elm::plan(&http, root)?,
         Scope::Python => python::plan(&http, root)?,
         Scope::Go => go::plan(&http, root)?,
         Scope::Zig => zig::plan(&http, root)?,
@@ -161,6 +168,7 @@ fn check_with<F: Fetch>(scope: Scope, root: &Path, http: &F) -> Result<()> {
             record("go", go::verify(http, root), &mut failures);
             record("zig", zig::verify(http, root), &mut failures);
             record("tsrs", tsrs::verify(http, root), &mut failures);
+            record("elm", elm::verify(http, root), &mut failures);
         }
         Scope::Cargo => record("cargo", cargo::verify(http, root), &mut failures),
         Scope::Rust => record("rust manifests", rust::verify(http, root), &mut failures),
@@ -174,6 +182,7 @@ fn check_with<F: Fetch>(scope: Scope, root: &Path, http: &F) -> Result<()> {
             );
         }
         Scope::Deno => record("deno", deno::verify(http, root), &mut failures),
+        Scope::Elm => record("elm", elm::verify(http, root), &mut failures),
         Scope::Python => record("python and uv", python::verify(http, root), &mut failures),
         Scope::Go => record("go", go::verify(http, root), &mut failures),
         Scope::Zig => record("zig", zig::verify(http, root), &mut failures),

@@ -1,0 +1,19 @@
+{
+  "0.19.3": {
+    "version": "0.19.3",
+    "platforms": {
+      "x86_64-linux": {
+        "url": "https://registry.npmjs.org/@elm_binaries/linux_x64/-/linux_x64-0.19.3-0.tgz",
+        "hash": "sha512-x+WXNkRZUOuyGPdcRo137rNW1+7KBVXLf2L9oul21tj3MKpE7HC7Kl5VpyWj859YLdYv9M42S2O6YiO9t+MJeQ=="
+      },
+      "aarch64-linux": {
+        "url": "https://registry.npmjs.org/@elm_binaries/linux_arm64/-/linux_arm64-0.19.3-0.tgz",
+        "hash": "sha512-MRIBxYsHw3jyjXBFRcawADDVM+zn3RqgPPfmHLbhvRDBXrNfbIH1iXh0jMBH4ykBOtGvihk2UGvP0LAwytrOjA=="
+      },
+      "aarch64-darwin": {
+        "url": "https://registry.npmjs.org/@elm_binaries/darwin_arm64/-/darwin_arm64-0.19.3-0.tgz",
+        "hash": "sha512-Kp6w7gkwm9y2aoR3LK93J5UteHkqDd+l1xsnxdg6C6PDkC/djD1qqS3o02Z9ajkFjbgGezARfpwOp/efbqKLOQ=="
+      }
+    }
+  }
+}
