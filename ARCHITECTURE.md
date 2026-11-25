@@ -451,12 +451,22 @@ crucible's makeWrapper script when the variable is unset. Go compares `go versio
 - `modules/home-manager.nix`: `programs.crucible.tsrs.*` installs tsrs and tsrs-lint, for
   editors and checks outside projects that install their own.
 - `templates/default`: a Rust project whose toolchain comes from `rust-toolchain.toml`, with a
-  `buildRustPackage` package.
+  `buildRustPackage` package. It is the only template with a package output; all templates are
+  otherwise dev-shell-only.
 - `templates/node`, `templates/python`, `templates/go`, `templates/zig`, `templates/deno`,
   `templates/rust`, `templates/bun`, `templates/uv`: dev shells whose toolchains come from the
   matching `crucible.lib` module. Node pins pnpm from GitHub, Python pins uv with CPython, and
   Bun is the Node toolchain's pinned package manager; the rest take the newest supported line.
-  The remaining templates use nixpkgs packages until crucible pins their toolchains.
+  Together with `default`, these are the nine "supported templates": the intersection of the
+  flake's attrs, the toolchains crucible pins in `data/`, and dev shells that call the matching
+  `crucible.lib` function.
+- The other templates take packages straight from nixpkgs by policy, not as a temporary stand-in:
+  C/C++, the JVM family, PHP/Laravel, Nim, Odin, Nix tooling, shell, `empty`, HashiCorp, Jupyter,
+  Elm, Swift and Elixir have no per-system release index, no project version file or no complete
+  pin pipeline, and forcing one would add no value. They declare no `crucible` input. See
+  [`docs/template-policy.md`](docs/template-policy.md) for the full list, each reason and the
+  checklist for promoting a template. This flake is the single template source: the CLI's
+  `init`/`add` use `github:kiyors/crucible#<name>`, so no second flake input is needed.
 
 ### Verification
 
@@ -531,5 +541,6 @@ crucible's makeWrapper script when the variable is unset. Go compares `go versio
 
 ## Not in the repo
 
-`fenix/` and `nix-vite-plus/` are gitignored local clones kept for reference. They are not
-dependencies. `docs/` holds research notes for upcoming work.
+`fenix/` and `nix-vite-plus/` are gitignored local clones kept for reference; `nix-templates/`,
+the old external template repo, is not part of this checkout at all. None is a dependency or a
+template source any more. `docs/` holds research notes and the template policy.

@@ -838,11 +838,18 @@ nix flake init -t github:kiyors/crucible#uv         # Python (uv)
 nix flake init -t github:kiyors/crucible#zig        # Zig
 ```
 
-The templates live in [`templates/`](templates). The Rust one (the `default` template) has a
-`flake.nix` with a dev shell and a package, a `rust-toolchain.toml` and an `.envrc`; each of the
-others is a dev shell for its language, and `c` and `cpp` are aliases for `c-cpp`. Rust, Node.js,
-Python, Go, Zig, Deno, Bun and uv take their toolchain from `crucible.lib`; the other templates
-still use nixpkgs packages until crucible pins their toolchains.
+The templates live in [`templates/`](templates), and `templates.nix` lists their names. The Rust
+one (the `default` template) has a `flake.nix` with a dev shell and a package, a
+`rust-toolchain.toml` and an `.envrc`; every other template is dev-shell-only. `c` and `cpp` alias
+`c-cpp`, and `hash` points at `hashi`. This flake is the single template source: `crucible init
+<directory> [template]` and `crucible add [template]` use the same names as the list above, with
+no second flake input.
+
+Nine templates take their toolchain from crucible's pinned releases: `default`, `rust`, `node`,
+`bun`, `python`, `uv`, `go`, `zig` and `deno`. The rest use nixpkgs packages by policy, not as a
+temporary stand-in: a language stays there until it has a per-system release index, a project
+version file and a full pin pipeline. See [the template policy](docs/template-policy.md) for the
+explicit list and the reason for each one.
 
 For a project that already exists, `crucible init` writes just the `flake.nix`:
 
@@ -851,10 +858,11 @@ nix run github:kiyors/crucible -- init          # in the project's directory
 nix run github:kiyors/crucible -- init --force  # replace an existing flake.nix
 ```
 
-`crucible init <directory> [template]` instead starts a new project: the directory is made
-and the template added to it, from the [nix-templates repo](nix-templates). Template names are
-the ones that repo supports, e.g. `node`, `python`, `rust`. `crucible add [template]` adds a
-template to the project in the current directory; both commands default the template to `empty`.
+`crucible init <directory> [template]` instead starts a new project: the directory is made and
+the template added to it from this flake's [`templates/`](templates). Template names are this
+flake's template attrs, e.g. `node`, `python`, `rust`; `hash`, `c` and `cpp` are aliases.
+`crucible add [template]` adds a template to the project in the current directory; both commands
+default the template to `empty`.
 
 ```sh
 crucible init my-project node   # a new project in my-project/ from the node template

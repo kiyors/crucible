@@ -2,10 +2,8 @@
   description = "HashiCorp tools from nixpkgs: Terraform, Packer, Nomad, Vault and Terragrunt (allowUnfree)";
 
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable"; # unstable Nixpkgs
-  inputs.crucible = {
-    url = "github:kiyors/crucible";
-    inputs.nixpkgs.follows = "nixpkgs";
-  };
+  # Nixpkgs-only by policy: this template installs no toolchain from crucible's
+  # pins, so it deliberately takes no crucible input (see docs/template-policy.md).
 
   outputs =
     inputs:

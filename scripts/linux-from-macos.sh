@@ -1,8 +1,9 @@
 #!/bin/sh
 # Wrap the "Linux from macOS" steps in AGENTS.md: rsync a copy of the repo,
 # start the Apple container VM, enable flakes in the `nixlinux` VM, and run
-# the aarch64-linux checks there. Exits with a clear error if `container` or
-# `rsync` is missing.
+# the aarch64-linux checks there. The old `nix-templates/` reference clone is
+# excluded like fenix and nix-vite-plus. Exits with a clear error if `container`
+# or `rsync` is missing.
 
 set -eu
 
@@ -31,6 +32,7 @@ mkdir -p "$copy" || exit 1
 rsync -a --delete \
     --exclude fenix \
     --exclude nix-vite-plus \
+    --exclude nix-templates \
     --exclude /target \
     --exclude result \
     "$PWD/" "$copy/" || exit 1

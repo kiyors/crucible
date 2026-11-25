@@ -2,10 +2,8 @@
   description = "C/C++ tools from nixpkgs: clang, CMake, Conan, vcpkg, linters and gdb on Linux";
 
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable"; # stable Nixpkgs
-  inputs.crucible = {
-    url = "github:kiyors/crucible";
-    inputs.nixpkgs.follows = "nixpkgs";
-  };
+  # Nixpkgs-only by policy: this template installs no toolchain from crucible's
+  # pins, so it deliberately takes no crucible input (see docs/template-policy.md).
 
   outputs =
     inputs:
