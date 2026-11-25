@@ -31,14 +31,39 @@ import ./rust { inherit pkgs crucible; }
     installPhase = "touch $out";
   };
 
-  # The Node template ships a dev shell with pnpm in it.
+  # The Node template ships a dev shell with pnpm in it. Evaluate that shell
+  # with a stub toolchain instead of grepping the template text: a comment
+  # mentioning pnpm cannot satisfy the assert, and dropping the package manager
+  # from the dev shell's toolchain call fails evaluation.
   node-template =
     let
-      nodeTemplate = builtins.readFile ../templates/node/flake.nix;
+      system = pkgs.stdenv.hostPlatform.system;
+      marker = pkgs.runCommand "node-template-pnpm-marker" { } "touch $out";
+      nodeToolchain =
+        args:
+        assert lib.assertMsg
+          (
+            builtins.isString (args.packageManager or null)
+            && builtins.match "pnpm@[0-9]+" args.packageManager != null
+          )
+          ''
+            crucible: the node template's dev shell must request a pinned pnpm package manager
+          '';
+        marker;
+      outputs = (import ../templates/node/flake.nix).outputs {
+        nixpkgs = {
+          inherit lib;
+          legacyPackages.${system} = pkgs;
+        };
+        crucible = {
+          lib.${system}.node.toolchain = nodeToolchain;
+        };
+      };
+      shell = outputs.devShells.${system}.default;
     in
-    assert lib.assertMsg (
-      builtins.match ".*packageManager = \"pnpm@[0-9]+\".*" nodeTemplate != null
-    ) "the node template must pin pnpm as its package manager";
+    assert lib.assertMsg (lib.elem marker shell.nativeBuildInputs) ''
+      crucible: the node template's dev shell must use its pnpm toolchain
+    '';
     pkgs.runCommand "crucible-check-node-template" { } "touch $out";
 
   # `crucible doctor`, run here with the fork first on PATH so it passes. The

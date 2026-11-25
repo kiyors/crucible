@@ -127,41 +127,105 @@ in
     touch $out
   '';
 
-  # The root flake exposes the moved templates as `templates.<name>`; the
-  # directories they point at must be flake dirs. These are directory names:
-  # `templates.hash` lives in `hashi`.
+  # The root flake exposes the moved templates as `templates.<name>`: every
+  # attr must be a flake that evaluates for every supported system, and the
+  # attrs must cover the directories (`hash` lives in `hashi`, while `c` and
+  # `cpp` alias `c-cpp`). Inputs are stubbed as in init-flakes so this stays
+  # offline: nixpkgs is the pinned store copy and crucible's lib is built from
+  # the same one, not a fetched flake.
   templates =
     let
-      moved = [
-        "bun"
-        "c-cpp"
-        "deno"
-        "elixir"
-        "elm"
-        "empty"
-        "go"
-        "hashi"
-        "java"
-        "jupyter"
-        "kotlin"
-        "laravel"
-        "nim"
-        "nix"
-        "node"
-        "odin"
-        "php"
-        "python"
-        "rust"
-        "scala"
-        "shell"
-        "swift"
-        "uv"
-        "zig"
-      ];
-      missing = lib.filter (name: !builtins.pathExists (../templates + "/${name}/flake.nix")) (
-        moved ++ [ "default" ]
+      declared = import ../templates.nix;
+      attrs = lib.attrNames declared;
+      directories = lib.attrNames (
+        lib.filterAttrs (_: kind: kind == "directory") (builtins.readDir ../templates)
       );
+      # The attrs whose names are not directory names.
+      aliases = {
+        hash = "hashi";
+        c = "c-cpp";
+        cpp = "c-cpp";
+      };
+      expected = lib.unique (
+        [
+          "c"
+          "cpp"
+          "hash"
+        ]
+        ++ map (d: if d == "hashi" then "hash" else d) directories
+      );
+
+      # A flake-like nixpkgs: `import inputs.nixpkgs` follows outPath, while
+      # lib/legacyPackages serve the templates that use those instead. Importing
+      # the pinned copy for each system needs no network.
+      pkgsFor = s: import pkgs.path { system = s; };
+      nixpkgsStub = {
+        outPath = pkgs.path;
+        inherit lib;
+        legacyPackages = lib.genAttrs systems pkgsFor;
+      };
+      # Templates call `crucible.lib.${system}.<lang>.<function>`; build that
+      # public surface from default.nix for every system, as flake.nix does.
+      crucibleStub = {
+        lib = lib.genAttrs systems (s: import ../. { pkgs = pkgsFor s; });
+      };
+      # Some templates apply their own overlay through `self`. A no-op overlay
+      # lets those dev shells evaluate without recursing into their outputs.
+      stub = {
+        nixpkgs = nixpkgsStub;
+        crucible = crucibleStub;
+        self = {
+          overlays.default = _final: _prev: { };
+        };
+        rust-manifest = {
+          outPath = "/rust-manifest";
+        };
+      };
+
+      # Forgetting a system or a required output is a template error. Forcing
+      # the shells themselves is only meaningful for templates that use
+      # crucible: the nixpkgs-only ones name packages that nixpkgs may have
+      # removed since the template was written, which is not what this check
+      # is about.
+      evaluate =
+        name:
+        let
+          dir = declared.${name}.path;
+          outputs = (import (dir + "/flake.nix")).outputs stub;
+          shells = outputs.devShells;
+          packages = outputs.packages or { };
+          drvs =
+            if lib.hasInfix "crucible.lib" (builtins.readFile (dir + "/flake.nix")) then
+              lib.concatMap (
+                s:
+                [ shells.${s}.default.drvPath ]
+                ++ lib.optional (packages ? ${s}.default) packages.${s}.default.drvPath
+              ) systems
+            else
+              [ ];
+        in
+        assert lib.assertMsg (outputs ? devShells) "crucible: template ${name} has no devShells";
+        assert lib.assertMsg (builtins.all (s: shells ? ${s}) systems) ''
+          crucible: template ${name} must cover every system in lib/common/systems.nix
+        '';
+        assert lib.assertMsg (builtins.all (
+          s: !(packages ? ${s}) || packages.${s} ? default
+        ) systems) "crucible: template ${name}'s packages must have a default for every system";
+        lib.concatStringsSep " " (map builtins.unsafeDiscardStringContext drvs);
     in
-    assert missing == [ ];
-    pkgs.runCommand "crucible-check-templates" { } "touch $out";
+    assert lib.assertMsg (lib.sort lib.lessThan attrs == lib.sort lib.lessThan expected) ''
+      crucible: templates.nix attrs (${lib.concatStringsSep ", " attrs}) must match the
+      templates/ directories (${lib.concatStringsSep ", " expected})
+    '';
+    assert lib.assertMsg (builtins.all
+      (alias: declared.${alias}.path == ../templates + "/${aliases.${alias}}")
+      (lib.attrNames aliases)
+    ) "crucible: template aliases must point at the same flake as their target";
+    assert lib.assertMsg (builtins.all (
+      name: builtins.pathExists (declared.${name}.path + "/flake.nix")
+    ) attrs) "crucible: every templates.nix attr must point at a flake directory";
+    pkgs.runCommand "crucible-check-templates" { } ''
+      # ${lib.concatMapStringsSep "\n# " evaluate attrs}
+      touch $out
+    '';
 }

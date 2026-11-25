@@ -20,7 +20,7 @@ let
 
   notPinned = spec: ''
     crucible: Zig "${spec}" is not a pinned release (${lib.concatStringsSep ", " pinnedVersions}).
-    Pass a line ("0.15") or an exact pinned release ("0.15.2"); `cruisel update zig`
+    Pass a line ("0.15") or an exact pinned release ("0.15.2"); `crucible update zig`
     pins the newest patch of each minor line in ziglang.org's index.json.
   '';
 

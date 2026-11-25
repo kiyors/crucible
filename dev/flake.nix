@@ -36,10 +36,11 @@
         inputs.git-hooks.flakeModule
       ];
 
+      # nixpkgs 26.11 dropped x86_64-darwin, so this flake cannot evaluate
+      # checks for it. Keep this list in step with lib/common/systems.nix.
       systems = [
         "x86_64-linux"
         "aarch64-linux"
-        "x86_64-darwin"
         "aarch64-darwin"
       ];
 
@@ -140,6 +141,9 @@
                       programs.crucible.zig = {
                         enable = true;
                       };
+                      programs.crucible.tsrs = {
+                        enable = true;
+                      };
                     }
                   ];
                 };
@@ -165,6 +169,9 @@
               assert lib.elem pkgs.gopls hm.config.home.packages;
               assert lib.any (warning: builtins.match ".*GOTOOLCHAIN=auto.*" warning != null) hm.config.warnings;
               assert lib.any (package: package == inputs.crucible.packages.${system}.zig) hm.config.home.packages;
+              assert lib.any (
+                package: package == inputs.crucible.packages.${system}.tsrs
+              ) hm.config.home.packages;
               assert hm.config.home.file.".cargo/config.toml".source != null;
               assert lib.any (warning: builtins.match ".*VP_HOME.*" warning != null) hm.config.warnings;
               assert lib.any (warning: builtins.match ".*UV_PYTHON.*" warning != null) hm.config.warnings;

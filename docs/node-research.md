@@ -38,7 +38,8 @@ as research, so a few of the proposals under "Recommended design" were revised d
   `libgcc_s libpthread libm libdl libc` → patch on NixOS. Registry alternative:
   `pnpm-12.21.0.tgz` (`sha512-Zv2CeO4o…`, `bin.pnpm` JS, needs Node). Crucible uses the GitHub
   release asset: 10 is a raw binary, 11 and 12 a tarball with the binary and its `dist/` tree,
-  each sha256 checked against GitHub's artifact attestation. No npm registry or launch script.
+  each sha256 checked against GitHub's artifact attestation metadata (a TLS-authenticated lookup;
+  the Sigstore signature is not verified locally). No npm registry or launch script.
 - **yarn berry** (`gh api repos/yarnpkg/berry/releases/latest` → `@yarnpkg/cli/4.18.1`):
   **0 assets**, no digest. Use npm `@yarnpkg/cli-dist@4.18.1` (`sha512-EH+A4TxA…`,
   `bin.yarn = bin/yarn.js`) with Node. nixpkgs bootstraps it from the repo with node+yarn.
@@ -49,8 +50,10 @@ as research, so a few of the proposals under "Recommended design" were revised d
     `bun-linux-aarch64/bun` (107 MB; 49 MB zipped); interpreter `/lib/ld-linux-aarch64.so.1`,
     NEEDED `libc libpthread libdl libm` → patch. nixpkgs' `bun` does zip + `autoPatchelfHook`.
 - `digest` is **not retroactive**: `null` for pnpm v9.0.0 and bun v1.0.0 assets. Verify by
-  download/SHASUMS. This is why crucible's pins use the npm registry's `dist.integrity` instead
-  of GitHub digests: it exists for every version and needs no tarball download.
+  download/SHASUMS. As shipped, crucible takes pnpm from GitHub release assets (checked against
+  artifact attestation metadata, not a locally verified Sigstore signature), bun from
+  oven-sh/bun's unsigned `SHASUMS256.txt` over HTTPS, and yarn from the npm registry's
+  `dist.integrity`, which exists for every version and needs no tarball download.
 - **corepack**: removed in Node ≥25 (`bundlesCorepack = !lib.versionAtLeast version "25.0.0"`,
   nixpkgs `nodejs.nix`; v26 tarball has none). nixpkgs ships only `corepack_22/24`.
 
@@ -98,8 +101,10 @@ comparison.
   `SHASUMS256.txt`), `data/node/vite-plus.json` (vp archives + lockfile graph), and
   `data/node/package-managers.json` (pnpm and bun from their GitHub releases, yarn from npm
   registry integrity).
-- Trust: every `SHASUMS256.txt` is GPG-verified during `update`/`pin` against
+- Trust: every Node.js `SHASUMS256.txt` is GPG-verified during `update`/`pin` against
   `data/node/release-keys.asc`; the pinned hash is still checked again by Nix at fetch time.
+  Bun's `SHASUMS256.txt` is unsigned (HTTPS only), and pnpm's attestation is a metadata lookup,
+  not a locally verified signature. Nix checks the pinned hash for all of them.
 - Package managers: pnpm's release binaries/tarballs and bun's release zips from GitHub, and
   `@yarnpkg/cli-dist` / `yarn` from the npm registry, are fetched and installed by
   `lib/node/package-manager.nix`, run by the toolchain's node; nixpkgs' major-version packages
