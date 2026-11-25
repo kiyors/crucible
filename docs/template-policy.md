@@ -35,7 +35,7 @@ A **supported template** is the intersection of:
 3. a template whose dev shell actually calls that `crucible.lib` function with
    no project-supplied archive hashes.
 
-The intersection is exactly these nine attrs:
+The intersection is exactly these ten attrs:
 
 | Attr      | Toolchain                               | Pin                   |
 | --------- | --------------------------------------- | --------------------- |
@@ -48,6 +48,7 @@ The intersection is exactly these nine attrs:
 | `go`      | `go.toolchain`                          | pinned Go line        |
 | `zig`     | `zig.toolchain`                         | pinned Zig line       |
 | `deno`    | `deno.toolchain`                        | pinned Deno 2         |
+| `elm`     | `elm.fromElmJson`                       | pinned Elm compiler   |
 
 These are the only templates whose dev shells `tests/init.nix` forces to
 evaluate with a real `crucible.lib`. `default` is also the only template with a
@@ -71,7 +72,6 @@ that language. A nixpkgs-only template should declare only the nixpkgs input.
 | `empty`                   | an empty dev shell                           | Nothing to pin; it is the CLI's `DEFAULT_TEMPLATE` and a starting point to adapt.                                                                |
 | `hash`                    | ten HashiCorp tools, with `allowUnfree`      | Ten independent release APIs, no project version file to read.                                                                                   |
 | `jupyter`                 | Python 3.11, Poetry, Jupyter, ipykernel      | App-level stack: Poetry's `[tool.poetry.dependencies].python = "^3.11"` is not read by `fromPyprojectToml`, and Poetry/ipykernel are not pinned. |
-| `elm`                     | Elm, elm2nix                                 | Would need `data/elm`, `lib/elm`, `pins update elm`, `elm.json` detection, doctor, HM and checks.                                                |
 | `swift`                   | Swift, SourceKit-LSP                         | Technically feasible, but SDK integration is a large, separate project.                                                                          |
 | `elixir`                  | Erlang/OTP 27, Elixir 1.17, Hex, mix, rebar3 | Needs a two-axis OTP x Elixir pin model and `mix.exs` detection.                                                                                 |
 

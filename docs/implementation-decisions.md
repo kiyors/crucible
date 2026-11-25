@@ -78,15 +78,28 @@ directories (including `hash`→`hashi` and `c`/`cpp`) and evaluates its outputs
 The names are therefore checked offline. See
 [`template-policy.md`](template-policy.md).
 
-## Phase 4.3 — Elm (next promotion, not implemented)
+## Phase 4.3 — Elm (landed)
 
-**Decision: Elm is the next full-stack promotion; it has not landed.**
+**Decision: Elm is promoted; the full-stack work has landed.**
 
-The design lives in the thread "Elm full-stack promotion design". The template
-is still nixpkgs-only (`elmPackages.elm` + `elm2nix`) and is listed as partial
-in the plan and in [`template-policy.md`](template-policy.md). Promotion means
-the full A.3.3 checklist below, starting with `elm.json` detection and a
-`data/elm` pin pipeline; none of it exists yet.
+`crucible update elm` pins the compiler from the npm packages the official
+`elm` launcher installs. The trust anchor is npm's signature over the
+packument: each `@elm_binaries/<platform>` tarball's SHA-512
+`dist.integrity` is checked against that signature before its hash is written
+to `data/elm/elm.json`. npm versions the compiler as `0.19.3-0`, while
+`elm.json` and `elm --version` say `0.19.3`; the suffix is stripped from the
+version and kept in the tarball URLs. `crucible pin elm 0.19.3` prints the
+verified per-system hashes for an explicit `toolchain` call.
+
+The compiler is exposed as `lib.<system>.elm.toolchain` and
+`lib.<system>.elm.fromElmJson`, which reads `elm-version` from a project's
+`elm.json`; the three supported systems are the ones npm ships binaries for.
+The user-facing half is in place too: a `programs.crucible.elm` Home Manager
+option, an Elm template backed by the pinned compiler with `elm2nix` from
+nixpkgs, `init` detection and `doctor` checks for `elm.json`, and the
+README/ARCHITECTURE/template-policy documentation. Elm has moved out of the
+nixpkgs-only table in [`template-policy.md`](template-policy.md). The plan's
+"partial / deferred" rows describe the state before this promotion.
 
 ## Phase 4.4 — Swift, Elixir and HashiCorp (deferred)
 

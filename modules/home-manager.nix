@@ -22,6 +22,7 @@ let
   goCfg = config.programs.crucible.go;
   zigCfg = config.programs.crucible.zig;
   tsrsCfg = config.programs.crucible.tsrs;
+  elmCfg = config.programs.crucible.elm;
   tomlFormat = pkgs.formats.toml { };
   cargoHome = "${config.home.homeDirectory}/${cfg.cargoHomeDir}";
   sessionVariables = config.home.sessionVariables;
@@ -273,6 +274,37 @@ in
     };
   };
 
+  options.programs.crucible.elm = {
+    enable = mkEnableOption "an Elm toolchain from the signed npm @elm_binaries packages";
+
+    package = mkOption {
+      type = types.package;
+      default = self.packages.${pkgs.stdenv.hostPlatform.system}.elm;
+      defaultText = literalExpression "crucible.packages.\${system}.elm";
+      example = literalExpression ''
+        crucible.lib.''${system}.elm.toolchain {
+          version = "0.19.3";
+        }
+      '';
+      description = ''
+        The toolchain to install: one from crucible's `packages` or `lib.<system>.elm`
+        (the newest pinned compiler by default), or any package with a `bin/elm`. A
+        project whose `elm.json` names another compiler gets its own dev shell built
+        with `fromElmJson`; this one is for checks outside such projects and for editors.
+      '';
+    };
+
+    extraPackages = mkOption {
+      type = types.listOf types.package;
+      default = [ ];
+      example = literalExpression "[ pkgs.elm2nix ]";
+      description = ''
+        Other tools installed next to the toolchain. nixpkgs' `elm2nix` belongs here;
+        it is an app-level generator, not part of the pinned compiler.
+      '';
+    };
+  };
+
   config = mkMerge [
     (mkIf cfg.enable {
       warnings =
@@ -388,6 +420,10 @@ in
 
     (mkIf tsrsCfg.enable {
       home.packages = [ tsrsCfg.package ];
+    })
+
+    (mkIf elmCfg.enable {
+      home.packages = [ elmCfg.package ] ++ elmCfg.extraPackages;
     })
   ];
 }

@@ -144,6 +144,10 @@
                       programs.crucible.tsrs = {
                         enable = true;
                       };
+                      programs.crucible.elm = {
+                        enable = true;
+                        extraPackages = [ pkgs.elm2nix ];
+                      };
                     }
                   ];
                 };
@@ -172,6 +176,8 @@
               assert lib.any (
                 package: package == inputs.crucible.packages.${system}.tsrs
               ) hm.config.home.packages;
+              assert lib.any (package: package == inputs.crucible.packages.${system}.elm) hm.config.home.packages;
+              assert lib.elem pkgs.elm2nix hm.config.home.packages;
               assert hm.config.home.file.".cargo/config.toml".source != null;
               assert lib.any (warning: builtins.match ".*VP_HOME.*" warning != null) hm.config.warnings;
               assert lib.any (warning: builtins.match ".*UV_PYTHON.*" warning != null) hm.config.warnings;

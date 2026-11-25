@@ -2,7 +2,7 @@
 
 crucible builds language toolchains for Nix from each language's own upstream release artifacts.
 It never builds them from source or goes through another overlay. It covers Rust, Node.js
-(with Vite+), Deno, Python (with uv), Go and Zig, and the tsrs type checker, each in its own `lib/<lang>/`, `data/<lang>/` and
+(with Vite+), Deno, Elm, Python (with uv), Go and Zig, and the tsrs type checker, each in its own `lib/<lang>/`, `data/<lang>/` and
 `tests/<lang>/`. This
 file explains how the pieces fit together. The README covers how to use them.
 
@@ -24,6 +24,9 @@ project files ──────────────────┴───
 
 denoland/deno releases ──────────┐
 denoland/deno GitHub digests ───┴─ crucible update ─► data/deno/deno.json ─► deno (one drv)
+npm @elm_binaries tarballs ────┐
+  npm signature on integrity ─┴─ crucible update ─► data/elm/elm.json ────► elm (one drv)
+project files ─────────────────┴────────────────────────────────────────► fromElmJson (elm.json)
 release-cycle.json ─────────────┐
 python-build-standalone ────────┼─ crucible update ─► data/python/python.json ──► cpython (one drv per release)
   SHA256SUMS                    │   python             data/python/uv.json ──────► uv ─┐
@@ -55,7 +58,7 @@ The design rests on two ideas:
 - `flake.nix`: the public surface. `packages`, `apps`, `lib`, `checks`, `overlays`,
   `homeManagerModules` and `templates`, for the systems in `lib/common/systems.nix`. It does no
   work of its own. Everything goes through `default.nix`.
-- `default.nix`: `{ pkgs } -> { rust, node, deno, python, go, zig, tsrs, cli, cli-full }`, everything crucible provides for one nixpkgs
+- `default.nix`: `{ pkgs } -> { rust, node, deno, elm, python, go, zig, tsrs, cli, cli-full }`, everything crucible provides for one nixpkgs
   instance. The flake, the overlay (`overlay.nix` → `pkgs.crucible`) and non-flake users all
   call it, so there is exactly one place where the pieces are wired together.
 - `lib/common/systems.nix`: the supported systems (`x86_64-linux`, `aarch64-linux`,
@@ -450,19 +453,23 @@ crucible's makeWrapper script when the variable is unset. Go compares `go versio
   crucible's pins.
 - `modules/home-manager.nix`: `programs.crucible.tsrs.*` installs tsrs and tsrs-lint, for
   editors and checks outside projects that install their own.
+- `modules/home-manager.nix`: `programs.crucible.elm.*` installs the pinned Elm compiler and
+  its `extraPackages` (nixpkgs' `elm2nix` fits here); a project with its own `elm.json` gets
+  its compiler from a dev shell built with `fromElmJson`.
 - `templates/default`: a Rust project whose toolchain comes from `rust-toolchain.toml`, with a
   `buildRustPackage` package. It is the only template with a package output; all templates are
   otherwise dev-shell-only.
 - `templates/node`, `templates/python`, `templates/go`, `templates/zig`, `templates/deno`,
-  `templates/rust`, `templates/bun`, `templates/uv`: dev shells whose toolchains come from the
-  matching `crucible.lib` module. Node pins pnpm from GitHub, Python pins uv with CPython, and
-  Bun is the Node toolchain's pinned package manager; the rest take the newest supported line.
-  Together with `default`, these are the nine "supported templates": the intersection of the
-  flake's attrs, the toolchains crucible pins in `data/`, and dev shells that call the matching
-  `crucible.lib` function.
+  `templates/rust`, `templates/bun`, `templates/uv`, `templates/elm`: dev shells whose
+  toolchains come from the matching `crucible.lib` module. Node pins pnpm from GitHub, Python
+  pins uv with CPython, Bun is the Node toolchain's pinned package manager, and Elm reads
+  `elm-version` from its `elm.json`; the rest take the newest supported line. Together with
+  `default`, these are the ten "supported templates": the intersection of the flake's attrs,
+  the toolchains crucible pins in `data/`, and dev shells that call the matching `crucible.lib`
+  function.
 - The other templates take packages straight from nixpkgs by policy, not as a temporary stand-in:
   C/C++, the JVM family, PHP/Laravel, Nim, Odin, Nix tooling, shell, `empty`, HashiCorp, Jupyter,
-  Elm, Swift and Elixir have no per-system release index, no project version file or no complete
+  Swift and Elixir have no per-system release index, no project version file or no complete
   pin pipeline, and forcing one would add no value. They declare no `crucible` input. See
   [`docs/template-policy.md`](docs/template-policy.md) for the full list, each reason and the
   checklist for promoting a template. This flake is the single template source: the CLI's

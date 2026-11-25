@@ -6,10 +6,11 @@ landed code are marked as such; the plan is kept for context. **Landed:** Phases
 verification through 3.4 (attestation `Fetch` trait and `Config`, `pins/src/source.rs` owning
 `checked_asset`/`verified_asset`/`release_url`, cargo/Vite+/bun checksum files anchored to GitHub
 asset digests, thorough npm/attestation tests, enforced `sync.rs` pairs, transactional updates and
-`update --check` wired into CI); and template work 4.1, 4.2 (Jupyter Poetry reading) and 4.5–4.7.
+`update --check` wired into CI); template work 4.1, 4.2 (Jupyter Poetry reading) and 4.5–4.7;
+and 4.3 (Elm — `data/elm`, signed npm pins, `lib/elm`, `pin elm`, doctor/init, Home Manager, docs
+and the pinned Elm template).
 **Deferred, not implemented:** 3.2's local Sigstore bundle
-verification (tradeoff documented), 3.5 (uniform data shape / `pin --json`), 4.3 (Elm — next
-promotion; design in the "Elm full-stack promotion design" thread) and 4.4 (Swift, Elixir,
+verification (tradeoff documented), 3.5 (uniform data shape / `pin --json`) and 4.4 (Swift, Elixir,
 HashiCorp). The decisions behind these deferrals are recorded in
 [`implementation-decisions.md`](implementation-decisions.md).
 **Scope:** the whole repository — Rust workspace, Nix library/flake/side-car files, pin
@@ -108,14 +109,14 @@ one full language stack at a time (Elm first).
 
 ### 2.3 Supported toolchain set today
 
-Rust, Node, Python, Go, Zig, Deno, tsrs, plus bun/pnpm/yarn as Node package managers.
+Rust, Node, Python, Go, Zig, Deno, tsrs, Elm, plus bun/pnpm/yarn as Node package managers.
 
-- `init` detects six project-file kinds ([init/lib.rs](/Users/gaurav/personal/projects/crucible/crates/init/src/lib.rs:91)):
-  `rust-toolchain.toml`/`rust-toolchain`, `package.json`, `deno.json(c)`, `pyproject.toml` or
-  `.python-version`, `go.mod`, `build.zig.zon`.
-- `doctor` covers Rust, Node, Python, Go, Zig, Deno ([doctor/lib.rs](/Users/gaurav/personal/projects/crucible/crates/doctor/src/lib.rs:28)).
-- Home Manager has six options (rust, node, python, go, zig, tsrs) — **no `deno` option**.
-- `pin` commands exist only for rust, node, go, python ([main.rs](/Users/gaurav/personal/projects/crucible/crates/crucible/src/main.rs:84)).
+- `init` detects seven project-file kinds ([init/lib.rs](/Users/gaurav/personal/projects/crucible/crates/init/src/lib.rs:91)):
+  `rust-toolchain.toml`/`rust-toolchain`, `package.json`, `deno.json(c)`, `elm.json`,
+  `pyproject.toml` or `.python-version`, `go.mod`, `build.zig.zon`.
+- `doctor` covers Rust, Node, Python, Go, Zig, Deno, Elm ([doctor/lib.rs](/Users/gaurav/personal/projects/crucible/crates/doctor/src/lib.rs:28)).
+- Home Manager has seven options (rust, node, python, go, zig, tsrs, elm) — **no `deno` option**.
+- `pin` commands exist for rust, node, go, python and elm ([main.rs](/Users/gaurav/personal/projects/crucible/crates/crucible/src/main.rs:84)).
 
 ### 2.4 One template source (reconciled in 4.6)
 
@@ -426,6 +427,7 @@ This is precisely why the 16 gap templates remain nixpkgs-only.
 | pnpm (new)                          | GitHub attestation metadata: in-toto type, repo, tag, subject name+digest. **Sigstore signature not verified locally** — TLS-authenticated lookup only | [attestation.rs:80](/Users/gaurav/personal/projects/crucible/crates/upstream/src/attestation.rs:80)                                                                                     |
 | bun                                 | **None** — `SHASUMS256.txt` trusted over HTTPS, asymmetric with python/uv                                                                              | [package_managers.rs:295](/Users/gaurav/personal/projects/crucible/crates/pins/src/update/package_managers.rs:295)                                                                      |
 | yarn / tsrs (new)                   | npm ECDSA signature vs 2 pinned keys; retired-key expiry checked against packument `time` for yarn                                                     | [npm.rs:59](/Users/gaurav/personal/projects/crucible/crates/upstream/src/npm.rs:59)                                                                                                     |
+| Elm (4.3)                           | npm signature over `@elm_binaries` tarballs' SHA-512 `dist.integrity`; `-0` npm suffix stripped from the version, kept in tarball URLs                 | [elm.rs](/Users/gaurav/personal/projects/crucible/crates/pins/src/update/elm.rs)                                                                                                        |
 | Deno                                | GitHub API asset digest; missing digest fatal, no fallback                                                                                             | [deno.rs:77](/Users/gaurav/personal/projects/crucible/crates/pins/src/update/deno.rs:77)                                                                                                |
 | Python / uv                         | GitHub recorded digest of the checksum file — good                                                                                                     | [python.rs:310](/Users/gaurav/personal/projects/crucible/crates/pins/src/update/python.rs:310)                                                                                          |
 | Go                                  | go.dev index sha256 over HTTPS; no signed sums exist upstream (documented)                                                                             | [go.rs:150](/Users/gaurav/personal/projects/crucible/crates/pins/src/update/go.rs:150)                                                                                                  |
@@ -466,7 +468,7 @@ This is precisely why the 16 gap templates remain nixpkgs-only.
 
 ### A.4.4 `pin` command coverage
 
-`pin` exists for rust, node, go, python only
+`pin` exists for rust, node, go, python and elm
 ([main.rs:84](/Users/gaurav/personal/projects/crucible/crates/crucible/src/main.rs:84)).
 Cargo, Deno, Zig, tsrs, Vite+ and package managers accept only pinned releases, with error
 messages pointing at the maintainer-only `crucible update`. This is a usability gap, not a false
@@ -479,8 +481,8 @@ explicitly say "not supported; wait for the next update" instead of naming a mai
 
 ## B.1 Headline
 
-**Nine template attrs call `crucible.lib`:** `default`, `rust`, `node`, `bun`, `python`, `uv`,
-`go`, `zig` and `deno`. The sibling rewrite is done: those dev shells take their toolchains from
+**Ten template attrs call `crucible.lib`:** `default`, `rust`, `node`, `bun`, `python`, `uv`,
+`go`, `zig`, `deno` and `elm` (promoted in 4.3). The sibling rewrite is done: those dev shells take their toolchains from
 the pinned releases (4.1), and `default` is the only one with a package output — all templates are
 dev-shell-only otherwise. The other attrs are nixpkgs-only by the policy in
 `docs/template-policy.md`; their vestigial `crucible` input has been removed (4.7, with
@@ -488,36 +490,36 @@ dev-shell-only otherwise. The other attrs are nixpkgs-only by the policy in
 
 ## B.2 Full template map
 
-| Template                     | Files / target                                       | `crucible` input | Uses `crucible.lib` | Classification & need                                                                                                                           |
-| ---------------------------- | ---------------------------------------------------- | ---------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `default`                    | 7 files, Rust + `rust-toolchain.toml`                | Yes              | **Yes**             | Direct: `rust.fromToolchainFile` + `rustPlatform.buildRustPackage`; the only package output                                                     |
-| `rust`                       | `.envrc`, `flake.nix`                                | Yes              | **Yes**             | Direct: `rust.toolchain`; fenix is gone                                                                                                         |
-| `node`                       | Node via nixpkgs `nodejs`, `pnpm`                    | Yes              | **Yes**             | Direct: `node.toolchain` with pinned pnpm                                                                                                       |
-| `bun`                        | nixpkgs `bun`                                        | Yes              | **Yes**             | Direct: `node.toolchain { packageManager = "bun@1"; }` using the pinned bun                                                                     |
-| `python`                     | hardcoded `python313`                                | Yes              | **Yes**             | Direct: `python.toolchain`                                                                                                                      |
-| `uv`                         | hardcoded `python313`, `uv`                          | Yes              | **Yes**             | Direct: `python.toolchain` (carries uv) and `node.toolchain`                                                                                    |
-| `go`                         | overlay `go_1_24`                                    | Yes              | **Yes**             | Direct: `go.toolchain`                                                                                                                          |
-| `zig`                        | nixpkgs `zig`, `zls`                                 | Yes              | **Yes**             | Direct: `zig.toolchain` (the comment points at `fromBuildZigZon`)                                                                               |
-| `deno`                       | nixpkgs `deno`                                       | Yes              | **Yes**             | Direct: `deno.toolchain {}`                                                                                                                     |
-| `tsrs`                       | no template                                          | —                | —                   | Toolchain exists; a trivial template could be added                                                                                             |
-| `jupyter`                    | Python 3.11 + Poetry + Jupyter, has `pyproject.toml` | No               | No                  | **Landed in 4.2:** now calls `crucible.lib.python.fromPyprojectToml`, which reads Poetry's `^3.11`; Poetry/ipykernel stay app-level             |
-| `elm`                        | nixpkgs `elmPackages.elm`, `elm2nix`                 | No               | No                  | **Partial → feasible:** reuse npm-signature pin pattern; needs `data/elm`, `lib/elm`, `pins update elm`, `elm.json` detection, doctor/HM/checks |
-| `swift`                      | nixpkgs `swift`, `sourcekit-lsp`                     | No               | No                  | Nixpkgs-only today; technically feasible (SDK integration is large)                                                                             |
-| `elixir`                     | nixpkgs BEAM: `erlang_27`, `elixir_1_17`             | No               | No                  | Nixpkgs-only; needs two-axis OTP × Elixir pin model, `mix.exs` detection                                                                        |
-| `hashi` (`hash` attr)        | 10 HashiCorp tools; `allowUnfree`                    | No               | No                  | Nixpkgs-only; ten independent APIs, no project version file                                                                                     |
-| `c-cpp` (`c`, `cpp` aliases) | clang-tools, cmake, conan, gtest, lcov, vcpkg, …     | No               | No                  | Nixpkgs-only; no version file, many independent ecosystems. Only existing link is `doctor::check_cc`                                            |
-| `java`, `kotlin`, `scala`    | JDK 25 + Maven/Gradle/sbt                            | No               | No                  | Nixpkgs-only; vendor JDK licensing, build-time registry resolution conflicts with offline eval                                                  |
-| `laravel`, `php`             | PHP + Composer                                       | No               | No                  | Nixpkgs-only; no per-system upstream toolchain archive, Packagist resolution                                                                    |
-| `nim`, `odin`                | nixpkgs source-bootstrap compilers                   | No               | No                  | Nixpkgs-only; no prebuilt release-archive index                                                                                                 |
-| `nix`                        | nixd, cachix, statix, …                              | No               | No                  | Nixpkgs-only by design; self-referential to pin Nix tooling                                                                                     |
-| `shell`                      | shellcheck only                                      | No               | No                  | N/A — no toolchain version to pin                                                                                                               |
-| `empty`                      | empty shell                                          | No               | No                  | N/A — `DEFAULT_TEMPLATE` in `crates/crucible/src/templates.rs`                                                                                  |
+| Template                     | Files / target                                       | `crucible` input | Uses `crucible.lib` | Classification & need                                                                                                               |
+| ---------------------------- | ---------------------------------------------------- | ---------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `default`                    | 7 files, Rust + `rust-toolchain.toml`                | Yes              | **Yes**             | Direct: `rust.fromToolchainFile` + `rustPlatform.buildRustPackage`; the only package output                                         |
+| `rust`                       | `.envrc`, `flake.nix`                                | Yes              | **Yes**             | Direct: `rust.toolchain`; fenix is gone                                                                                             |
+| `node`                       | Node via nixpkgs `nodejs`, `pnpm`                    | Yes              | **Yes**             | Direct: `node.toolchain` with pinned pnpm                                                                                           |
+| `bun`                        | nixpkgs `bun`                                        | Yes              | **Yes**             | Direct: `node.toolchain { packageManager = "bun@1"; }` using the pinned bun                                                         |
+| `python`                     | hardcoded `python313`                                | Yes              | **Yes**             | Direct: `python.toolchain`                                                                                                          |
+| `uv`                         | hardcoded `python313`, `uv`                          | Yes              | **Yes**             | Direct: `python.toolchain` (carries uv) and `node.toolchain`                                                                        |
+| `go`                         | overlay `go_1_24`                                    | Yes              | **Yes**             | Direct: `go.toolchain`                                                                                                              |
+| `zig`                        | nixpkgs `zig`, `zls`                                 | Yes              | **Yes**             | Direct: `zig.toolchain` (the comment points at `fromBuildZigZon`)                                                                   |
+| `deno`                       | nixpkgs `deno`                                       | Yes              | **Yes**             | Direct: `deno.toolchain {}`                                                                                                         |
+| `tsrs`                       | no template                                          | —                | —                   | Toolchain exists; a trivial template could be added                                                                                 |
+| `jupyter`                    | Python 3.11 + Poetry + Jupyter, has `pyproject.toml` | No               | No                  | **Landed in 4.2:** now calls `crucible.lib.python.fromPyprojectToml`, which reads Poetry's `^3.11`; Poetry/ipykernel stay app-level |
+| `elm`                        | pinned npm `@elm_binaries`, `elm2nix` from nixpkgs   | Yes              | **Yes**             | **Landed in 4.3:** `elm.fromElmJson` reads `elm.json`; pins verified by npm signatures                                              |
+| `swift`                      | nixpkgs `swift`, `sourcekit-lsp`                     | No               | No                  | Nixpkgs-only today; technically feasible (SDK integration is large)                                                                 |
+| `elixir`                     | nixpkgs BEAM: `erlang_27`, `elixir_1_17`             | No               | No                  | Nixpkgs-only; needs two-axis OTP × Elixir pin model, `mix.exs` detection                                                            |
+| `hashi` (`hash` attr)        | 10 HashiCorp tools; `allowUnfree`                    | No               | No                  | Nixpkgs-only; ten independent APIs, no project version file                                                                         |
+| `c-cpp` (`c`, `cpp` aliases) | clang-tools, cmake, conan, gtest, lcov, vcpkg, …     | No               | No                  | Nixpkgs-only; no version file, many independent ecosystems. Only existing link is `doctor::check_cc`                                |
+| `java`, `kotlin`, `scala`    | JDK 25 + Maven/Gradle/sbt                            | No               | No                  | Nixpkgs-only; vendor JDK licensing, build-time registry resolution conflicts with offline eval                                      |
+| `laravel`, `php`             | PHP + Composer                                       | No               | No                  | Nixpkgs-only; no per-system upstream toolchain archive, Packagist resolution                                                        |
+| `nim`, `odin`                | nixpkgs source-bootstrap compilers                   | No               | No                  | Nixpkgs-only; no prebuilt release-archive index                                                                                     |
+| `nix`                        | nixd, cachix, statix, …                              | No               | No                  | Nixpkgs-only by design; self-referential to pin Nix tooling                                                                         |
+| `shell`                      | shellcheck only                                      | No               | No                  | N/A — no toolchain version to pin                                                                                                   |
+| `empty`                      | empty shell                                          | No               | No                  | N/A — `DEFAULT_TEMPLATE` in `crates/crucible/src/templates.rs`                                                                      |
 
 ## B.3 Classification summary
 
 - **Direct, and now shipped as supported templates:** `default`, `rust`, `node`, `bun`, `python`,
-  `uv`, `go`, `zig`, `deno`. A `tsrs` template would be trivial but does not exist yet.
-- **Partial:** `jupyter` (project-file reading), `elm` (feasible new pin pipeline).
+  `uv`, `go`, `zig`, `deno`, `elm`. A `tsrs` template would be trivial but does not exist yet.
+- **Partial:** `jupyter` (project-file reading).
 - **Feasible but large:** `swift`, `elixir`, `hashi`.
 - **Nixpkgs-only, with reasons (the policy in `docs/template-policy.md`):** `c-cpp` (and its `c`
   / `cpp` aliases), `java`, `kotlin`, `scala`, `laravel`, `php`, `nim`, `odin`, `nix`, `shell`,
@@ -525,9 +527,9 @@ dev-shell-only otherwise. The other attrs are nixpkgs-only by the policy in
 
 ## B.4 `init` detection gaps vs templates
 
-`init` detects only rust toolchain files, `package.json`, `deno.json(c)`, `pyproject.toml` /
-`.python-version`, `go.mod`, `build.zig.zon`. None of the 16 gap templates' project files are
-detected: no `CMakeLists.txt`, `mix.exs`, `elm.json`, `*.tf`, `pom.xml`, `build.gradle[.kts]`,
+`init` detects rust toolchain files, `package.json`, `deno.json(c)`, `elm.json`,
+`pyproject.toml` / `.python-version`, `go.mod`, `build.zig.zon`. None of the remaining gap
+templates' project files are detected: no `CMakeLists.txt`, `mix.exs`, `*.tf`, `pom.xml`, `build.gradle[.kts]`,
 `.java-version`, `composer.json`, `.nimble`, `Package.swift`, `build.sbt`, `*.nix` or shell files.
 `Cargo.toml` alone is deliberately not detected — only rustup files are, matching `default`.
 Promoting any gap template therefore requires the full stack from A.3.3 including an `init` detector.
@@ -627,7 +629,7 @@ its rsync exclusions, and x86_64-linux remains CI-only.
 | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
 | 4.1 | Finish the sibling set (default/rust, node, bun, python, uv, go, zig, deno)                                                                                              | Each dev shell evaluates and uses `crucible.lib`                                                  |
 | 4.2 | Fix `jupyter`'s Poetry `pyproject.toml` reading in `fromPyprojectToml` (or document fallback)                                                                            | Jupyter's Python version resolves to 3.11 as the file states                                      |
-| 4.3 | Promote `elm` as the first new language, following the full A.3.3 checklist                                                                                              | `lib/elm`, `data/elm`, `pins update elm`, `tests/elm`, doctor, HM, init detection, docs, template |
+| 4.3 | **Landed:** promote `elm` as the first new language, following the full A.3.3 checklist                                                                                  | `lib/elm`, `data/elm`, `pins update elm`, `tests/elm`, doctor, HM, init detection, docs, template |
 | 4.4 | Then Swift, Elixir, HashiCorp in that feasibility order                                                                                                                  | Same full-stack acceptance per language                                                           |
 | 4.5 | **Landed:** `docs/template-policy.md`, README and ARCHITECTURE list the nixpkgs-only templates with reasons and define "supported template" as the intersection above    | "Supported template" is an explicit, listed intersection                                          |
 | 4.6 | **Landed:** the CLI uses `github:kiyors/crucible#<name>` and validates names against an explicit list from `templates.nix`; the leftover is the two `main.rs` help lines | One canonical source; helper validation                                                           |

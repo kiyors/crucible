@@ -50,7 +50,7 @@
 
   elm = {
     path = ./templates/elm;
-    description = "Elm and elm2nix from nixpkgs";
+    description = "Elm pinned from elm.json by crucible, with elm2nix from nixpkgs";
   };
 
   empty = {

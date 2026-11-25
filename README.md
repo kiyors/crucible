@@ -12,6 +12,7 @@ source or through another overlay, and pinned from the files projects already ha
   the relocatable builds uv installs, with [uv](https://docs.astral.sh/uv) next to them, set up
   to use that Python and never download one.
 - **Deno**: the official denoland/deno release builds.
+- **Elm**: the compiler from the npm packages that the Elm launcher installs for each platform.
 - **Go**: the official go.dev builds, set up so `go` never downloads another toolchain.
 - **Zig**: the official ziglang.org releases, pinned from ziglang.org's own `index.json`.
 - **tsrs**: [oxc-project/tsrs](https://github.com/oxc-project/tsrs), the Rust port of the
@@ -30,6 +31,7 @@ source or through another overlay, and pinned from the files projects already ha
     `data/node/vite-plus.json` the Vite+ release with its dependency tree, and
     `data/node/package-managers.json` the newest pnpm, yarn and bun of every supported major
   - `data/deno/deno.json`: the newest Deno release
+  - `data/elm/elm.json`: the newest Elm compiler, with its per-platform npm tarballs
   - `data/python/python.json`: the newest CPython of every supported line, regular and
     freethreaded, and `data/python/uv.json` the uv release
   - `data/go/go.json`: the newest release of the two supported Go lines
@@ -62,6 +64,9 @@ releases support.
 | `lib.<system>.node.toolchain`           | a toolchain from a Node.js version or range                      |
 | `lib.<system>.node.fromPackageJson`     | a toolchain from a project's `package.json`                      |
 | `lib.<system>.deno.toolchain`           | a Deno release from denoland/deno's GitHub releases              |
+| `packages.<system>.elm`                 | the newest pinned Elm compiler                                   |
+| `lib.<system>.elm.toolchain`            | an Elm compiler from a version and per-system hashes             |
+| `lib.<system>.elm.fromElmJson`          | a compiler from a project's `elm.json`                           |
 | `packages.<system>.python`              | the newest CPython + pip + uv                                    |
 | `packages.<system>.uv`                  | `uv` alone, on that CPython                                      |
 | `lib.<system>.python.toolchain`         | a toolchain from a Python version or specifier                   |
@@ -76,7 +81,7 @@ releases support.
 | `packages.<system>.tsrs`                | `tsrs` and `tsrs-lint` (the pinned release)                      |
 | `lib.<system>.tsrs.toolchain`           | the pinned tsrs release                                          |
 | `overlays.default`                      | `pkgs.crucible`: `.rust`, `.node`, `.python`, `.go`, `.zig`, ... |
-| `homeManagerModules.default`            | `programs.crucible.{rust,node,python,go,zig,tsrs}`               |
+| `homeManagerModules.default`            | `programs.crucible.{rust,node,python,go,zig,tsrs,elm}`           |
 | `templates.{default,node,python,...}`   | starter projects for every language, see [Templates](#templates) |
 
 Every Rust toolchain also carries:
@@ -445,13 +450,95 @@ crucible.lib.${system}.deno.toolchain {
 
 The toolchain carries `.deno`, the executable from the denoland/deno release, and `.version`.
 The release is pinned in `data/deno/deno.json` from denoland/deno's GitHub releases, and
-`crucible update deno` refreshes it; today it is the newest Deno 2, 2.9.8. A major or release
+`crucible update deno` refreshes it; the pin holds the newest Deno 2, 2.9.8. A major or release
 that is not pinned is an evaluation error rather than a silent substitution.
 
 There is no `fromDenoJson`: `deno.json` (and `deno.jsonc`) pins a project's dependencies and
 tasks, but has no field for the version of Deno itself, so there is nothing in it to resolve.
 `crucible init` and the Deno template call `toolchain { }`; pass `version = "2"` to stay on one
 major line when a newer one is pinned.
+
+## Elm
+
+The compiler is the one the official `elm` npm launcher installs from its
+`@elm_binaries/<platform>` optional dependencies. crucible installs that executable
+directly, with no npm or Node.js at runtime.
+
+```nix
+crucible.lib.${system}.elm.toolchain {
+  version ? "latest";  # "latest" (the pinned compiler) or an exact pinned version
+  hashes ? null;       # per-system { url, hash } for an unpinned compiler, from `pin elm`
+}
+```
+
+The version is written in `elm.json` form: today it is 0.19.3. npm wraps the compiler as
+`elm@0.19.3-0`, and each platform tarball keeps that `-0` suffix in its URL
+(`https://registry.npmjs.org/@elm_binaries/linux_x64/-/linux_x64-0.19.3-0.tgz`), while the
+pin, the toolchain argument and the compiler's own `--version` use `0.19.3`. Only
+`x86_64-linux`, `aarch64-linux` and `aarch64-darwin` are pinned: npm publishes no darwin x64
+binary. An unpinned version fails at evaluation time instead of downloading one; use
+`pin elm` or `crucible update elm` first.
+
+### fromElmJson
+
+```nix
+crucible.lib.${system}.elm.fromElmJson { file = ./elm.json; }
+```
+
+It reads `elm-version` from the project's `elm.json` (for example `"0.19.3"`) and resolves
+it offline against `data/elm/elm.json`. A file that names an unpinned compiler is an
+evaluation error that says to update crucible or pass `hashes` to `toolchain`.
+
+```nix
+devShells.default = pkgs.mkShellNoCC {
+  packages = [
+    (crucible.lib.${system}.elm.fromElmJson { file = ./elm.json; })
+    pkgs.elm2nix
+  ];
+};
+```
+
+`elm2nix` is an app-level generator, so it stays a nixpkgs package next to the pinned
+compiler; the Elm template installs both.
+
+### Home Manager
+
+```nix
+programs.crucible.elm = {
+  enable = true;
+  # package = inputs.crucible.lib.${pkgs.stdenv.hostPlatform.system}.elm.toolchain { version = "0.19.3"; };
+  extraPackages = [ pkgs.elm2nix ];
+};
+```
+
+The module installs the compiler and its `extraPackages`; a project with its own `elm.json`
+gets its compiler from a dev shell built with `fromElmJson`.
+
+### How the pin is verified
+
+The trust anchor is npm's registry signature: `crucible update elm` checks each
+platform tarball's SHA-512 `dist.integrity` against the signature on the npm packument,
+using the registry's pinned signing keys, before writing its hash to `data/elm/elm.json`.
+Nix only reads those hashes offline. `crucible pin elm 0.19.3` prints the same verified
+sources as a `toolchain` call, stripping npm's `-0` suffix from the version:
+
+```
+$ nix run github:kiyors/crucible#crucible-full -- pin elm 0.19.3
+elm: 0.19.3
+
+x86_64-linux: https://registry.npmjs.org/@elm_binaries/linux_x64/-/linux_x64-0.19.3-0.tgz sha512-x+WXN...
+aarch64-linux: https://registry.npmjs.org/@elm_binaries/linux_arm64/-/linux_arm64-0.19.3-0.tgz sha512-MRIB...
+aarch64-darwin: https://registry.npmjs.org/@elm_binaries/darwin_arm64/-/darwin_arm64-0.19.3-0.tgz sha512-Kp6w...
+
+toolchain {
+  version = "0.19.3";
+  hashes = {
+    x86_64-linux = "sha512-x+WXN...";
+    aarch64-linux = "sha512-MRIB...";
+    aarch64-darwin = "sha512-Kp6w...";
+  };
+};
+```
 
 ## Python
 
@@ -845,11 +932,12 @@ one (the `default` template) has a `flake.nix` with a dev shell and a package, a
 <directory> [template]` and `crucible add [template]` use the same names as the list above, with
 no second flake input.
 
-Nine templates take their toolchain from crucible's pinned releases: `default`, `rust`, `node`,
-`bun`, `python`, `uv`, `go`, `zig` and `deno`. The rest use nixpkgs packages by policy, not as a
-temporary stand-in: a language stays there until it has a per-system release index, a project
-version file and a full pin pipeline. See [the template policy](docs/template-policy.md) for the
-explicit list and the reason for each one.
+Ten templates take their toolchain from crucible's pinned releases: `default`, `rust`, `node`,
+`bun`, `python`, `uv`, `go`, `zig`, `deno` and `elm`. The rest use nixpkgs packages by
+policy, not as a temporary stand-in: a language stays there until it has a per-system
+release index, a project version file and a full pin pipeline. See
+[the template policy](docs/template-policy.md) for the explicit list and the reason for
+each one.
 
 For a project that already exists, `crucible init` writes just the `flake.nix`:
 
@@ -877,6 +965,7 @@ for every supported system, with a toolchain for every language it finds:
 | `rust-toolchain.toml`, `rust-toolchain` | `rust.fromToolchainFile`                                                       |
 | `package.json`                          | `node.fromPackageJson` (reads `.node-version` or `.nvmrc` too)                 |
 | `deno.json`, `deno.jsonc`               | `deno.toolchain { }`, the newest pinned release                                |
+| `elm.json`                              | `elm.fromElmJson` (reads `elm-version`)                                        |
 | `pyproject.toml`                        | `python.fromPyprojectToml` (reads `.python-version` too)                       |
 | `.python-version` alone                 | `python.fromPythonVersion`                                                     |
 | `go.mod`                                | `go.fromGoMod`                                                                 |
@@ -922,6 +1011,7 @@ nix run github:kiyors/crucible#crucible-full -- pin rust 1.99      # the rust-ma
 nix run github:kiyors/crucible#crucible-full -- pin node 24.11.0   # the SHASUMS256.txt input and sha256 for a release
 nix run github:kiyors/crucible#crucible-full -- pin go 1.25.3      # the per-system hashes for a Go release
 nix run github:kiyors/crucible#crucible-full -- pin python 3.14.0  # the SHA256SUMS input for a Python release
+nix run github:kiyors/crucible#crucible-full -- pin elm 0.19.3      # the signed npm tarballs for an Elm compiler
 ```
 
 `packages.<system>.crucible`, what the bare `nix run` builds and what you install, has the
@@ -987,6 +1077,10 @@ yet), and a second copy further down PATH is warned about as above.
   between them.
 - **Deno.** `deno --version` is reported but not compared: `deno.json` has no field for the Deno
   release a project needs.
+- **Elm.** In a project with an `elm.json`, `elm --version` is compared with its `elm-version`
+  (a trailing `-0` from npm is ignored): an older compiler is an error because it cannot build
+  the project, a newer one is a warning, and a second `elm` further down PATH or a missing one
+  is warned about. Each message names `elm.fromElmJson` as the fix.
 
 Two hints cover problems that live outside the toolchain:
 
@@ -1007,6 +1101,7 @@ nix run .#crucible-full -- update cargo --version 0.103.0-1
 nix run .#crucible-full -- update rust                     # stable, beta, newest complete nightly
 nix run .#crucible-full -- update node                     # every supported Node.js line, and Vite+
 nix run .#crucible-full -- update deno                     # the newest stable Deno release
+nix run .#crucible-full -- update elm                      # the newest Elm compiler from signed npm tarballs
 nix run .#crucible-full -- update python                   # every supported CPython line (and its freethreaded line), and uv
 nix run .#crucible-full -- update go                       # the newest release of each supported Go line
 nix run .#crucible-full -- update zig                      # every tagged Zig release line
@@ -1027,8 +1122,12 @@ downloaded but metadata. Node.js's `SHASUMS256.txt` files are verified against t
 signatures before their hashes are used, with the active Node.js release keys vendored in
 `data/node/release-keys.asc`. Package-manager pins come from pnpm's GitHub release assets
 (checked against GitHub's artifact attestation metadata, without a local Sigstore signature
-check), the npm registry's `dist.integrity` (yarn and tsrs), and oven-sh/bun's release
-`SHASUMS256.txt`. Go and Zig publish no signed index, so their HTTPS metadata is the documented
+check), the npm registry's `dist.integrity` (yarn, tsrs and Elm), and oven-sh/bun's release
+`SHASUMS256.txt`. Elm's trust anchor is npm's signature over the packument: each
+`@elm_binaries` tarball's SHA-512 integrity is checked against that signature before its
+hash is stored; the npm version's `-0` suffix is stripped to match `elm.json` and
+`elm --version`, while the tarball URLs keep it. Go and Zig publish no signed index, so their
+HTTPS metadata is the documented
 trust anchor rather than a cryptographic verification. Go's hashes come from go.dev's release index (`?mode=json&include=all`), which
 also decides the supported lines: the two newest with a stable release, as Go's release policy
 has it. Which Node.js lines are supported comes from the Release working group's

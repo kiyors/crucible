@@ -1,42 +1,35 @@
 {
-  description = "Elm and elm2nix from nixpkgs";
+  description = "Elm pinned from crucible, with elm2nix";
 
-  inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable"; # unstable Nixpkgs
-  # Nixpkgs-only by policy: this template installs no toolchain from crucible's
-  # pins, so it deliberately takes no crucible input (see docs/template-policy.md).
+  inputs = {
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+    crucible = {
+      url = "github:kiyors/crucible";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+  };
 
   outputs =
-    inputs:
-
+    { nixpkgs, crucible, ... }:
     let
-      supportedSystems = [
+      # npm publishes no darwin x64 @elm_binaries package, so follow the three
+      # systems crucible pins instead of nixpkgs' wider set.
+      systems = [
         "x86_64-linux"
         "aarch64-linux"
-        "x86_64-darwin"
         "aarch64-darwin"
       ];
-      forEachSupportedSystem =
-        f:
-        inputs.nixpkgs.lib.genAttrs supportedSystems (
-          system:
-          f {
-            pkgs = import inputs.nixpkgs { inherit system; };
-          }
-        );
+      forAllSystems = nixpkgs.lib.genAttrs systems;
+      pkgsFor = system: nixpkgs.legacyPackages.${system};
     in
     {
-      devShells = forEachSupportedSystem (
-        { pkgs }:
-        {
-          default = pkgs.mkShellNoCC {
-            packages =
-              with pkgs;
-              [
-                elm2nix
-              ]
-              ++ (with elmPackages; [ elm ]);
-          };
-        }
-      );
+      devShells = forAllSystems (system: {
+        default = (pkgsFor system).mkShellNoCC {
+          packages = [
+            (crucible.lib.${system}.elm.fromElmJson { file = ./elm.json; })
+            (pkgsFor system).elm2nix
+          ];
+        };
+      });
     };
 }
