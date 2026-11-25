@@ -724,14 +724,25 @@ fn template_name_lists_match() {
          templates.nix"
     );
 
-    // The CLI uses a second, external template source. Its names cannot be
-    // checked offline (Phase 4.6 reconciles the two sources), but both the
-    // README and the CLI must still say where that source is.
+    // 4.6 made this flake the single template source. Both the CLI and the
+    // README must name it, and the CLI's accepted names must be the flake attrs.
     let cli = text("crates/crucible/src/templates.rs");
     assert!(
-        cli.contains("github:kiyors/templates") && readme.contains("nix-templates"),
-        "crucible: the CLI's template source and README.md's link disagree; edit \\
+        cli.contains("github:kiyors/crucible") && readme.contains("[`templates/`](templates)"),
+        "crucible: the CLI and README.md must name this flake's templates; edit \\
          crates/crucible/src/templates.rs or README.md"
+    );
+    let entries = strings(fragment(
+        &cli,
+        "crates/crucible/src/templates.rs",
+        "const TEMPLATE_DIRS",
+        "];",
+    ));
+    let accepted: BTreeSet<String> = entries.iter().step_by(2).cloned().collect();
+    assert_eq!(
+        accepted, attrs,
+        "crucible: TEMPLATE_DIRS in crates/crucible/src/templates.rs must cover the \\
+         templates.nix attrs; edit crates/crucible/src/templates.rs or templates.nix"
     );
 }
 

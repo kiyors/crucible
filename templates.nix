@@ -1,7 +1,7 @@
 # The flake's starter projects, exposed as `templates.<name>` for
 # `nix flake init -t github:kiyors/crucible#<name>`. Each path is a template
 # directory with its own flake.nix; `c` and `cpp` are aliases of `c-cpp`, and
-# `hash` points at the `hashi` directory, as in the nix-templates repo.
+# `hash` points at the `hashi` directory.
 {
   default = {
     path = ./templates/default;
