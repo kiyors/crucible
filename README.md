@@ -939,6 +939,12 @@ release index, a project version file and a full pin pipeline. See
 [the template policy](docs/template-policy.md) for the explicit list and the reason for
 each one.
 
+Swift, Elixir and the HashiCorp tools are nixpkgs-only **by decision**, not by omission:
+`crucible update`/`crucible pin` for them fail with a `crucible:` error that names the reason
+and points at [the template policy](docs/template-policy.md), and `crucible doctor` only prints
+an info line when it sees `Package.swift`/`.swift-version`, `mix.exs`/a BEAM `.tool-versions`
+or a `*.tf` file. There are no pins for them to consume.
+
 For a project that already exists, `crucible init` writes just the `flake.nix`:
 
 ```sh
@@ -1081,6 +1087,10 @@ yet), and a second copy further down PATH is warned about as above.
   (a trailing `-0` from npm is ignored): an older compiler is an error because it cannot build
   the project, a newer one is a warning, and a second `elm` further down PATH or a missing one
   is warned about. Each message names `elm.fromElmJson` as the fix.
+- **Swift, Elixir and HashiCorp.** A `Package.swift`/`.swift-version`, a `mix.exs`/a BEAM
+  `.tool-versions`, or a `*.tf` file gets one `info` line saying that stack is nixpkgs-only and
+  pointing at [the template policy](docs/template-policy.md). These lines never fail the run:
+  there is no crucible pin for them to compare against.
 
 Two hints cover problems that live outside the toolchain:
 
@@ -1112,6 +1122,11 @@ Cargo, Vite+, the Node.js package managers, Deno, Zig and tsrs accept pinned ver
 project asks for another one, the error says which versions are pinned and to wait for the next
 scheduled update. If you maintain the pins yourself, `#crucible-full` and the `update` commands
 above refresh them.
+
+`swift`, `elixir` and `hashi` are accepted names but are not pin families: `update`,
+`update --check` and `pin` for them fail with a `crucible:` error that names the tool, gives the
+short reason and points at [the template policy](docs/template-policy.md). They are nixpkgs-only
+by decision, so there is no `data/swift`, `data/elixir` or `data/hashi` to refresh.
 
 The fork's hashes come from each release's `SHA256SUMS`, Vite+'s from its `vp-checksums.txt` and
 pnpm lockfile, and bun's from `SHASUMS256.txt`; each of those checksum files is itself checked

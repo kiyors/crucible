@@ -89,6 +89,10 @@ shellcheck scripts/linux-from-macos.sh
   - versions described as current in `README.md` ↔ the pins in `data/**/*.json`; the check
     reads the version from the prose and finds it in the data, never the reverse, so a
     scheduled pin update does not need a source edit
+  - Swift, Elixir and HashiCorp stay nixpkgs-only (Phase 4.4 resolved by policy):
+    `crucible update`/`pin` for them must reach `pin::unsupported` rather than silently
+    doing nothing, and `templates/{swift,elixir,hashi}/flake.nix` must declare no `crucible`
+    input; `crates/init/tests/sync.rs` checks both
 - `crates/init/tests/sync.rs` enforces every pair above. Edit both sides of a pair together, or
   the check fails with the file names to fix.
 - **Package builds use `.rustPlatform`** (stock cargo). The fork cannot build in the sandbox,

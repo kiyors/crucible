@@ -194,3 +194,23 @@ fn public_pin_entry_points_reject_lines_without_network() {
     let err = pins::pin::go("1.27").unwrap_err().to_string();
     assert!(err.contains("\"1.27\" is not an exact Go release"), "{err}");
 }
+
+#[test]
+fn nixpkgs_only_languages_get_a_policy_error_not_a_bare_clap_message() {
+    // `pin` and `update` call the same helper, so these checks cover both.
+    for (name, reason) in [
+        ("swift", "Apple Developer-ID .pkg"),
+        ("elixir", "mix.exs cannot name OTP"),
+        ("hashi", "damon has no release assets"),
+    ] {
+        let err = pins::pin::unsupported(name).unwrap_err().to_string();
+        assert!(err.starts_with("crucible: "), "{err}");
+        assert!(
+            err.contains(&format!("{name} is not pinned by crucible")),
+            "{err}"
+        );
+        assert!(err.contains("nixpkgs-only toolchain"), "{err}");
+        assert!(err.contains(reason), "{err}");
+        assert!(err.contains("docs/template-policy.md"), "{err}");
+    }
+}

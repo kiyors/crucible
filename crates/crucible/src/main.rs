@@ -118,6 +118,21 @@ enum Pin {
         /// An exact release: 3.14.0
         version: String,
     },
+    /// Swift is nixpkgs-only; not pinned by crucible
+    Swift {
+        /// A Swift release, such as 6.0.2
+        version: String,
+    },
+    /// Elixir is nixpkgs-only; not pinned by crucible
+    Elixir {
+        /// An Elixir release, such as 1.17.3
+        version: String,
+    },
+    /// The HashiCorp tools are nixpkgs-only; not pinned by crucible
+    Hashi {
+        /// A tool and release, such as terraform 1.13.0
+        version: String,
+    },
 }
 
 fn main() -> ExitCode {
@@ -215,6 +230,14 @@ fn run() -> Result<ExitCode> {
             pin::python(&version)?;
             Ok(ExitCode::SUCCESS)
         }
+        // These three are accepted by clap only to reach the shared helper:
+        // the user gets the reason and the policy doc, not "unknown command".
+        #[cfg(feature = "net")]
+        Command::Pin(Pin::Swift { .. }) => pin::unsupported("swift").map(|()| ExitCode::SUCCESS),
+        #[cfg(feature = "net")]
+        Command::Pin(Pin::Elixir { .. }) => pin::unsupported("elixir").map(|()| ExitCode::SUCCESS),
+        #[cfg(feature = "net")]
+        Command::Pin(Pin::Hashi { .. }) => pin::unsupported("hashi").map(|()| ExitCode::SUCCESS),
     }
 }
 

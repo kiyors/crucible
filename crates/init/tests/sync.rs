@@ -883,6 +883,76 @@ fn template_name_lists_match() {
     );
 }
 
+/// Phase 4.4 was resolved by policy, not silently dropped: the three languages
+/// are named in one shared error, and their templates must not pretend to be
+/// pinned. This guards both halves so a half-promotion fails a check. It
+/// asserts no fake data pins exist for them — there are deliberately none.
+#[test]
+fn nixpkgs_only_languages_are_explicitly_unsupported() {
+    if !repo_available() {
+        eprintln!(
+            "crucible: skipping source sync check: repo-root sources are absent from this build"
+        );
+        return;
+    }
+
+    let pin_file = "crates/pins/src/pin.rs";
+    let pin = text(pin_file);
+    let table = fragment(&pin, pin_file, "pub(crate) const UNSUPPORTED", "];");
+    let update_file = "crates/pins/src/update/mod.rs";
+    let update = text(update_file);
+    let main_file = "crates/crucible/src/main.rs";
+    let main = text(main_file);
+    let policy = text("docs/template-policy.md");
+
+    for name in ["swift", "elixir", "hashi"] {
+        assert!(
+            table.contains(&format!("\"{name}\"")),
+            "crucible: pin::UNSUPPORTED lost {name}; edit {pin_file}"
+        );
+        assert!(
+            update.contains(&format!("\"{name}\" => Ok(Scope::Unsupported(\"{name}\"))")),
+            "crucible: {name} must be accepted by update so it can be explained; edit {update_file}"
+        );
+        assert!(
+            main.contains(&format!("pin::unsupported(\"{name}\")")),
+            "crucible: `pin {name}` must reach the shared helper; edit {main_file}"
+        );
+        assert!(
+            policy.contains(name),
+            "crucible: docs/template-policy.md lost {name}; edit docs/template-policy.md"
+        );
+    }
+    for snippet in [
+        "is not pinned by crucible",
+        "nixpkgs-only toolchain",
+        "docs/template-policy.md",
+    ] {
+        assert!(
+            pin.contains(snippet),
+            "crucible: the shared unsupported error lost {snippet:?}; edit {pin_file}"
+        );
+    }
+    assert!(
+        update.contains("Scope::Unsupported(language) => return crate::pin::unsupported(language)")
+            && main.contains("Command::Pin(Pin::Swift { .. }) => pin::unsupported(\"swift\")"),
+        "crucible: update and pin must fail on an nixpkgs-only language; edit {update_file} or \\
+         {main_file}"
+    );
+
+    // (b) A nixpkgs-only template must declare only nixpkgs. An accidental
+    // `inputs.crucible` here would be a half-promotion with no pin pipeline.
+    for dir in ["swift", "elixir", "hashi"] {
+        let file = format!("templates/{dir}/flake.nix");
+        let flake = text(&file);
+        assert!(
+            !flake.contains("inputs.crucible"),
+            "crucible: {file} declares a crucible input; nixpkgs-only templates must not, see \\
+             docs/template-policy.md"
+        );
+    }
+}
+
 #[test]
 fn readme_versions_match_the_data_pins() {
     if !repo_available() {

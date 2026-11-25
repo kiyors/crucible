@@ -9,11 +9,14 @@
 //! `Env`: the process's in `run`, a fake one in the tests.
 
 mod deno;
+mod elixir;
 mod elm;
 mod go;
+mod hashi;
 mod node;
 mod python;
 mod rust;
+mod swift;
 mod zig;
 
 use std::collections::{HashMap, HashSet};
@@ -44,6 +47,12 @@ fn run_all(cwd: &Path, env: &Env) -> Checks {
     zig::check(&mut checks, cwd, env);
     deno::check(&mut checks, cwd, env);
     elm::check(&mut checks, cwd, env);
+    // Info-only: these three stacks are nixpkgs-only by policy, so their
+    // checks explain that when a project file is present without adding an
+    // error or changing any of the diagnostics above.
+    swift::check(&mut checks, cwd, env);
+    elixir::check(&mut checks, cwd, env);
+    hashi::check(&mut checks, cwd, env);
     checks
 }
 

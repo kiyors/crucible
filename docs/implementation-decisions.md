@@ -101,29 +101,42 @@ README/ARCHITECTURE/template-policy documentation. Elm has moved out of the
 nixpkgs-only table in [`template-policy.md`](template-policy.md). The plan's
 "partial / deferred" rows describe the state before this promotion.
 
-## Phase 4.4 — Swift, Elixir and HashiCorp (deferred)
+## Phase 4.4 — Swift, Elixir and HashiCorp (resolved by policy)
 
-**Decision: all three remain nixpkgs-only for now. None is implemented.**
+**Decision: all three stay nixpkgs-only. None is pinned, and that is now an
+explicit, testable user-facing policy rather than a silent gap.**
 
 They stay in the nixpkgs-only table of
-[`template-policy.md`](template-policy.md), and promotion order stays Swift,
-Elixir, HashiCorp as in the plan. The blockers are structural, not just missing
-glue:
+[`template-policy.md`](template-policy.md). The verified blockers are
+structural, not just missing glue:
 
-- **Swift** — SDK integration across all three systems is a large, separate
-  project; there is no simple per-system release-archive plus version-file pair
-  to pin.
-- **Elixir** — needs a two-axis OTP × Elixir pin model: Elixir publishes one
-  platform-independent zip per compiler × OTP-major, while OTP publishes only
-  source tarballs. `mix.exs` names the compiler range but no OTP version; only
-  `.tool-versions` names both, and `init` has no detector for either today.
-- **HashiCorp** — no project version file to read, so pinning would install the
-  newest pins without a project-level guarantee. Seven tools share
-  `releases.hashicorp.com`'s GPG-signed index, but tflint and terragrunt need
-  bespoke GitHub handling and damon has no release assets at all; four tools are
+- **Swift** — `releases.json` has no toolchain checksum to anchor a pin; the
+  macOS artifact is an Apple Developer-ID `.pkg` that cannot be verified or
+  unpacked on Linux CI, and the official artifacts need Xcode/Apple SDK setup.
+  There is no per-system release-archive plus version-file pair to pin.
+- **Elixir** — the compiler zips are easy (one platform-independent zip per
+  compiler × OTP-major, with GitHub digests), but OTP ships only as source
+  tarballs. A two-axis OTP × Elixir pin therefore needs per-system source
+  builds, and `mix.exs` names the compiler range but no OTP version; only
+  `.tool-versions` names both.
+- **HashiCorp** — no project version file to read, so a pin would install the
+  newest release without a project-level guarantee. Seven tools share
+  `releases.hashicorp.com`'s GPG-signed index, but damon has no release assets,
+  tflint and terragrunt need bespoke GitHub handlers, and four tools are
   unfree/BUSL. A subset promotion (Terraform first) is conceivable.
 
-Each would need the exact A.3.3 checklist from the plan, in full:
+Rather than invent pins, the CLI accepts these names and explains them:
+`crucible update <lang>`, `crucible update --check <lang>` and
+`crucible pin <lang> <version>` reach one shared `pin::unsupported` error that
+names the tool, gives the short reason and points at `docs/template-policy.md`.
+`doctor` adds info-only checks for `Package.swift`/`.swift-version`, `mix.exs`/
+a BEAM `.tool-versions`, and `*.tf`; they change no exit code or existing
+diagnostic. `crates/init/tests/sync.rs` guards both the messages and the absence
+of a `crucible` input from those three templates. There are no fake data pins
+to assert.
+
+Each promotion would still need the exact A.3.3 checklist from the plan, in
+full:
 
 1. `crates/upstream/src/<format>.rs` if a new metadata format is needed.
 2. `crates/pins/src/update/<lang>.rs`, a `Scope` variant, usually a `Pin`

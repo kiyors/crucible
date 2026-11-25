@@ -369,7 +369,9 @@ process.
 
 `pins`:
 
-- `update/`: `update [all|cargo|rust|node|deno|python|go|zig|tsrs]`. It fetches and validates **every** pin before writing
+- `update/`: `update [all|cargo|rust|node|deno|python|go|zig|tsrs|swift|elixir|hashi]`. The last
+  three are nixpkgs-only names: clap accepts them so `run` and `check` can return the shared
+  `pin::unsupported` error instead of a silent no-op. The real families fetch and validate **every** pin before writing
   anything, then replaces each file atomically in a fixed order, under a
   `.crucible-update.lock` in the repo root. A half-written pin is worse than a stale one,
   because the flake would fail to evaluate. The nightly search fetches up to a month of dated
@@ -401,7 +403,9 @@ process.
   `pin python <x.y.z>` (in `pin.rs`) walks the repo's release list from the newest until a build
   carries the release's `install_only` archives for every system, checks the build's
   `SHA256SUMS` against the digest GitHub recorded for it, and prints the `sha256sums` input and
-  the file's hash.
+  the file's hash. `pin.rs` also owns `unsupported(language)`, the one `crucible:` error used by
+  `pin swift|elixir|hashi` and by `update`/`update --check` for the same names: it says the tool
+  is nixpkgs-only, gives the short reason and points at `docs/template-policy.md`.
 
 `doctor` checks the user's environment. Is `cargo` the fork? It also looks for rustup
 proxies, `CARGO_INCREMENTAL=0`, `CARGO_TARGET_DIR`, `RUSTC_WRAPPER` caches, a stale
@@ -418,8 +422,8 @@ warned about like extra cargos. Which node a package manager runs on is read fro
 `.<name>-wrapped` target), never from scanning a bundled script, whose strings mention node paths
 that say nothing about how it runs.
 
-The other languages live in their own modules (`python.rs`, `go.rs`, `zig.rs`, `deno.rs`), each
-silent when neither its executable nor its project file is found. They read PATH and variables
+The other languages live in their own modules (`python.rs`, `go.rs`, `zig.rs`, `deno.rs`,
+`elm.rs`), each silent when neither its executable nor its project file is found. They read PATH and variables
 through `Env`, which the tests replace with their own so they never touch the process
 environment, and share `find_nearest_file`, `shadowed`, `stdout_of` and `at_least` (a minimum,
 through `version_matches`). Python compares `python3` with `.python-version` and
@@ -431,6 +435,12 @@ crucible's makeWrapper script when the variable is unset. Go compares `go versio
 (environment, `GOENV` file, the GOROOT's `go.env`), and runs every go command with
 `GOTOOLCHAIN=local` so none of them downloads a toolchain. Zig compares `zig version` with
 `.minimum_zig_version`. Deno only reports the version: `deno.json` pins none.
+
+`swift.rs`, `elixir.rs` and `hashi.rs` are deliberately info-only. They speak up when a
+`Package.swift`/`.swift-version`, a `mix.exs`/a BEAM `.tool-versions`, or a `*.tf` file is
+present, saying the stack is nixpkgs-only and pointing at the template policy. They add no
+errors and leave every other diagnostic untouched, because crucible has no pin to compare
+against.
 
 ### Integration
 
@@ -470,7 +480,13 @@ crucible's makeWrapper script when the variable is unset. Go compares `go versio
 - The other templates take packages straight from nixpkgs by policy, not as a temporary stand-in:
   C/C++, the JVM family, PHP/Laravel, Nim, Odin, Nix tooling, shell, `empty`, HashiCorp, Jupyter,
   Swift and Elixir have no per-system release index, no project version file or no complete
-  pin pipeline, and forcing one would add no value. They declare no `crucible` input. See
+  pin pipeline, and forcing one would add no value. They declare no `crucible` input. Phase 4.4
+  made the last three explicit: Swift has no release checksum and its macOS artifact is an
+  unverifiable Apple Developer-ID `.pkg` needing Xcode/Apple SDK setup; Elixir's OTP is
+  source-only, so a two-axis pin would need per-system source builds and `mix.exs` cannot name
+  OTP; HashiCorp has no project version file, damon no assets, bespoke tflint/terragrunt handling
+  and four unfree tools. `crates/init/tests/sync.rs` guards both the CLI messages and the
+  absence of a `crucible` input from those templates. See
   [`docs/template-policy.md`](docs/template-policy.md) for the full list, each reason and the
   checklist for promoting a template. This flake is the single template source: the CLI's
   `init`/`add` use `github:kiyors/crucible#<name>`, so no second flake input is needed.
@@ -516,6 +532,9 @@ crucible's makeWrapper script when the variable is unset. Go compares `go versio
   The Zig checks run `zig version` and build and run `tests/zig/hello` with the default
   toolchain, check every pinned line resolves, resolve `fromBuildZigZon` on the zon fixtures,
   and reject misuse at evaluation time.
+  `crates/init/tests/sync.rs` also enforces the policy: the three nixpkgs-only languages must
+  appear in the shared unsupported error and CLI dispatch, and their template flakes must not
+  declare a `crucible` input.
 - `dev/flake.nix`: a separate flake for treefmt (nixfmt, deadnix, statix, typos, oxfmt,
   rustfmt, taplo) and git hooks (treefmt, gitleaks), kept separate so consumers never pay for
   those inputs. It also owns the Home Manager module check, since the main flake must keep

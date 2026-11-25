@@ -13,8 +13,9 @@ use clap::{CommandFactory, Parser, Subcommand};
 
 const SOURCE: &str = include_str!("../src/main.rs");
 const PINS_UPDATE: &str = include_str!("../../pins/src/update/mod.rs");
-const SCOPES: [&str; 10] = [
-    "all", "cargo", "rust", "node", "deno", "elm", "python", "go", "zig", "tsrs",
+const SCOPES: [&str; 13] = [
+    "all", "cargo", "rust", "node", "deno", "elm", "python", "go", "zig", "tsrs", "swift",
+    "elixir", "hashi",
 ];
 
 #[track_caller]
@@ -116,6 +117,12 @@ enum FullPin {
         /// An exact release: 3.14.0
         version: String,
     },
+    /// Swift is nixpkgs-only; not pinned by crucible
+    Swift { version: String },
+    /// Elixir is nixpkgs-only; not pinned by crucible
+    Elixir { version: String },
+    /// The HashiCorp tools are nixpkgs-only; not pinned by crucible
+    Hashi { version: String },
 }
 
 /// The user build: no `update`/`pin`; an unknown word is an external command.
@@ -226,6 +233,9 @@ fn the_full_build_exposes_update_and_pin_flags() {
         (vec!["crucible", "pin", "python", "3.14.0"], "python"),
         (vec!["crucible", "pin", "go", "1.25.3"], "go"),
         (vec!["crucible", "pin", "elm", "0.19.3"], "elm"),
+        (vec!["crucible", "pin", "swift", "6.0.2"], "swift"),
+        (vec!["crucible", "pin", "elixir", "1.17.3"], "elixir"),
+        (vec!["crucible", "pin", "hashi", "1.13.0"], "hashi"),
     ] {
         let cli = Full::try_parse_from(args).unwrap();
         let FullCommand::Pin(pin) = cli.command else {
@@ -237,6 +247,9 @@ fn the_full_build_exposes_update_and_pin_flags() {
             FullPin::Python { .. } => "python",
             FullPin::Go { .. } => "go",
             FullPin::Elm { .. } => "elm",
+            FullPin::Swift { .. } => "swift",
+            FullPin::Elixir { .. } => "elixir",
+            FullPin::Hashi { .. } => "hashi",
         };
         assert_eq!(name, expected);
     }
@@ -279,12 +292,35 @@ fn invalid_update_scopes_fail_with_the_possible_values() {
 }
 
 #[test]
+fn nixpkgs_only_names_are_accepted_so_the_cli_can_explain_them() {
+    // They must not fail in clap: a bare "unknown scope"/"unknown subcommand"
+    // would hide the policy reason. `run` turns them into pin::unsupported.
+    for name in ["swift", "elixir", "hashi"] {
+        let cli = Full::try_parse_from(["crucible", "update", name]).unwrap();
+        assert!(matches!(cli.command, FullCommand::Update { .. }), "{name}");
+        let cli = Full::try_parse_from(["crucible", "update", "--check", name]).unwrap();
+        assert!(matches!(cli.command, FullCommand::Update { .. }), "{name}");
+        let cli = Full::try_parse_from(["crucible", "pin", name, "1.2.3"]).unwrap();
+        let FullCommand::Pin(pin) = cli.command else {
+            panic!("expected pin for {name}")
+        };
+        assert!(
+            matches!(
+                pin,
+                FullPin::Swift { .. } | FullPin::Elixir { .. } | FullPin::Hashi { .. }
+            ),
+            "{name}"
+        );
+    }
+}
+
+#[test]
 fn the_mirror_still_matches_the_real_cli() {
     has("#[command(name = \"crucible\", version, arg_required_else_help = true)]");
     has("value_parser = clap::builder::PossibleValuesParser::new(pins::update::SCOPES)");
     assert!(
         PINS_UPDATE.contains(
-            "SCOPES: [&str; 10] = [\n    \"all\", \"cargo\", \"rust\", \"node\", \"deno\", \"elm\", \"python\", \"go\", \"zig\", \"tsrs\",\n];"
+            "SCOPES: [&str; 13] = [\n    \"all\", \"cargo\", \"rust\", \"node\", \"deno\", \"elm\", \"python\", \"go\", \"zig\", \"tsrs\", \"swift\",\n    \"elixir\", \"hashi\",\n];"
         ),
         "crucible: the mirror's scope list drifted from pins::update::SCOPES"
     );
@@ -302,6 +338,16 @@ fn the_mirror_still_matches_the_real_cli() {
     has("/// Add a template to the project in the current directory");
     has("github:kiyors/crucible#crucible-full -- {}");
     has("--check verifies the pinned versions, so --version cannot be used with it");
+    for name in ["swift", "elixir", "hashi"] {
+        has(&format!(
+            "Command::Pin(Pin::{} {{ .. }}) => pin::unsupported(\"{name}\")",
+            match name {
+                "swift" => "Swift",
+                "elixir" => "Elixir",
+                _ => "Hashi",
+            }
+        ));
+    }
     has_not("nix-templates repo");
 }
 

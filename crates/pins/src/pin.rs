@@ -17,6 +17,43 @@ use crate::update::python::{self, PBS};
 // The URL rules live in `channel`, so `init` can use them without `net`.
 pub(crate) use init::channel::manifest_url;
 
+/// The toolchains crucible deliberately leaves in nixpkgs. `pin` and `update`
+/// share both this table and [`unsupported`] so a request for one of them gets
+/// one explanation instead of a silent no-op or clap's "unknown subcommand".
+pub(crate) const UNSUPPORTED: [(&str, &str); 3] = [
+    (
+        "swift",
+        "Swift releases publish no toolchain checksum, the macOS artifact is an Apple \
+         Developer-ID .pkg that CI cannot verify or unpack, and the official artifacts need \
+         Xcode/Apple SDK setup",
+    ),
+    (
+        "elixir",
+        "the compiler zips are easy, but OTP ships only as source tarballs (a two-axis pin \
+         needs per-system source builds) and mix.exs cannot name OTP",
+    ),
+    (
+        "hashi",
+        "there is no project version file, damon has no release assets, tflint and terragrunt \
+         need bespoke handlers, and four tools are unfree",
+    ),
+];
+
+/// The single error for `crucible pin <lang>` and `crucible update <lang>`
+/// when that language is nixpkgs-only. It names the tool, says it is not
+/// pinned, gives the short verified reason and points at the policy.
+pub fn unsupported(language: &str) -> Result<()> {
+    let reason = UNSUPPORTED
+        .iter()
+        .find(|(name, _)| *name == language)
+        .map(|(_, reason)| *reason)
+        .unwrap_or("crucible does not pin this toolchain");
+    bail!(
+        "crucible: {language} is not pinned by crucible; it is a nixpkgs-only toolchain: \
+         {reason}. Use the nixpkgs template and see docs/template-policy.md"
+    )
+}
+
 pub fn run(channel: &str) -> Result<()> {
     let url = manifest_url(channel)?;
     let http = Http::new();
@@ -220,6 +257,20 @@ mod tests {
                 python_release_version(version).is_err(),
                 "{version} should be rejected"
             );
+        }
+    }
+
+    #[test]
+    fn unsupported_languages_share_one_explanation() {
+        for (name, reason) in UNSUPPORTED {
+            let err = unsupported(name).unwrap_err().to_string();
+            assert!(err.starts_with("crucible: "), "{err}");
+            assert!(
+                err.contains(&format!("{name} is not pinned by crucible")),
+                "{err}"
+            );
+            assert!(err.contains(reason), "{err}");
+            assert!(err.contains("docs/template-policy.md"), "{err}");
         }
     }
 }

@@ -89,6 +89,11 @@ import ./rust { inherit pkgs crucible; }
         echo '.{ .name = .m, .minimum_zig_version = "0.15.2" }' > build.zig.zon
         echo '{}' > deno.json
         echo '{"elm-version": "0.19.3"}' > elm.json
+        # The nixpkgs-only stacks only speak up when their project files are
+        # here; their lines are info, so the doctor run still passes.
+        echo '// swift-tools-version: 5.10' > Package.swift
+        echo 'elixir 1.17.3-otp-27' > .tool-versions
+        echo 'resource "null_resource" "x" {}' > main.tf
         # A bare `crucible` lists the commands and does nothing else.
         ! $slim > help 2>&1
         for cmd in init add doctor; do grep -qE "^  $cmd " help; done
@@ -105,6 +110,9 @@ import ./rust { inherit pkgs crucible; }
         grep -q 'no zig is on PATH' full
         grep -q 'deno.json is here, but no deno is on PATH' full
         grep -q 'elm.json is here, but no elm is on PATH' full
+        grep -q 'Swift is nixpkgs-only in crucible' full
+        grep -q 'Elixir is nixpkgs-only in crucible' full
+        grep -q 'HashiCorp tools are nixpkgs-only in crucible' full
         $slim doctor > slim
         diff full slim
         ! $slim pin rust 1.99 2> missing

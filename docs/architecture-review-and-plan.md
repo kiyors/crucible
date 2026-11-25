@@ -8,10 +8,11 @@ verification through 3.4 (attestation `Fetch` trait and `Config`, `pins/src/sour
 asset digests, thorough npm/attestation tests, enforced `sync.rs` pairs, transactional updates and
 `update --check` wired into CI); template work 4.1, 4.2 (Jupyter Poetry reading) and 4.5–4.7;
 and 4.3 (Elm — `data/elm`, signed npm pins, `lib/elm`, `pin elm`, doctor/init, Home Manager, docs
-and the pinned Elm template).
+and the pinned Elm template); 4.4 is **resolved by policy** — Swift, Elixir and HashiCorp remain
+nixpkgs-only with explicit `crucible:` errors, info-only doctor lines and a sync guard, not pins.
 **Deferred, not implemented:** 3.2's local Sigstore bundle
-verification (tradeoff documented), 3.5 (uniform data shape / `pin --json`) and 4.4 (Swift, Elixir,
-HashiCorp). The decisions behind these deferrals are recorded in
+verification (tradeoff documented) and 3.5 (uniform data shape / `pin --json`). The decisions behind
+these deferrals are recorded in
 [`implementation-decisions.md`](implementation-decisions.md).
 **Scope:** the whole repository — Rust workspace, Nix library/flake/side-car files, pin
 generation and verification paths, and all templates — with the staged working-tree changes
@@ -474,6 +475,8 @@ Cargo, Deno, Zig, tsrs, Vite+ and package managers accept only pinned releases, 
 messages pointing at the maintainer-only `crucible update`. This is a usability gap, not a false
 README claim. Either add project-level pin paths with a hashes escape hatch, or make the error
 explicitly say "not supported; wait for the next update" instead of naming a maintainer command.
+Phase 4.4 chose the second shape for Swift, Elixir and HashiCorp: their `pin`/`update` names are
+accepted but always fail with one shared, policy-pointing `crucible:` error.
 
 ---
 
@@ -504,9 +507,9 @@ dev-shell-only otherwise. The other attrs are nixpkgs-only by the policy in
 | `tsrs`                       | no template                                          | —                | —                   | Toolchain exists; a trivial template could be added                                                                                 |
 | `jupyter`                    | Python 3.11 + Poetry + Jupyter, has `pyproject.toml` | No               | No                  | **Landed in 4.2:** now calls `crucible.lib.python.fromPyprojectToml`, which reads Poetry's `^3.11`; Poetry/ipykernel stay app-level |
 | `elm`                        | pinned npm `@elm_binaries`, `elm2nix` from nixpkgs   | Yes              | **Yes**             | **Landed in 4.3:** `elm.fromElmJson` reads `elm.json`; pins verified by npm signatures                                              |
-| `swift`                      | nixpkgs `swift`, `sourcekit-lsp`                     | No               | No                  | Nixpkgs-only today; technically feasible (SDK integration is large)                                                                 |
-| `elixir`                     | nixpkgs BEAM: `erlang_27`, `elixir_1_17`             | No               | No                  | Nixpkgs-only; needs two-axis OTP × Elixir pin model, `mix.exs` detection                                                            |
-| `hashi` (`hash` attr)        | 10 HashiCorp tools; `allowUnfree`                    | No               | No                  | Nixpkgs-only; ten independent APIs, no project version file                                                                         |
+| `swift`                      | nixpkgs `swift`, `sourcekit-lsp`                     | No               | No                  | Nixpkgs-only by policy (4.4): no checksum in `releases.json`, Apple Developer-ID `.pkg` on macOS, Xcode/Apple SDK setup             |
+| `elixir`                     | nixpkgs BEAM: `erlang_27`, `elixir_1_17`             | No               | No                  | Nixpkgs-only by policy (4.4): OTP is source-only, so a two-axis pin needs per-system source builds; `mix.exs` cannot name OTP       |
+| `hashi` (`hash` attr)        | 10 HashiCorp tools; `allowUnfree`                    | No               | No                  | Nixpkgs-only by policy (4.4): no project version file, damon has no assets, tflint/terragrunt need bespoke handlers, four unfree    |
 | `c-cpp` (`c`, `cpp` aliases) | clang-tools, cmake, conan, gtest, lcov, vcpkg, …     | No               | No                  | Nixpkgs-only; no version file, many independent ecosystems. Only existing link is `doctor::check_cc`                                |
 | `java`, `kotlin`, `scala`    | JDK 25 + Maven/Gradle/sbt                            | No               | No                  | Nixpkgs-only; vendor JDK licensing, build-time registry resolution conflicts with offline eval                                      |
 | `laravel`, `php`             | PHP + Composer                                       | No               | No                  | Nixpkgs-only; no per-system upstream toolchain archive, Packagist resolution                                                        |
@@ -520,10 +523,11 @@ dev-shell-only otherwise. The other attrs are nixpkgs-only by the policy in
 - **Direct, and now shipped as supported templates:** `default`, `rust`, `node`, `bun`, `python`,
   `uv`, `go`, `zig`, `deno`, `elm`. A `tsrs` template would be trivial but does not exist yet.
 - **Partial:** `jupyter` (project-file reading).
-- **Feasible but large:** `swift`, `elixir`, `hashi`.
 - **Nixpkgs-only, with reasons (the policy in `docs/template-policy.md`):** `c-cpp` (and its `c`
   / `cpp` aliases), `java`, `kotlin`, `scala`, `laravel`, `php`, `nim`, `odin`, `nix`, `shell`,
-  `empty`, `hash`, plus the four partial/feasible ones above.
+  `empty`, `hash`, `jupyter`, and — resolved by 4.4 — `swift` and `elixir`. The three 4.4
+  languages are explicitly unsupported by `update`/`pin` and explained by doctor, rather than
+  silently missing a pin pipeline.
 
 ## B.4 `init` detection gaps vs templates
 
@@ -630,7 +634,7 @@ its rsync exclusions, and x86_64-linux remains CI-only.
 | 4.1 | Finish the sibling set (default/rust, node, bun, python, uv, go, zig, deno)                                                                                              | Each dev shell evaluates and uses `crucible.lib`                                                  |
 | 4.2 | Fix `jupyter`'s Poetry `pyproject.toml` reading in `fromPyprojectToml` (or document fallback)                                                                            | Jupyter's Python version resolves to 3.11 as the file states                                      |
 | 4.3 | **Landed:** promote `elm` as the first new language, following the full A.3.3 checklist                                                                                  | `lib/elm`, `data/elm`, `pins update elm`, `tests/elm`, doctor, HM, init detection, docs, template |
-| 4.4 | Then Swift, Elixir, HashiCorp in that feasibility order                                                                                                                  | Same full-stack acceptance per language                                                           |
+| 4.4 | **Resolved by policy:** Swift, Elixir and HashiCorp stay nixpkgs-only; `update`/`pin` explain why, doctor is info-only and sync guards the three templates               | No invented pins; clear `crucible:` errors and a checked policy doc                               |
 | 4.5 | **Landed:** `docs/template-policy.md`, README and ARCHITECTURE list the nixpkgs-only templates with reasons and define "supported template" as the intersection above    | "Supported template" is an explicit, listed intersection                                          |
 | 4.6 | **Landed:** the CLI uses `github:kiyors/crucible#<name>` and validates names against an explicit list from `templates.nix`; the leftover is the two `main.rs` help lines | One canonical source; helper validation                                                           |
 | 4.7 | **Landed:** the nixpkgs-only templates declare no `crucible` input and point at the policy doc instead (`jupyter`/`elixir` handled by their owner)                       | No misleading unused inputs                                                                       |
@@ -679,8 +683,10 @@ Linux-from-macOS for aarch64-linux; CI for x86_64-linux.
    invariant hold outside dev shells too?
 3. ~~Is `github:kiyors/templates` canonical?~~ Resolved by 4.6: this flake owns the templates
    used by `crucible init <dir>` / `add`; no second flake input.
-4. Should `pin` gain a machine-readable mode and new language paths, or should unpinned versions be
-   explicitly unsupported with a clear message?
+4. ~~Should `pin` gain a machine-readable mode and new language paths, or should unpinned versions
+   be explicitly unsupported with a clear message?~~ Resolved by 4.4 for Swift, Elixir and
+   HashiCorp: explicitly unsupported with a clear `crucible:` message. `pin --json` itself stays
+   deferred (Phase 3.5).
 5. Should `x86_64-darwin` be dropped from the nixpkgs-only gap templates too, or left alone because
    they never use crucible's pins?
 6. ~~Should the `crucible` input be removed from gap templates?~~ Resolved by 4.7: removed and

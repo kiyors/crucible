@@ -54,13 +54,18 @@ pub enum Scope {
     Zig,
     /// tsrs, the TypeScript type checker
     Tsrs,
+    /// A nixpkgs-only language. Accepted so the CLI can explain the choice
+    /// instead of reporting an invalid value; both `run` and `check` fail.
+    Unsupported(&'static str),
 }
 
 /// The accepted `--what` values, in help order. The CLI uses these for clap's
 /// value parser so its help and invalid-value errors stay the same now that
-/// `pins` no longer depends on clap.
-pub const SCOPES: [&str; 10] = [
-    "all", "cargo", "rust", "node", "deno", "elm", "python", "go", "zig", "tsrs",
+/// `pins` no longer depends on clap. The last three are nixpkgs-only: they are
+/// listed so `parse_scope` can explain them, never to update pins.
+pub const SCOPES: [&str; 13] = [
+    "all", "cargo", "rust", "node", "deno", "elm", "python", "go", "zig", "tsrs", "swift",
+    "elixir", "hashi",
 ];
 
 /// Turn a `--what` value into a scope. Clap rejects values outside `SCOPES`
@@ -77,6 +82,9 @@ pub fn parse_scope(value: &str) -> Result<Scope> {
         "go" => Ok(Scope::Go),
         "zig" => Ok(Scope::Zig),
         "tsrs" => Ok(Scope::Tsrs),
+        "swift" => Ok(Scope::Unsupported("swift")),
+        "elixir" => Ok(Scope::Unsupported("elixir")),
+        "hashi" => Ok(Scope::Unsupported("hashi")),
         other => bail!(
             "crucible: unknown update scope {other:?}; expected one of {}",
             SCOPES.join(", ")
@@ -99,6 +107,9 @@ pub fn run(scope: Scope, version: Option<String>, root: &Path) -> Result<()> {
     // Go, Zig and tsrs, then Elm, so a fetch failure anywhere aborts before any
     // pin changes.
     let plan = match scope {
+        // These scopes exist only to produce a useful error; there is no pin
+        // pipeline to plan and no lock to take for a language in nixpkgs.
+        Scope::Unsupported(language) => return crate::pin::unsupported(language),
         Scope::All => {
             let mut plan = cargo::plan(&http, version, root)?;
             plan.extend(rust::plan(&http, root)?);
@@ -153,6 +164,7 @@ pub fn check(scope: Scope, root: &Path) -> Result<()> {
 fn check_with<F: Fetch>(scope: Scope, root: &Path, http: &F) -> Result<()> {
     let mut failures = Vec::new();
     match scope {
+        Scope::Unsupported(language) => return crate::pin::unsupported(language),
         Scope::All => {
             record("cargo", cargo::verify(http, root), &mut failures);
             record("rust manifests", rust::verify(http, root), &mut failures);
@@ -491,6 +503,31 @@ mod tests {
             );
         }
         assert!(parse_scope("nope").is_err());
+    }
+
+    /// The nixpkgs-only names parse, but neither path may turn into a no-op:
+    /// both `update` and `update --check` must explain the choice and leave
+    /// the root untouched.
+    #[test]
+    fn unsupported_scopes_fail_without_writing_pins() {
+        let root = temp_dir("unsupported");
+        for name in ["swift", "elixir", "hashi"] {
+            let scope = parse_scope(name).unwrap();
+            for err in [
+                run(scope, None, &root).unwrap_err(),
+                check(scope, &root).unwrap_err(),
+            ] {
+                let message = format!("{err:#}");
+                assert!(
+                    message.contains(&format!("{name} is not pinned by crucible")),
+                    "{message}"
+                );
+                assert!(message.contains("docs/template-policy.md"), "{message}");
+            }
+            assert!(!root.join(LOCK).exists());
+        }
+        assert!(snapshot(&root).is_empty());
+        fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]
