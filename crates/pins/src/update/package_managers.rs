@@ -40,9 +40,12 @@ const PNPM: [PnpmLine; 3] = [
     PnpmLine {
         major: "10",
         layout: "binary",
+        // The dynamically linked assets are `pkg` executables: patchelf
+        // corrupts the JS snapshot appended to them, so Linux uses the
+        // static ones, which need no patching. macOS is Mach-O.
         platforms: [
-            ("x86_64-linux", "pnpm-linux-x64"),
-            ("aarch64-linux", "pnpm-linux-arm64"),
+            ("x86_64-linux", "pnpm-linuxstatic-x64"),
+            ("aarch64-linux", "pnpm-linuxstatic-arm64"),
             ("aarch64-darwin", "pnpm-macos-arm64"),
         ],
     },

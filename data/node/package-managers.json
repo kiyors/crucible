@@ -4,12 +4,12 @@
       "version": "10.34.9",
       "platforms": {
         "x86_64-linux": {
-          "url": "https://github.com/pnpm/pnpm/releases/download/v10.34.9/pnpm-linux-x64",
-          "hash": "sha256-PseSQGWPDuTol38h7ixZjHqLjQa4bcVk8uxssJn9isI="
+          "url": "https://github.com/pnpm/pnpm/releases/download/v10.34.9/pnpm-linuxstatic-x64",
+          "hash": "sha256-6tgS93LwjBq+zF/8qZJ3rykn3C6Wrssc2yK4jzI9xoM="
         },
         "aarch64-linux": {
-          "url": "https://github.com/pnpm/pnpm/releases/download/v10.34.9/pnpm-linux-arm64",
-          "hash": "sha256-havTG5aWTmUQzss7NmugJChxkeDuWXjlqeLTvrSjd9E="
+          "url": "https://github.com/pnpm/pnpm/releases/download/v10.34.9/pnpm-linuxstatic-arm64",
+          "hash": "sha256-vMEFiBJ6LIZCP3XEudEusGWB31PEW47tC5Ay1Mo9EV4="
         },
         "aarch64-darwin": {
           "url": "https://github.com/pnpm/pnpm/releases/download/v10.34.9/pnpm-macos-arm64",

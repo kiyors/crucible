@@ -44,8 +44,12 @@ stdenv.mkDerivation {
     makeWrapper
     unzip
   ]
-  ++ lib.optionals isLinux [ autoPatchelfHook ];
-  # The native binaries link glibc (and libstdc++ for pnpm).
+  # pnpm 10's asset is a statically linked (macOS: Mach-O) executable: the
+  # Linux builds are `pkg` snapshots that patchelf corrupts, so they must
+  # run exactly as downloaded. The pinned tarballs still need patching.
+  ++ lib.optionals (isLinux && !pnpmBinary) [ autoPatchelfHook ];
+  # The tarballs' native binaries link glibc (and libstdc++ for pnpm);
+  # pnpm 10's static one does not, but the input is harmless there.
   buildInputs = lib.optionals isLinux [ stdenv.cc.cc.lib ];
 
   dontConfigure = true;
@@ -106,8 +110,11 @@ stdenv.mkDerivation {
     runHook postInstall
   '';
 
-  # Stripping would break the signature of the native macOS binaries.
+  # Stripping would break the signature of the native macOS binaries, and
+  # RPATH shrinking cannot touch a static pnpm 10 executable.
   dontStrip = true;
+  dontPatchELF = pnpmBinary;
+  dontShrinkRpath = pnpmBinary;
 
   doInstallCheck = true;
   installCheckPhase = ''
