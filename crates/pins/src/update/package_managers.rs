@@ -13,7 +13,7 @@
 
 use std::path::Path;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
@@ -110,15 +110,7 @@ struct Packument {
 
 #[derive(Debug, Deserialize)]
 struct PackumentVersion {
-    dist: Dist,
-}
-
-#[derive(Debug, Deserialize)]
-struct Dist {
-    integrity: String,
-    tarball: String,
-    #[serde(default)]
-    signatures: Vec<npm::Signature>,
+    dist: npm::Dist,
 }
 
 /// The pinned format of `data/node/package-managers.json`: name -> major -> pin.
@@ -318,7 +310,13 @@ fn js_pins(http: &Http, name: &str, packages: &[(&str, &str)]) -> Result<IndexMa
             JsPin {
                 version: version.to_string(),
                 url: dist.tarball.clone(),
-                hash: integrity(package, version, dist, packument.time.get(version))?,
+                hash: npm::checked_integrity(
+                    package,
+                    version,
+                    dist,
+                    packument.time.get(version).map(String::as_str),
+                )?
+                .to_string(),
             },
         );
     }
@@ -330,33 +328,8 @@ fn fetch(http: &Http, package: &str) -> Result<Packument> {
     serde_json::from_slice(&http.get(&url)?).with_context(|| format!("failed to parse {url}"))
 }
 
-/// The tarball's integrity, once the registry's signature over it checks
-/// out. npm publishes SRI sha512 here; say so explicitly rather than waiting
-/// for a fetchurl with an unexpected algorithm to fail in the Nix build.
-fn integrity(
-    package: &str,
-    version: &str,
-    dist: &Dist,
-    published: Option<&String>,
-) -> Result<String> {
-    if !dist.integrity.starts_with("sha512-") {
-        bail!(
-            "{package} {version} has integrity {}, expected a sha512- SRI hash",
-            dist.integrity
-        );
-    }
-    npm::verify(
-        package,
-        version,
-        &dist.integrity,
-        &dist.signatures,
-        published.map(String::as_str),
-    )?;
-    Ok(dist.integrity.clone())
-}
-
 /// The newest non-prerelease version of `major`, with its dist metadata.
-fn newest<'a>(packument: &'a Packument, major: &str) -> Option<(&'a str, &'a Dist)> {
+fn newest<'a>(packument: &'a Packument, major: &str) -> Option<(&'a str, &'a npm::Dist)> {
     packument
         .versions
         .iter()
@@ -421,22 +394,48 @@ mod tests {
 
     #[test]
     fn rejects_an_integrity_that_is_not_sha512() {
-        let dist = Dist {
+        let dist = npm::Dist {
             integrity: "sha1-deadbeef".to_string(),
             tarball: "x.tgz".to_string(),
             signatures: Vec::new(),
         };
-        assert!(integrity("pnpm", "1.0.0", &dist, None).is_err());
+        assert!(npm::checked_integrity("pnpm", "1.0.0", &dist, None).is_err());
     }
 
     #[test]
     fn rejects_an_unsigned_integrity() {
-        let dist = Dist {
+        let dist = npm::Dist {
             integrity: "sha512-unsigned".to_string(),
             tarball: "x.tgz".to_string(),
             signatures: Vec::new(),
         };
-        let err = integrity("pnpm", "1.0.0", &dist, None).unwrap_err();
+        let err = npm::checked_integrity("pnpm", "1.0.0", &dist, None).unwrap_err();
         assert!(err.to_string().contains("no npm registry signature"));
+    }
+
+    // yarn 1.22.22's real registry signature, by the key retired in 2025 but
+    // published while it was still current.
+    const YARN_INTEGRITY: &str = "sha512-prL3kGtyG7o9Z9Sv8IPfBNrWTDmXB4Qbes8A9rEzt6wkJV8mUvoirjU0Mp3GGAU06Y0XQyA3/2/RQFVuK7MTfg==";
+    const YARN_SIG: &str = "MEYCIQD8IYJ9/vVOO8pfUq+cj3OdBClW7fPnUosQ4TvgyO1XJAIhAOi8CE+iN39Td3aR4dJz2zLO6isnr+h44dxVeoYjDyta";
+    const YARN_KEY: &str = "SHA256:jl3bwswu80PjjokCgh0o2w5c2U4LhQAE57gj9cz1kzA";
+    const YARN_PUBLISHED: &str = "2024-03-09T21:35:40.868Z";
+
+    #[test]
+    fn accepts_yarns_real_signature_through_checked_integrity() {
+        let dist = npm::Dist {
+            integrity: YARN_INTEGRITY.to_string(),
+            tarball: "yarn-1.22.22.tgz".to_string(),
+            signatures: vec![npm::Signature {
+                keyid: YARN_KEY.to_string(),
+                sig: YARN_SIG.to_string(),
+            }],
+        };
+        let hash = npm::checked_integrity("yarn", "1.22.22", &dist, Some(YARN_PUBLISHED)).unwrap();
+        assert_eq!(hash, YARN_INTEGRITY);
+        // The same retired-key signature is not trusted after its expiry.
+        assert!(
+            npm::checked_integrity("yarn", "1.22.22", &dist, Some("2026-01-01T00:00:00.000Z"))
+                .is_err()
+        );
     }
 }

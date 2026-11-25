@@ -74,11 +74,14 @@ impl Http {
     /// `Retry-After` wins over the linear backoff (2s, then 4s), so a
     /// rate-limiting upstream is not hammered.
     pub fn get(&self, url: &str) -> Result<Vec<u8>, HttpError> {
-        for attempt in 1..=ATTEMPTS {
+        // A loop returns the last failure from inside the body, so there is no
+        // unreachable tail to panic through when the attempts run out.
+        let mut attempt = 1;
+        loop {
             match self.try_get(url) {
                 Ok(body) => return Ok(body),
                 Err(failure) => {
-                    if !should_retry(&failure.error) || attempt == ATTEMPTS {
+                    if attempt == ATTEMPTS || !should_retry(&failure.error) {
                         return Err(failure.error);
                     }
                     let delay = failure
@@ -91,10 +94,10 @@ impl Http {
                         failure.error
                     );
                     std::thread::sleep(delay);
+                    attempt += 1;
                 }
             }
         }
-        unreachable!("the loop returns on the last attempt")
     }
 
     fn try_get(&self, url: &str) -> Result<Vec<u8>, Failure> {

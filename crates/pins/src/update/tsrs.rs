@@ -46,15 +46,7 @@ struct Manifest {
     version: String,
     #[serde(default, rename = "optionalDependencies")]
     optional_dependencies: IndexMap<String, String>,
-    dist: Dist,
-}
-
-#[derive(Debug, Deserialize)]
-struct Dist {
-    integrity: String,
-    tarball: String,
-    #[serde(default)]
-    signatures: Vec<npm::Signature>,
+    dist: npm::Dist,
 }
 
 /// The pinned format of `data/tsrs/tsrs.json`.
@@ -128,26 +120,16 @@ fn expect_dependency(launcher: &Manifest, package: &str) -> Result<()> {
 /// unexpected algorithm to fail in the Nix build.
 fn source(package: &str, version: &str, manifest: &Manifest) -> Result<Source> {
     if manifest.version != version {
-        bail!("{package} {version} reports version {}", manifest.version);
-    }
-    if !manifest.dist.integrity.starts_with("sha512-") {
         bail!(
-            "{package} {version} has integrity {}, expected a sha512- SRI hash",
-            manifest.dist.integrity
+            "crucible: {package} {version} reports version {}",
+            manifest.version
         );
     }
-    npm::verify(
-        package,
-        version,
-        &manifest.dist.integrity,
-        &manifest.dist.signatures,
-        // tsrs is newer than npm's key rotation, so no retired-key
-        // signature needs its publish time.
-        None,
-    )?;
     Ok(Source {
         url: manifest.dist.tarball.clone(),
-        hash: manifest.dist.integrity.clone(),
+        // tsrs is newer than npm's key rotation, so no retired-key
+        // signature needs its publish time.
+        hash: npm::checked_integrity(package, version, &manifest.dist, None)?.to_string(),
     })
 }
 
@@ -197,7 +179,7 @@ mod tests {
         let manifest = Manifest {
             version: "1.0.0".to_string(),
             optional_dependencies: IndexMap::new(),
-            dist: Dist {
+            dist: npm::Dist {
                 integrity: "sha1-deadbeef".to_string(),
                 tarball: "x.tgz".to_string(),
                 signatures: Vec::new(),
@@ -205,5 +187,48 @@ mod tests {
         };
         assert!(source("@tsrs/darwin-arm64", "1.0.0", &manifest).is_err());
         assert!(source("@tsrs/darwin-arm64", "2.0.0", &manifest).is_err());
+    }
+
+    // A real npm signature (pnpm 11.29.0) exercises source()'s verify path;
+    // tsrs's own signatures change with each release, so it is not pinned as
+    // a fixture here. The helper itself is package-agnostic.
+    const SIGNED_INTEGRITY: &str = "sha512-2RP5s3zV/meABS6Al3Ttq7e9z2mm5tm4/Ts4vAUvqKfYkbbCAaOPtQSgf/zi5ejCYu9U+49X22LyLTU6MLyKlg==";
+    const SIGNED_SIG: &str = "MEYCIQCzLZw9XFDgpVrQ1WaKxkh7x0XkoSA2ipD/WIsexKzOEAIhAIHETzPKLjbep48f/J9O9tIC/hNhYzPMPxgBIgp3Zpfj";
+    const SIGNED_KEY: &str = "SHA256:DhQ8wR5APBvFHLF/+Tc+AYvPOdTpcIDqOhxsBHRwC7U";
+
+    #[test]
+    fn accepts_a_real_signature_through_source() {
+        let manifest = Manifest {
+            version: "11.29.0".to_string(),
+            optional_dependencies: IndexMap::new(),
+            dist: npm::Dist {
+                integrity: SIGNED_INTEGRITY.to_string(),
+                tarball: "signed.tgz".to_string(),
+                signatures: vec![npm::Signature {
+                    keyid: SIGNED_KEY.to_string(),
+                    sig: SIGNED_SIG.to_string(),
+                }],
+            },
+        };
+        let source = source("pnpm", "11.29.0", &manifest).unwrap();
+        assert_eq!(source.hash, SIGNED_INTEGRITY);
+        assert_eq!(source.url, "signed.tgz");
+    }
+
+    #[test]
+    fn rejects_a_signature_over_another_version() {
+        let manifest = Manifest {
+            version: "11.29.0".to_string(),
+            optional_dependencies: IndexMap::new(),
+            dist: npm::Dist {
+                integrity: SIGNED_INTEGRITY.to_string(),
+                tarball: "signed.tgz".to_string(),
+                signatures: vec![npm::Signature {
+                    keyid: SIGNED_KEY.to_string(),
+                    sig: SIGNED_SIG.to_string(),
+                }],
+            },
+        };
+        assert!(source("pnpm", "11.29.1", &manifest).is_err());
     }
 }

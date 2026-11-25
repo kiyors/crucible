@@ -125,7 +125,11 @@ fn pick_nightly(results: Vec<(String, NightlyOutcome)>) -> Result<Option<Manifes
                 println!("  nightly: {date} lacks {}", missing.join(", "));
             }
             NightlyOutcome::Failed(err) => {
-                bail!("nightly {date} ({}) failed: {err:#}", daily_url(&date));
+                bail!(
+                    "crucible: nightly {date} ({}) failed: {err:#}; check the fetch and retry \
+                     `crucible update`",
+                    daily_url(&date)
+                );
             }
         }
     }
@@ -140,23 +144,41 @@ fn daily_url(date: &str) -> String {
 /// 404 means "no such nightly"; everything else is reported as a failure for
 /// `pick_nightly` to judge.
 fn fetch_batch(http: &Http, start: i64, days: &[u32]) -> Vec<(String, NightlyOutcome)> {
-    std::thread::scope(|scope| {
-        let handles: Vec<_> = days
-            .iter()
-            .map(|&day| {
-                let http = http.clone();
-                let date = date_of(start - i64::from(day));
-                scope.spawn(move || {
-                    let outcome = fetch_dated(&http, &date);
-                    (date, outcome)
-                })
-            })
-            .collect();
-        handles
-            .into_iter()
-            .map(|handle| handle.join().expect("nightly fetch thread panicked"))
-            .collect()
-    })
+    // Boxed so one job per date can be handed to `join_fetches`; each worker
+    // owns its `Http` clone, so no borrow can outlive this call.
+    let jobs = days.iter().map(|&day| {
+        let date = date_of(start - i64::from(day));
+        let http = http.clone();
+        let fetch_date = date.clone();
+        (
+            date,
+            Box::new(move || fetch_dated(&http, &fetch_date)) as FetchJob,
+        )
+    });
+    join_fetches(jobs.collect())
+}
+
+type FetchJob = Box<dyn FnOnce() -> NightlyOutcome + Send>;
+
+/// Run the fetch jobs and turn a dead thread into a `Failed` date. A panic in
+/// a worker must not become a process panic: `pick_nightly` has to judge it
+/// like any other failure newer than the pick, and falling back silently
+/// would move the pin backwards.
+fn join_fetches(jobs: Vec<(String, FetchJob)>) -> Vec<(String, NightlyOutcome)> {
+    let handles: Vec<_> = jobs
+        .into_iter()
+        .map(|(date, job)| (date, std::thread::spawn(job)))
+        .collect();
+    handles
+        .into_iter()
+        .map(|(date, handle)| match handle.join() {
+            Ok(outcome) => (date, outcome),
+            Err(_) => (
+                date,
+                NightlyOutcome::Failed(anyhow::anyhow!("nightly fetch thread panicked")),
+            ),
+        })
+        .collect()
 }
 
 fn fetch_dated(http: &Http, date: &str) -> NightlyOutcome {
@@ -267,6 +289,24 @@ mod tests {
             err.contains("https://static.rust-lang.org/dist/2026-11-09/channel-rust-nightly.toml"),
             "{err}"
         );
+    }
+
+    #[test]
+    fn a_panicked_fetch_thread_is_a_failure_newer_than_the_pick() {
+        let results = join_fetches(vec![
+            (
+                "2026-11-10".to_string(),
+                Box::new(|| panic!("fetch exploded")),
+            ),
+            (
+                "2026-11-09".to_string(),
+                Box::new(|| complete("2026-11-09")),
+            ),
+        ]);
+        assert!(matches!(results[0].1, NightlyOutcome::Failed(_)));
+        let err = pick_nightly(results).unwrap_err().to_string();
+        assert!(err.contains("2026-11-10"), "{err}");
+        assert!(err.contains("nightly fetch thread panicked"), "{err}");
     }
 
     #[test]
