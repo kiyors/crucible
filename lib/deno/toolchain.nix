@@ -37,7 +37,9 @@ let
     in
     throw ''
       crucible: Deno "${spec}" is not pinned; the pins are: ${lib.concatStringsSep ", " pins}.
-      Run `crucible update deno` to pin the newest stable release of each major.
+      Only versions in this flake's pinned data are supported: wait for the next
+      scheduled crucible update, or, if you maintain the pins yourself, use
+      `#crucible-full` and run `crucible update deno`.
     '';
 
   resolve =

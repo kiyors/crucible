@@ -21,8 +21,10 @@ let
 
   notPinned = spec: ''
     crucible: Zig "${spec}" is not a pinned release (${lib.concatStringsSep ", " pinnedVersions}).
-    Pass a line ("0.15") or an exact pinned release ("0.15.2"); `crucible update zig`
-    pins the newest patch of each minor line in ziglang.org's index.json.
+    Pass a line ("0.15") or an exact pinned release ("0.15.2"). Only versions in
+    this flake's pinned data are supported: wait for the next scheduled
+    crucible update, or, if you maintain the pins yourself, use `#crucible-full`
+    and run `crucible update zig`.
   '';
 
   # The versions `toolchain` accepts: "stable" (the default: the line of the

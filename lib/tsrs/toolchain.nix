@@ -23,7 +23,10 @@ let
     else
       throw ''
         crucible: tsrs "${spec}" is not pinned; the pin is ${pinned.version}.
-        Use version = "latest", or run `crucible update tsrs` to pin the release npm tags latest.
+        Use version = "latest". Only versions in this flake's pinned data are
+        supported: wait for the next scheduled crucible update, or, if you
+        maintain the pins yourself, use `#crucible-full` and run
+        `crucible update tsrs`.
       '';
 in
 {

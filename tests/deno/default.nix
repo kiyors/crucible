@@ -11,6 +11,19 @@ let
   newest = toolchain { };
   rejected = toolchain: !(builtins.tryEval toolchain.drvPath).success;
 
+  # tryEval reports failure but not the thrown text, so assert the wording in
+  # the source that throws it; the rejections below cover the error paths.
+  # Collapse whitespace so a phrase can span nixfmt's line wrapping.
+  says =
+    phrase:
+    let
+      source = builtins.readFile ../../lib/deno/toolchain.nix;
+      flat = lib.concatStringsSep " " (
+        builtins.filter builtins.isString (builtins.split "[[:space:]]+" source)
+      );
+    in
+    lib.strings.hasInfix phrase flat;
+
   # One check per pinned major: the toolchain's deno prints the pinned
   # version.
   denoScript =
@@ -55,5 +68,11 @@ in
     assert rejected (toolchain {
       version = "1";
     });
+    # The error tells the user the version must come from this flake's pins.
+    assert says "Only versions in this flake's pinned data are supported";
+    assert says "wait for the next scheduled crucible update";
+    assert says "or, if you maintain the pins yourself, use";
+    assert says "#crucible-full";
+    assert says "crucible update deno";
     pkgs.runCommand "crucible-check-deno-errors" { } "touch $out";
 }

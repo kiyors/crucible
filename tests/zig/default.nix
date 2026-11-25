@@ -20,6 +20,19 @@ let
   # A toolchain is rejected at evaluation time when building it throws.
   rejected = toolchain: !(builtins.tryEval toolchain.drvPath).success;
 
+  # tryEval reports failure but not the thrown text, so assert the wording in
+  # the source that throws it; the rejections below cover the error paths.
+  # Collapse whitespace so a phrase can span nixfmt's line wrapping.
+  says =
+    phrase:
+    let
+      source = builtins.readFile ../../lib/zig/toolchain.nix;
+      flat = lib.concatStringsSep " " (
+        builtins.filter builtins.isString (builtins.split "[[:space:]]+" source)
+      );
+    in
+    lib.strings.hasInfix phrase flat;
+
   # Build and run a hello program with a toolchain on PATH.
   zigRun =
     name: toolchain: script:
@@ -88,5 +101,11 @@ in
     assert rejected (zig.fromBuildZigZon { file = ./no-minimum/build.zig.zon; });
     # A line without a build on this system is an error here.
     assert (rejected (zig.toolchain { version = "0.7"; })) == (pkgs.system == "aarch64-darwin");
+    # The error tells the user the version must come from this flake's pins.
+    assert says "Only versions in this flake's pinned data are supported";
+    assert says "wait for the next scheduled crucible update";
+    assert says "or, if you maintain the pins yourself, use";
+    assert says "#crucible-full";
+    assert says "crucible update zig";
     pkgs.runCommand "crucible-check-zig-errors" { } "touch $out";
 }

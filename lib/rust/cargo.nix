@@ -14,8 +14,9 @@ let
   source =
     sources.${stdenv.hostPlatform.system} or (throw ''
       crucible: huacnlee/cargo has no build for ${stdenv.hostPlatform.system}.
-      Use a system in lib/common/systems.nix (or a newer crucible that pins one);
-      a maintainer can add one with `crucible update cargo`.
+      Use a system in lib/common/systems.nix, or wait for the next scheduled
+      crucible update to pin one. If you maintain the pins yourself, use
+      `#crucible-full` and run `crucible update cargo`.
     '');
 
   cargoBinary = fetchurl {

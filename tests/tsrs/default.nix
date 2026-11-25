@@ -9,6 +9,19 @@ let
   pins = lib.importJSON ../../data/tsrs/tsrs.json;
   tsrs = toolchain { };
   rejected = toolchain: !(builtins.tryEval toolchain.drvPath).success;
+
+  # tryEval reports failure but not the thrown text, so assert the wording in
+  # the source that throws it; the rejection below covers the error path.
+  # Collapse whitespace so a phrase can span nixfmt's line wrapping.
+  says =
+    phrase:
+    let
+      source = builtins.readFile ../../lib/tsrs/toolchain.nix;
+      flat = lib.concatStringsSep " " (
+        builtins.filter builtins.isString (builtins.split "[[:space:]]+" source)
+      );
+    in
+    lib.strings.hasInfix phrase flat;
 in
 {
   # The project type-checks; a type error is reported with its code and fails
@@ -42,5 +55,11 @@ in
     assert rejected (toolchain {
       version = "7.0.0";
     });
+    # The error tells the user the version must come from this flake's pin.
+    assert says "Only versions in this flake's pinned data are supported";
+    assert says "wait for the next scheduled crucible update";
+    assert says "or, if you maintain the pins yourself, use";
+    assert says "#crucible-full";
+    assert says "crucible update tsrs";
     pkgs.runCommand "crucible-check-tsrs-resolve" { } "touch $out";
 }

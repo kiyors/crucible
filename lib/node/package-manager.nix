@@ -20,7 +20,12 @@ let
   inherit (pin) version;
   source =
     if pin ? platforms then
-      pin.platforms.${system} or (throw "crucible: ${name} ${version} has no build for ${system}.")
+      pin.platforms.${system} or (throw ''
+        crucible: ${name} ${version} has no build for ${system}.
+        Use a system in lib/common/systems.nix, or wait for the next scheduled
+        crucible update to pin one. If you maintain the pins yourself, use
+        `#crucible-full` and run `crucible update node`.
+      '')
     else
       pin;
   src = fetchurl { inherit (source) url hash; };
