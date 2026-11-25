@@ -1,8 +1,16 @@
 # Crucible — architecture review & unified implementation plan
 
 **Status:** review and plan, produced 2026-11-24 and corrected 2026-11-25 after Wave 1
-(Phases 0–2) landed. Findings contradicted by the landed code are marked as such; the plan is
-kept for context.
+(Phases 0–2) landed; updated 2026-11-25 to record later progress. Findings contradicted by the
+landed code are marked as such; the plan is kept for context. **Landed:** Phases 0–2; the Phase 3
+verification work through 3.3 (attestation `Fetch` trait and `Config`, `pins/src/source.rs` owning
+`checked_asset`/`verified_asset`/`release_url`, cargo/Vite+/bun checksum files anchored to GitHub
+asset digests, thorough npm/attestation tests and enforced `sync.rs` pairs); and template work 4.1
+and 4.5–4.7. **Deferred, not implemented:** 3.2's local Sigstore bundle verification (tradeoff
+documented), 3.4 (`update --check`), 3.5 (uniform data shape / `pin --json`), 4.2 (Jupyter Poetry
+reading), 4.3 (Elm — next promotion; design in the "Elm full-stack promotion design" thread) and
+4.4 (Swift, Elixir, HashiCorp). The decisions behind these deferrals are recorded in
+[`implementation-decisions.md`](implementation-decisions.md).
 **Scope:** the whole repository — Rust workspace, Nix library/flake/side-car files, pin
 generation and verification paths, and all templates — with the staged working-tree changes
 treated as the current design.
