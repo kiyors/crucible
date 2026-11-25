@@ -29,6 +29,7 @@ pub struct Project {
     pub python: Option<Python>,
     pub go: Option<Go>,
     pub zig: Option<Zig>,
+    pub elm: Option<Elm>,
     /// Things worth saying that do not stop init, such as a .nvmrc without a
     /// package.json.
     pub notes: Vec<String>,
@@ -84,6 +85,14 @@ pub struct Zig {
     /// fromBuildZigZon has nothing to resolve, so the flake takes the newest
     /// pinned release instead.
     pub minimum: Option<String>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct Elm {
+    /// `elm.json`, which fromElmJson reads the compiler version from.
+    pub file: &'static str,
+    /// The `elm-version` field: an exact release, not a range.
+    pub version: String,
 }
 
 /// Looks only in `dir` itself: the flake refers to the files as `./name`, and
@@ -209,6 +218,29 @@ pub fn detect(dir: &Path) -> Result<Project> {
         None
     };
 
+    let elm_json = dir.join("elm.json");
+    let elm = if elm_json.is_file() {
+        let text = fs::read_to_string(&elm_json)
+            .with_context(|| format!("cannot read {}", elm_json.display()))?;
+        let json: serde_json::Value = serde_json::from_str(&text)
+            .with_context(|| format!("cannot parse {}", elm_json.display()))?;
+        Some(Elm {
+            file: "elm.json",
+            version: json
+                .get("elm-version")
+                .and_then(serde_json::Value::as_str)
+                .with_context(|| {
+                    format!(
+                        "{} has no elm-version, which fromElmJson needs; add one and run init again",
+                        elm_json.display()
+                    )
+                })?
+                .to_string(),
+        })
+    } else {
+        None
+    };
+
     Ok(Project {
         rust,
         node,
@@ -216,6 +248,7 @@ pub fn detect(dir: &Path) -> Result<Project> {
         python,
         go,
         zig,
+        elm,
         notes,
     })
 }
@@ -531,6 +564,21 @@ fn shells(project: &Project) -> Vec<Shell> {
         });
     }
 
+    if project.elm.is_some() {
+        shells.push(Shell {
+            name: "Elm",
+            var: "elm",
+            binding:
+                r#"      # elm.json's elm-version names the compiler the project uses, resolved
+      # against crucible's pins without the network.
+      elmFor = system: crucible.lib.${system}.elm.fromElmJson { file = ./elm.json; };
+"#
+                .to_string(),
+            comment:
+                "      # The Elm toolchain is the official compiler from npm's signed\n      # @elm_binaries packages.\n",
+        });
+    }
+
     shells
 }
 
@@ -542,7 +590,7 @@ pub fn run(dir: &Path, force: bool) -> Result<()> {
     }
     if shells(&project).is_empty() {
         anyhow::bail!(
-            "found no rust-toolchain.toml, rust-toolchain, package.json, deno.json, deno.jsonc, pyproject.toml, .python-version, go.mod or build.zig.zon in {}; add one and run init again, or start a new project: `crucible init <directory>`",
+            "found no rust-toolchain.toml, rust-toolchain, package.json, deno.json, deno.jsonc, pyproject.toml, .python-version, go.mod, build.zig.zon or elm.json in {}; add one and run init again, or start a new project: `crucible init <directory>`",
             dir.display()
         );
     }
@@ -634,6 +682,10 @@ fn next_steps(dir: &Path, project: &Project) -> String {
             None => out.push_str("  zig: the newest pinned release\n"),
         }
     }
+    if let Some(elm) = &project.elm {
+        tracked.push(elm.file);
+        let _ = writeln!(out, "  elm: {} (elm-version {})", elm.file, elm.version);
+    }
 
     out.push_str("\nnext steps:\n");
     // A flake in a git repository sees only the files git knows about, so an
@@ -673,7 +725,7 @@ mod tests {
             assert_eq!(render(&project), golden, "{}", dir.display());
             cases += 1;
         }
-        assert_eq!(cases, 10);
+        assert_eq!(cases, 11);
     }
 
     #[test]
@@ -735,6 +787,13 @@ mod tests {
             })
         );
         assert_eq!(fixture("deno").deno, Some(Deno { file: "deno.json" }));
+        assert_eq!(
+            fixture("elm").elm,
+            Some(Elm {
+                file: "elm.json",
+                version: "0.19.3".to_string()
+            })
+        );
 
         let mixed = fixture("mixed");
         assert!(mixed.rust.is_some() && mixed.node.is_some());
@@ -750,7 +809,40 @@ mod tests {
             })
         );
         assert_eq!(mixed.zig, Some(Zig { minimum: None }));
+        assert_eq!(
+            mixed.elm,
+            Some(Elm {
+                file: "elm.json",
+                version: "0.19.3".to_string()
+            })
+        );
         assert_eq!(mixed.notes.len(), 1);
+    }
+
+    #[test]
+    fn reads_elm_version_from_elm_json() {
+        let dir = std::env::temp_dir().join(format!("crucible-init-elm-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("elm.json"),
+            "{\"elm-version\":\"0.19.1\",\"source-directories\":[\"src\"]}\n",
+        )
+        .unwrap();
+        assert_eq!(
+            detect(&dir).unwrap().elm,
+            Some(Elm {
+                file: "elm.json",
+                version: "0.19.1".to_string()
+            })
+        );
+
+        // fromElmJson needs the field, so init says what to add rather than
+        // writing a flake that cannot evaluate.
+        fs::write(dir.join("elm.json"), "{\"source-directories\":[]}\n").unwrap();
+        let err = detect(&dir).unwrap_err().to_string();
+        assert!(err.contains("has no elm-version"), "{err}");
+
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
@@ -819,6 +911,7 @@ mod tests {
             ("go", include_str!("../../../templates/go/flake.nix")),
             ("zig", include_str!("../../../templates/zig/flake.nix")),
             ("deno", include_str!("../../../templates/deno/flake.nix")),
+            ("elm", include_str!("../../../templates/elm/flake.nix")),
         ];
 
         let shared = |flake: &str, template: &str| {

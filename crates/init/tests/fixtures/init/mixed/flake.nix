@@ -1,5 +1,5 @@
 {
-  description = "A Rust, Node.js, Deno, Python, Go and Zig project with crucible";
+  description = "A Rust, Node.js, Deno, Python, Go, Zig and Elm project with crucible";
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
@@ -45,6 +45,10 @@
       # build.zig.zon has no .minimum_zig_version, so this is the newest
       # pinned release. Once it has one, fromBuildZigZon resolves it.
       zigFor = system: crucible.lib.${system}.zig.toolchain { };
+
+      # elm.json's elm-version names the compiler the project uses, resolved
+      # against crucible's pins without the network.
+      elmFor = system: crucible.lib.${system}.elm.fromElmJson { file = ./elm.json; };
     in
     {
       # The toolchain's cargo is huacnlee/cargo: every project and worktree
@@ -65,6 +69,9 @@
       # GOTOOLCHAIN=local, so go never downloads a toolchain of its own.
       #
       # The Zig toolchain is the official ziglang.org release, as it ships.
+      #
+      # The Elm toolchain is the official compiler from npm's signed
+      # @elm_binaries packages.
       devShells = forAllSystems (system: {
         default = nixpkgs.legacyPackages.${system}.mkShell {
           packages = [
@@ -74,6 +81,7 @@
             (pythonFor system)
             (goFor system)
             (zigFor system)
+            (elmFor system)
           ];
         };
       });

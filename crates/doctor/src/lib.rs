@@ -9,6 +9,7 @@
 //! `Env`: the process's in `run`, a fake one in the tests.
 
 mod deno;
+mod elm;
 mod go;
 mod node;
 mod python;
@@ -42,6 +43,7 @@ fn run_all(cwd: &Path, env: &Env) -> Checks {
     go::check(&mut checks, cwd, env);
     zig::check(&mut checks, cwd, env);
     deno::check(&mut checks, cwd, env);
+    elm::check(&mut checks, cwd, env);
     checks
 }
 
@@ -688,7 +690,7 @@ mod tests {
         let env = fake_env(&[&bin], &[]);
 
         let (lines, errors, code) = run_doctor(&project, &env);
-        // Rust and Node still describe the tools on PATH; the four
+        // Rust and Node still describe the tools on PATH; the five
         // project-driven languages have neither executable nor file to read.
         assert_line(&lines, "is huacnlee/cargo");
         for needle in [
@@ -699,6 +701,7 @@ mod tests {
             "no go is on PATH",
             "no zig is on PATH",
             "deno.json is here, but no deno is on PATH",
+            "elm.json is here, but no elm is on PATH",
         ] {
             assert!(
                 !lines.iter().any(|line| line.contains(needle)),

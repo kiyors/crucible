@@ -34,6 +34,7 @@ rustPlatform.buildRustPackage {
       (root + "/templates/go/flake.nix")
       (root + "/templates/zig/flake.nix")
       (root + "/templates/deno/flake.nix")
+      (root + "/templates/elm/flake.nix")
       (lib.fileset.fileFilter (file: !(file.hasExt "nix" || file.hasExt "md")) (root + "/crates"))
       # init's golden flakes are Nix files the filter above would drop.
       (root + "/crates/init/tests/fixtures")
