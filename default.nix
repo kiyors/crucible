@@ -5,6 +5,7 @@ rec {
   rust = import ./lib/rust { inherit pkgs; };
   node = import ./lib/node { inherit pkgs; };
   deno = import ./lib/deno { inherit pkgs; };
+  elm = import ./lib/elm { inherit pkgs; };
   python = import ./lib/python { inherit pkgs; };
   go = import ./lib/go { inherit pkgs; };
   zig = import ./lib/zig { inherit pkgs; };

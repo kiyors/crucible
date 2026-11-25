@@ -1,5 +1,5 @@
 {
-  description = "Language toolchains for Nix, straight from upstream releases: Rust with huacnlee/cargo, Node.js with Vite+, Deno, Python with uv, Go, Zig and tsrs.";
+  description = "Language toolchains for Nix, straight from upstream releases: Rust with huacnlee/cargo, Node.js with Vite+, Deno, Elm, Python with uv, Go, Zig and tsrs.";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -22,6 +22,7 @@
           inherit (crucible.${system})
             rust
             node
+            elm
             python
             go
             zig
@@ -43,6 +44,7 @@
           go = go.stable;
           zig = zig.toolchain { };
           tsrs = tsrs.toolchain { };
+          elm = elm.toolchain { };
           crucible = cli;
           crucible-full = cli-full;
         }
@@ -82,6 +84,9 @@
         };
         tsrs = {
           inherit (crucible.${system}.tsrs) toolchain;
+        };
+        elm = {
+          inherit (crucible.${system}.elm) toolchain fromElmJson;
         };
       });
 

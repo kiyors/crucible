@@ -7,6 +7,7 @@ import ./rust { inherit pkgs crucible; }
 // import ./node { inherit pkgs crucible; }
 // import ./init.nix { inherit pkgs crucible; }
 // import ./deno { inherit pkgs crucible; }
+// import ./elm { inherit pkgs crucible; }
 // import ./python { inherit pkgs crucible; }
 // import ./go { inherit pkgs crucible; }
 // import ./zig { inherit pkgs crucible; }
