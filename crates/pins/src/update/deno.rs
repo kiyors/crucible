@@ -6,6 +6,13 @@
 //! deno executable, and the GitHub API lists the assets with their sha256
 //! digests, so only metadata is downloaded here: the Nix side fetches and
 //! unpacks the zips with those hashes.
+//!
+//! GitHub's recorded digest is the trust anchor: GitHub computes it when the
+//! asset is uploaded, and an asset without one is fatal rather than falling
+//! back to an unverified source. Deno does not publish an attestation or a
+//! detached signature we could check locally, so there is deliberately no
+//! attestation call here; this is the same trust tier as bun's checked
+//! `SHASUMS256.txt`, not a GPG-equivalent independent anchor.
 
 use std::path::Path;
 
@@ -74,6 +81,8 @@ pub(crate) fn plan(http: &Http, root: &Path) -> Result<Plan> {
         let version = release.tag_name.trim_start_matches('v').to_string();
         let mut platforms = IndexMap::new();
         for (system, asset) in DENO_ASSETS {
+            // GitHub's recorded digest is the anchor; never fall back to a
+            // hash from anywhere else when it is missing.
             let digest = release
                 .assets
                 .iter()

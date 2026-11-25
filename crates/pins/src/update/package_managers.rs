@@ -6,20 +6,24 @@
 //! lists each asset's sha256. That digest is checked against pnpm's GitHub
 //! artifact attestation (see `upstream::attestation`) before it is pinned, so
 //! the npm registry is not needed for pnpm at all. bun's release page lists
-//! its zips with their sha256 in `SHASUMS256.txt`. A registry packument lists
-//! yarn's releases with their URL and sha512 integrity, checked against the
-//! registry's signature (see `upstream::npm`), as pnpm's own installer does.
-//! Only metadata is downloaded here; the Nix side fetches the archives.
+//! its zips with their sha256 in `SHASUMS256.txt`; that file is itself checked
+//! against the sha256 GitHub recorded for the release asset (see
+//! `source::checked_asset`) before any hash in it is trusted. A registry
+//! packument lists yarn's releases with their URL and sha512 integrity,
+//! checked against the registry's signature (see `upstream::npm`), as pnpm's
+//! own installer does. Only metadata and checksum files are downloaded here;
+//! the Nix side fetches the archives.
 
 use std::path::Path;
 
 use anyhow::{Context, Result};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use super::{json, parse_sha256sums, Plan};
 use crate::http::Http;
-use crate::source::{hash_of, Source};
+use crate::source::{checked_asset, hash_of, Source};
 use crate::{attestation, npm, sri};
 
 const REGISTRY: &str = "https://registry.npmjs.org";
@@ -233,16 +237,25 @@ fn newest_pnpm<'a>(releases: &'a [GithubRelease], major: &str) -> Result<&'a Git
 /// One bun major: the newest stable release of that major, with that same
 /// version's zip and digest for every supported system, from the release's
 /// `SHASUMS256.txt`. bun is not an npm package: it ships one zip per
-/// platform, and GitHub lists them with their sha256.
+/// platform, and GitHub records a sha256 for the checksum file just as it
+/// does for the zips. Checking that file against GitHub's digest anchors the
+/// zip hashes in it to the release; bun publishes no attestation we could
+/// verify locally.
 fn bun_pins(http: &Http) -> Result<IndexMap<String, NativePin>> {
-    let releases: Vec<BunRelease> = serde_json::from_slice(&http.get(BUN_RELEASES)?)
+    let releases: Vec<Value> = serde_json::from_slice(&http.get(BUN_RELEASES)?)
         .context("failed to parse the bun release list")?;
     let mut pins = IndexMap::new();
     for major in BUN_MAJORS {
         let release = newest_stable(&releases, major)?;
-        let tag = release.tag_name.clone();
+        let tag = release
+            .get("tag_name")
+            .and_then(Value::as_str)
+            .context("the newest bun release has no tag_name")?;
         let version = tag.trim_start_matches("bun-v").to_string();
-        let sums = parse_sha256sums(&shasums(http, &tag)?);
+        // GitHub's recorded digest is the trust anchor: a tampered
+        // SHASUMS256.txt fails here before any zip hash is taken from it.
+        let sums = checked_asset(http, "oven-sh/bun", release, "SHASUMS256.txt")?;
+        let sums = parse_sha256sums(&sums);
         let mut platforms = IndexMap::new();
         for (system, asset) in BUN_ASSETS {
             platforms.insert(
@@ -266,33 +279,28 @@ fn bun_pins(http: &Http) -> Result<IndexMap<String, NativePin>> {
     Ok(pins)
 }
 
-/// One bun release, as the release list API reports it.
-#[derive(Debug, Deserialize)]
-struct BunRelease {
-    tag_name: String,
-    prerelease: bool,
-    draft: bool,
-}
-
 /// The newest stable bun release of `major`: the first of that major,
 /// newest first, that is neither a draft nor a prerelease.
-fn newest_stable<'a>(releases: &'a [BunRelease], major: &str) -> Result<&'a BunRelease> {
+fn newest_stable<'a>(releases: &'a [Value], major: &str) -> Result<&'a Value> {
     let prefix = format!("bun-v{major}.");
     releases
         .iter()
         .find(|release| {
-            !release.draft && !release.prerelease && release.tag_name.starts_with(&prefix)
+            let tag = release
+                .get("tag_name")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            !release
+                .get("draft")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+                && !release
+                    .get("prerelease")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+                && tag.starts_with(&prefix)
         })
         .with_context(|| format!("GitHub has no stable bun {major} release"))
-}
-
-/// `bun`'s `SHASUMS256.txt`, as the release page publishes it.
-fn shasums(http: &Http, tag: &str) -> Result<String> {
-    let url = format!("{BUN_RELEASES_DOWNLOAD}/{tag}/SHASUMS256.txt");
-    let body = http
-        .get(&url)
-        .with_context(|| format!("GET {url} failed"))?;
-    String::from_utf8(body).with_context(|| format!("{url} is not UTF-8"))
 }
 
 /// One JavaScript package manager: the newest stable release of each major,
@@ -371,6 +379,24 @@ mod tests {
         assert_eq!(newest_pnpm(&releases, "12").unwrap().tag_name, "v12.23.0");
         assert_eq!(newest_pnpm(&releases, "11").unwrap().tag_name, "v11.29.0");
         assert!(newest_pnpm(&releases, "10").is_err());
+    }
+
+    #[test]
+    fn picks_the_newest_stable_bun_release_of_a_major() {
+        let releases: Vec<Value> = serde_json::from_str(
+            r#"[
+              { "tag_name": "bun-v1.3.2", "prerelease": false, "draft": false },
+              { "tag_name": "bun-v1.3.3-rc.1", "prerelease": true, "draft": false },
+              { "tag_name": "bun-v1.3.1", "prerelease": false, "draft": false },
+              { "tag_name": "bun-v1.3.4", "prerelease": false, "draft": true }
+            ]"#,
+        )
+        .unwrap();
+        assert_eq!(
+            newest_stable(&releases, "1").unwrap()["tag_name"].as_str(),
+            Some("bun-v1.3.2")
+        );
+        assert!(newest_stable(&releases, "2").is_err());
     }
 
     #[test]

@@ -1,19 +1,25 @@
-//! Verify a pnpm GitHub release asset against its GitHub artifact attestation.
+//! Verify a GitHub release asset against its GitHub artifact attestation.
 //!
-//! pnpm publishes self-contained release archives on GitHub, but unlike the
-//! npm registry they carry no signature over their checksum. GitHub's
-//! artifact attestations fill that gap: the release workflow asks GitHub to
-//! attest a statement listing every asset's sha256, the repository and the
-//! tag. The API serves it keyed by the digest of the asset being pinned, and
-//! it is GitHub's own authenticated endpoint, so an attacker who swaps an
-//! asset cannot make it return an attestation for the new bytes. The
-//! attestation's `repository` and `tag` are checked as well, so an asset from
-//! another workflow cannot be used for this release.
+//! [`verify`] is the thin pnpm wrapper; [`verify_with`] checks any repository
+//! described by a [`Config`]. A release workflow asks GitHub to attest an
+//! in-toto statement listing every asset's sha256, the repository and the tag.
+//! The API serves it keyed by the digest of the asset being pinned, and it is
+//! GitHub's own authenticated endpoint, so an attacker who swaps an asset
+//! cannot make it return an attestation for the new bytes. The statement's
+//! `predicateType`, `repository` and `tag` are checked as well, so an asset
+//! from another workflow cannot be used for this release.
 //!
-//! We do not verify the Sigstore bundle's signature locally: the lookup is
-//! already authenticated by GitHub's TLS, which is the same trust tier as
-//! bun's `SHASUMS256.txt` served from its release. That keeps the updater's
-//! dependencies small; a GitHub compromise breaks both models alike.
+//! # Sigstore tradeoff
+//!
+//! We parse the DSSE payload but do **not** verify its Sigstore signature
+//! locally. An independent cryptographic anchor would need the DSSE signature
+//! itself, a Fulcio certificate chain, the OIDC workflow identity and a Rekor
+//! transparency-log proof. Those add heavy network-only dependencies to the
+//! updater for a trust path that still terminates at GitHub's infrastructure.
+//! The lookup is authenticated by GitHub's TLS instead. This is a deliberate
+//! tradeoff, not verification equivalent to GPG's detached signatures: a
+//! GitHub compromise breaks this model as it would the plain asset-digest
+//! model, whereas GPG's trust root is the vendored keyring.
 
 use anyhow::{bail, Context, Result};
 use base64::engine::general_purpose::STANDARD;
@@ -25,6 +31,47 @@ use crate::http::{Http, HttpError};
 const API: &str = "https://api.github.com/repos/pnpm/pnpm/attestations/sha256:";
 const RELEASE: &str = "https://in-toto.io/attestation/release/v0.2";
 const REPOSITORY: &str = "pnpm/pnpm";
+
+/// The repository whose release attestations are checked and the in-toto
+/// predicate type its release workflow uses. They travel together because
+/// GitHub keys attestations by digest alone: checking both is what stops a
+/// statement from another workflow from authenticating this release.
+#[derive(Clone, Debug)]
+pub struct Config {
+    /// `<api base>/repos/<owner>/<repo>/attestations/sha256:`, so the digest
+    /// is the only thing appended at lookup time.
+    api: String,
+    repository: String,
+    predicate_type: String,
+}
+
+impl Config {
+    /// pnpm's config, the one existing caller. `API`, `REPOSITORY` and
+    /// `RELEASE` stay literals because the source sync test reads them as
+    /// markers for the asset URLs Nix fetches.
+    pub fn pnpm() -> Self {
+        Self {
+            api: API.to_string(),
+            repository: REPOSITORY.to_string(),
+            predicate_type: RELEASE.to_string(),
+        }
+    }
+
+    /// A config for another GitHub repository that publishes the same
+    /// in-toto release-predicate shape.
+    pub fn new(repository: &str, predicate_type: &str) -> Self {
+        Self {
+            api: format!("https://api.github.com/repos/{repository}/attestations/sha256:"),
+            repository: repository.to_string(),
+            predicate_type: predicate_type.to_string(),
+        }
+    }
+
+    /// The digest-keyed attestation endpoint for this repository.
+    fn api_url(&self, digest_hex: &str) -> String {
+        format!("{}{digest_hex}", self.api)
+    }
+}
 
 /// The single network operation `verify` needs. `Http` implements it for
 /// production; tests supply a canned response so every branch can be checked
@@ -91,22 +138,36 @@ struct Predicate {
 /// Check that GitHub attests `digest_hex` as `asset` of pnpm's `tag` release.
 /// `digest_hex` is the asset's sha256, as the release API reports it.
 pub fn verify<F: Fetch>(http: &F, digest_hex: &str, asset: &str, tag: &str) -> Result<()> {
-    let url = format!("{API}{digest_hex}");
+    verify_with(http, &Config::pnpm(), digest_hex, asset, tag)
+}
+
+/// Check an asset against the attestation for `config`'s repository and
+/// predicate type. Every statement field that ties it to a release is
+/// checked; see the module docs for what is deliberately not verified.
+pub fn verify_with<F: Fetch>(
+    http: &F,
+    config: &Config,
+    digest_hex: &str,
+    asset: &str,
+    tag: &str,
+) -> Result<()> {
+    let url = config.api_url(digest_hex);
+    let repo = config.repository.as_str();
     let body = match http.get(&url) {
         Ok(body) => body,
         Err(HttpError::NotFound { .. }) => bail!(
-            "crucible: GitHub has no attestation for pnpm {tag} asset {asset} \
+            "crucible: GitHub has no attestation for {repo} {tag} asset {asset} \
              (sha256:{digest_hex}); check the release and its asset digest at \
-             https://github.com/pnpm/pnpm/releases/tag/{tag}"
+             https://github.com/{repo}/releases/tag/{tag}"
         ),
         Err(HttpError::Status { code: 403, .. }) => bail!(
-            "crucible: GitHub rate-limited the attestation lookup for {tag} asset {asset}; \
+            "crucible: GitHub rate-limited the attestation lookup for {repo} {tag} asset {asset}; \
              set GITHUB_TOKEN to a token with read access and retry `crucible update`"
         ),
         Err(err) => {
             return Err(err).with_context(|| {
                 format!(
-                    "crucible: could not look up the attestation for pnpm {tag} asset {asset}; \
+                    "crucible: could not look up the attestation for {repo} {tag} asset {asset}; \
                      check network access to {url} and retry `crucible update`"
                 )
             });
@@ -125,21 +186,22 @@ pub fn verify<F: Fetch>(http: &F, digest_hex: &str, asset: &str, tag: &str) -> R
         let statement: Statement = serde_json::from_slice(&bytes).context(
             "crucible: an attestation's DSSE payload is not an in-toto statement; check the GitHub response",
         )?;
-        if predicate_matches(&statement, tag) && has_subject(&statement, asset, digest_hex) {
+        if predicate_matches(config, &statement, tag) && has_subject(&statement, asset, digest_hex)
+        {
             return Ok(());
         }
     }
     bail!(
-        "crucible: GitHub has no release attestation for pnpm {tag}: {asset} at \
-         sha256:{digest_hex} (see https://github.com/pnpm/pnpm/attestations); check the release \
+        "crucible: GitHub has no release attestation for {repo} {tag}: {asset} at \
+         sha256:{digest_hex} (see https://github.com/{repo}/attestations); check the release \
          assets and retry `crucible update`"
     )
 }
 
-/// The predicate ties an attestation to one pnpm release.
-fn predicate_matches(statement: &Statement, tag: &str) -> bool {
-    statement.predicate_type == RELEASE
-        && statement.predicate.repository == REPOSITORY
+/// The predicate ties an attestation to one release of `config`'s repository.
+fn predicate_matches(config: &Config, statement: &Statement, tag: &str) -> bool {
+    statement.predicate_type == config.predicate_type
+        && statement.predicate.repository == config.repository
         && statement.predicate.tag == tag
 }
 
@@ -226,10 +288,46 @@ mod tests {
     }
 
     #[test]
+    fn a_deno_config_accepts_a_statement_for_its_own_repository() {
+        let asset = "deno-x86_64-unknown-linux-gnu.zip";
+        let statement = STATEMENT
+            .replace("pnpm/pnpm", "denoland/deno")
+            .replace(ASSET, asset);
+        let config = Config::new("denoland/deno", RELEASE);
+        verify_with(&fake(&response(&statement)), &config, DIGEST, asset, TAG).unwrap();
+    }
+
+    #[test]
+    fn a_wrong_repository_config_rejects_pnpms_statement() {
+        // GitHub looks attestations up by digest alone, so the configured
+        // repository has to steer both the URL and the predicate check.
+        let config = Config::new("denoland/deno", RELEASE);
+        let http = Fake {
+            get: Box::new(move |url| {
+                assert_eq!(
+                    url,
+                    format!(
+                        "https://api.github.com/repos/denoland/deno/attestations/sha256:{DIGEST}"
+                    ),
+                    "the lookup must use the configured repository"
+                );
+                Ok(response(STATEMENT).into_bytes())
+            }),
+        };
+        let err = verify_with(&http, &config, DIGEST, ASSET, TAG).unwrap_err();
+        assert!(err.to_string().contains("no release attestation"), "{err}");
+
+        let bun = Config::new("oven-sh/bun", RELEASE);
+        let err = verify_with(&fake(&response(STATEMENT)), &bun, DIGEST, ASSET, TAG).unwrap_err();
+        assert!(err.to_string().contains("no release attestation"), "{err}");
+    }
+
+    #[test]
     fn predicate_and_subject_are_checked_independently() {
         let s = statement(STATEMENT);
-        assert!(predicate_matches(&s, TAG));
-        assert!(!predicate_matches(&s, "v12.24.0"));
+        let config = Config::pnpm();
+        assert!(predicate_matches(&config, &s, TAG));
+        assert!(!predicate_matches(&config, &s, "v12.24.0"));
         assert!(has_subject(&s, ASSET, DIGEST));
         assert!(!has_subject(&s, "pnpm-linux-arm64.tar.gz", DIGEST));
         assert!(!has_subject(&s, ASSET, "deadbeef"));
