@@ -26,23 +26,32 @@ use anyhow::Result;
 
 pub fn run() -> Result<ExitCode> {
     let cwd = env::current_dir()?;
-    let mut checks = Checks::default();
     let env = Env::process();
+    Ok(exit_code(&run_all(&cwd, &env)))
+}
 
-    rust::check(&mut checks, &cwd, &env);
-    node::check(&mut checks, &cwd, &env);
+/// Every check, against one cwd and environment. `run` supplies the process's
+/// own; the tests a scratch directory with fake executables.
+fn run_all(cwd: &Path, env: &Env) -> Checks {
+    let mut checks = Checks::default();
+    rust::check(&mut checks, cwd, env);
+    node::check(&mut checks, cwd, env);
     // Each of these is silent when neither its executable nor its project
     // files are here, so a Rust-only project sees no Python or Go lines.
-    python::check(&mut checks, &cwd, &env);
-    go::check(&mut checks, &cwd, &env);
-    zig::check(&mut checks, &cwd, &env);
-    deno::check(&mut checks, &cwd, &env);
+    python::check(&mut checks, cwd, env);
+    go::check(&mut checks, cwd, env);
+    zig::check(&mut checks, cwd, env);
+    deno::check(&mut checks, cwd, env);
+    checks
+}
 
-    Ok(if checks.errors == 0 {
+/// Only errors fail the command; warnings and hints do not.
+fn exit_code(checks: &Checks) -> ExitCode {
+    if checks.errors == 0 {
         ExitCode::SUCCESS
     } else {
         ExitCode::FAILURE
-    })
+    }
 }
 
 #[derive(Default)]
@@ -454,6 +463,21 @@ mod test_support {
         (checks.lines, checks.errors)
     }
 
+    /// Run every check the way `run` does, but against a scratch cwd and a
+    /// fake Env: the printed lines, the error count and the exit code `run`
+    /// would choose.
+    pub fn run_doctor(cwd: &Path, env: &Env) -> (Vec<String>, u32, ExitCode) {
+        let checks = run_all(cwd, env);
+        let code = exit_code(&checks);
+        (checks.lines, checks.errors, code)
+    }
+
+    /// Compare exit codes without assuming they implement `PartialEq`.
+    #[track_caller]
+    pub fn assert_exit(actual: ExitCode, expected: ExitCode) {
+        assert_eq!(format!("{actual:?}"), format!("{expected:?}"));
+    }
+
     /// Whether one of `lines` contains `text`, with the lines in the panic
     /// message when it does not.
     #[track_caller]
@@ -570,6 +594,121 @@ mod tests {
         assert_eq!(env.var("EMPTY"), None);
         assert_eq!(env.var_os("HOME"), Some(OsString::from("/fake/home")));
         assert!(env.executables("nothing-here").is_empty());
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// A fork cargo and a rustc that both report 1.99.0, so the run-level
+    /// tests can layer project files over a clean Rust toolchain.
+    #[cfg(unix)]
+    fn rust_project(root: &Path) -> (PathBuf, PathBuf) {
+        let (bin, project) = (root.join("bin"), root.join("project"));
+        write_executable(
+            &bin.join("cargo"),
+            b"#!/bin/sh\necho 'cargo 1.99.0 (huacnlee/cargo 1.99.0)'\n",
+        );
+        write_executable(
+            &bin.join("rustc"),
+            b"#!/bin/sh\nif [ \"$1\" = -V ]; then echo 'rustc 1.99.0 (abcdef 2026-01-01)'; exit 0; fi\n\
+              if [ \"$1\" = --print ]; then echo /nonexistent/sysroot; exit 0; fi\nexit 1\n",
+        );
+        fs::create_dir_all(&project).unwrap();
+        (bin, project)
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn doctor_is_clean_for_a_matching_project() {
+        let root = scratch("doctor-clean");
+        let (bin, project) = rust_project(&root);
+        fs::write(
+            project.join("rust-toolchain.toml"),
+            "[toolchain]\nchannel = \"1.99\"\n",
+        )
+        .unwrap();
+        let env = fake_env(&[&bin], &[]);
+
+        let (lines, errors, code) = run_doctor(&project, &env);
+        assert_line(&lines, "is huacnlee/cargo");
+        assert_line(&lines, "rustc is rustc 1.99.0");
+        assert_line(&lines, "rustup is not on PATH");
+        assert_line(&lines, "pins 1.99, which matches rustc 1.99.0");
+        assert!(
+            !lines.iter().any(|line| line.starts_with("error")),
+            "{lines:?}"
+        );
+        assert_eq!(errors, 0);
+        assert_exit(code, ExitCode::SUCCESS);
+
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn doctor_reports_an_incompatible_rust_toolchain() {
+        let root = scratch("doctor-rust-mismatch");
+        let (bin, project) = rust_project(&root);
+        fs::write(
+            project.join("rust-toolchain.toml"),
+            "[toolchain]\nchannel = \"1.98\"\n",
+        )
+        .unwrap();
+        let env = fake_env(&[&bin], &[]);
+
+        let (lines, errors, code) = run_doctor(&project, &env);
+        assert_line(&lines, "pins 1.98, but rustc is 1.99.0");
+        assert_eq!(errors, 1);
+        assert_exit(code, ExitCode::FAILURE);
+
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn doctor_reports_an_incompatible_node_pin() {
+        let root = scratch("doctor-node-mismatch");
+        let (bin, project) = rust_project(&root);
+        write_executable(&bin.join("node"), b"#!/bin/sh\necho v22.14.0\n");
+        fs::write(project.join(".nvmrc"), "24\n").unwrap();
+        let env = fake_env(&[&bin], &[]);
+
+        let (lines, errors, code) = run_doctor(&project, &env);
+        assert_line(&lines, "is node v22.14.0");
+        assert_line(&lines, ".nvmrc pins 24, but node is v22.14.0");
+        assert_eq!(errors, 1);
+        assert_exit(code, ExitCode::FAILURE);
+
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn doctor_stays_quiet_without_project_files() {
+        let root = scratch("doctor-quiet");
+        let (bin, project) = rust_project(&root);
+        let env = fake_env(&[&bin], &[]);
+
+        let (lines, errors, code) = run_doctor(&project, &env);
+        // Rust and Node still describe the tools on PATH; the four
+        // project-driven languages have neither executable nor file to read.
+        assert_line(&lines, "is huacnlee/cargo");
+        for needle in [
+            "pins ",
+            "packageManager",
+            "no python3 is on PATH",
+            "requires-python",
+            "no go is on PATH",
+            "no zig is on PATH",
+            "deno.json is here, but no deno is on PATH",
+        ] {
+            assert!(
+                !lines.iter().any(|line| line.contains(needle)),
+                "unexpected {needle:?} line:\n{}",
+                lines.join("\n")
+            );
+        }
+        assert_eq!(errors, 0);
+        assert_exit(code, ExitCode::SUCCESS);
+
         fs::remove_dir_all(&root).unwrap();
     }
 }
