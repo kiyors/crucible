@@ -18,9 +18,12 @@ let
   # Whether a toolchain runs a freethreaded build.
   freethreaded = toolchain: lib.hasSuffix "t" toolchain.python.executable;
 
-  # .python-version beats requires-python, which must still allow it.
+  # .python-version beats requires-python, which beats Poetry's python
+  # constraint; every declared constraint must still allow the result.
   fromApp = python.fromPyprojectToml { file = ./app/pyproject.toml; };
   fromRequires = python.fromPyprojectToml { file = ./requires-only/pyproject.toml; };
+  fromPoetry = python.fromPyprojectToml { file = ./poetry/pyproject.toml; };
+  fromPoetry311 = python.fromPyprojectToml { file = ./poetry-311/pyproject.toml; };
   fromVersionFile = python.fromPythonVersion { file = ./version-files/cpython/.python-version; };
 
   # The path projects pinning a release crucible does not take: the
@@ -167,10 +170,17 @@ in
         touch $out
       '';
 
-  # .python-version, requires-python and the default, resolved offline.
+  # .python-version, requires-python, Poetry's python and the default, all
+  # resolved offline.
   python-project-files =
     assert line fromApp == "3.13";
     assert line fromRequires == "3.13";
+    # Poetry's caret "^3.11" is ">=3.11,<4", so the newest pinned 3.x wins.
+    assert line fromPoetry == "3.15";
+    assert fromPoetry.version == pins.releases."3.15".version;
+    # A narrower Poetry range resolves to 3.11 itself.
+    assert line fromPoetry311 == "3.11";
+    assert fromPoetry311.version == pins.releases."3.11".version;
     # Only the first entry of .python-version counts.
     assert line fromVersionFile == "3.14";
     assert python.latest.version == newest.version;
@@ -230,6 +240,8 @@ in
     assert rejected (python.fromPythonVersion { file = ./version-files/pypy/.python-version; });
     # A .python-version that requires-python does not allow.
     assert rejected (python.fromPyprojectToml { file = ./mismatch/pyproject.toml; });
+    # Nor one that contradicts Poetry's python constraint.
+    assert rejected (python.fromPyprojectToml { file = ./poetry-conflict/pyproject.toml; });
     pkgs.runCommand "crucible-check-python-errors" { } "touch $out";
 
   inherit (python) uv-unwrapped;

@@ -79,15 +79,43 @@ let
     else
       v: compare v release < 0;
 
-  satisfies =
-    version: spec:
+  # Poetry spells a compatible range "^X.Y", which means the same as the PEP
+  # 440 pair ">=X.Y,<X+1". Expand it before parsing so the pin solver needs
+  # only one clause grammar. Other specifiers pass through unchanged.
+  expandCaret =
+    spec:
     let
-      clauses = map (clause spec) (filter (c: lib.trim c != "") (lib.splitString "," spec));
+      m = match "\\^[[:space:]]*([0-9]+(\\.[0-9]+)*)(.*)" (lib.trim spec);
     in
-    all (ok: ok (parts version)) clauses;
+    if m == null then
+      [ spec ]
+    else
+      let
+        # builtins.match returns capture groups only, not the whole match.
+        lower = elemAt m 0;
+        upper = toString (lib.toInt (head (lib.splitString "." lower)) + 1);
+        rest = lib.trim (elemAt m 2);
+      in
+      [
+        ">=${lower}"
+        "<${upper}"
+      ]
+      ++ lib.optional (rest != "") rest;
+
+  clauses =
+    spec:
+    map (clause spec) (
+      filter (c: lib.trim c != "") (lib.concatMap expandCaret (lib.splitString "," spec))
+    );
+
+  satisfies = version: spec: all (ok: ok (parts version)) (clauses spec);
 in
 {
   inherit satisfies;
+
+  # Poetry's spelling normalised to plain PEP 440, for callers that need to
+  # show or validate the spec they chose.
+  poetrySpec = spec: lib.concatStringsSep "," (lib.concatMap expandCaret (lib.splitString "," spec));
 
   # The newest of `versions` that `spec` allows, or null.
   newest =

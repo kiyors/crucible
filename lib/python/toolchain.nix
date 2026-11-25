@@ -239,10 +239,11 @@ let
       inherit uv sha256sums;
     };
 
-  # Reads the Python a project asks for the way uv does: the .python-version
-  # next to pyproject.toml, then project.requires-python, then the newest
-  # pinned line. A .python-version outside requires-python is an error, as it
-  # is for uv. Nothing here touches the network.
+  # Reads the Python a project asks for: the .python-version next to
+  # pyproject.toml, then project.requires-python, then Poetry's
+  # [tool.poetry.dependencies].python, then the newest pinned line. Every
+  # stated constraint must still allow the release that was picked, so a
+  # .python-version outside them is an error. Nothing touches the network.
   fromPyprojectToml =
     {
       file,
@@ -255,21 +256,37 @@ let
       versionFile = dir + "/.python-version";
       fileVersion = if builtins.pathExists versionFile then readPythonVersion versionFile else null;
       requires = toml.project.requires-python or null;
+      # Poetry's caret ("^3.11") is expanded to ">=3.11,<4" by pep440, so the
+      # same solver handles both spellings.
+      poetry = toml.tool.poetry.dependencies.python or null;
+      chosen =
+        if fileVersion != null then
+          fileVersion
+        else if requires != null then
+          requires
+        else if poetry != null then
+          poetry
+        else
+          "3";
+      spec = pep440.poetrySpec chosen;
       release = resolve {
-        version =
-          if fileVersion != null then
-            fileVersion
-          else if requires != null then
-            requires
-          else
-            "3";
+        version = spec;
         inherit sha256sums;
       };
+      # The declared constraints must allow the release the chosen source
+      # picked, even when a .python-version did the picking.
+      constraints = filter (c: c != null) [
+        requires
+        poetry
+      ];
+      conflicting = filter (c: !pep440.satisfies release.version c) constraints;
     in
-    if requires != null && !pep440.satisfies release.version requires then
+    if conflicting != [ ] then
       throw ''
-        crucible: .python-version picks Python ${release.version}, which requires-python
-        "${requires}" in ${toString file} does not allow.
+        crucible: Python ${release.version} for ${toString file} is not allowed by ${
+          lib.concatMapStringsSep ", " (c: "\"${c}\"") conflicting
+        }.
+        Change .python-version or the project's Python constraints to agree.
       ''
     else
       assemble { inherit release uv; };

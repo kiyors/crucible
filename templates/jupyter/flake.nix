@@ -1,5 +1,5 @@
 {
-  description = "Jupyter from nixpkgs with Python 3.11, Poetry, ipykernel and a .venv";
+  description = "Jupyter with the Python pinned by pyproject.toml, Poetry, ipykernel and a .venv";
 
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable"; # unstable Nixpkgs
   inputs.crucible = {
@@ -8,41 +8,37 @@
   };
 
   outputs =
-    inputs:
-
+    { nixpkgs, crucible, ... }:
     let
-      supportedSystems = [
+      systems = [
         "x86_64-linux"
         "aarch64-linux"
-        "x86_64-darwin"
         "aarch64-darwin"
       ];
-      forEachSupportedSystem =
-        f:
-        inputs.nixpkgs.lib.genAttrs supportedSystems (
-          system:
-          f {
-            pkgs = import inputs.nixpkgs { inherit system; };
-          }
-        );
+      forAllSystems = nixpkgs.lib.genAttrs systems;
     in
     {
-      devShells = forEachSupportedSystem (
-        { pkgs }:
+      devShells = forAllSystems (
+        system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+          # Poetry's "^3.11" in pyproject.toml is resolved offline to a pinned
+          # CPython; Poetry and ipykernel stay app-level nixpkgs packages.
+          python = crucible.lib.${system}.python.fromPyprojectToml {
+            file = ./pyproject.toml;
+          };
+        in
         {
           default = pkgs.mkShellNoCC {
             venvDir = ".venv";
-            packages =
-              with pkgs;
-              [
-                poetry
-                python311
-              ]
-              ++ (with python311Packages; [
-                ipykernel
-                pip
-                venvShellHook
-              ]);
+            packages = [
+              python
+              pkgs.poetry
+              # The python3.11 package set pulls a sphinx 9.1.0 that nixpkgs
+              # marks broken for 3.11; the default python3Packages set works.
+              pkgs.python3Packages.ipykernel
+              pkgs.python3Packages.venvShellHook
+            ];
           };
         }
       );

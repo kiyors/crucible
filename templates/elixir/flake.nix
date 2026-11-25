@@ -81,8 +81,8 @@
                 # mix needs it for downloading dependencies
                 git
 
-                # probably needed for your Phoenix assets
-                nodejs_20
+                # probably needed for your Phoenix assets; nixpkgs removed nodejs_20
+                nodejs_22
               ]
               ++
                 # Linux only
