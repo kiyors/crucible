@@ -8,6 +8,7 @@
 }:
 let
   tsrsFor = pkgs.callPackage ./tsrs.nix { };
+  assertNative = import ../common/cross.nix { inherit lib pkgs; };
   pinned = lib.importJSON ../../data/tsrs/tsrs.json;
 
   # "latest" or the pinned version itself; anything else is an error rather
@@ -30,6 +31,7 @@ in
     {
       version ? "latest",
     }:
+    assert (assertNative "tsrs" "");
     tsrsFor (resolve {
       inherit version;
     });

@@ -17,6 +17,7 @@ let
     ;
 
   denoFor = pkgs.callPackage ./deno.nix { };
+  assertNative = import ../common/cross.nix { inherit lib pkgs; };
 
   pinned = lib.importJSON ../../data/deno/deno.json;
   pinnedMajors = attrNames pinned;
@@ -68,6 +69,7 @@ in
     {
       version ? "latest",
     }:
+    assert (assertNative "Deno" "");
     denoFor (resolve {
       inherit version;
     });

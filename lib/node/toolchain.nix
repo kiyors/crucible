@@ -24,6 +24,7 @@ let
     ;
 
   semver = import ./semver.nix { inherit lib; };
+  assertNative = import ../common/cross.nix { inherit lib pkgs; };
   nodeFor = pkgs.callPackage ./node.nix { };
   vitePlusPkgs = pkgs.callPackage ./vite-plus.nix { };
 
@@ -239,12 +240,7 @@ let
       vitePlus ? true,
       packageManager ? null,
     }:
-    # node runs on the build machine, so a cross package set (pkgsCross.*)
-    # would select a binary for the wrong one.
-    assert lib.assertMsg (pkgs.stdenv.buildPlatform.config == pkgs.stdenv.hostPlatform.config) ''
-      crucible: Node.js toolchains are built for the machine that runs them; take one from the
-      native package set.
-    '';
+    assert (assertNative "Node.js" "");
     let
       node = nodeFor release;
       vp = if vitePlus then vitePlusPkgs.withNode node else null;

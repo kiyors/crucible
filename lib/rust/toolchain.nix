@@ -29,6 +29,7 @@ let
     ;
 
   rust = pkgs.callPackage ./components.nix { };
+  assertNative = import ../common/cross.nix { inherit lib pkgs; };
 
   defaultComponents = [
     "rustc"
@@ -145,12 +146,9 @@ let
       targets,
       exclude,
     }:
-    # The components here run on the build machine, so a cross package set
-    # (pkgsCross.*) would select binaries for the wrong one.
-    assert lib.assertMsg (pkgs.stdenv.buildPlatform.config == pkgs.stdenv.hostPlatform.config) ''
-      crucible: toolchains are built for the machine that runs them. For ${pkgs.stdenv.hostPlatform.config},
-      use the native package set's toolchain with `targets = [ "${pkgs.stdenv.hostPlatform.rust.rustcTarget}" ]`.
-    '';
+    assert (
+      assertNative "the Rust toolchain" "For ${pkgs.stdenv.hostPlatform.config}, use the native package set's toolchain with `targets = [ \"${pkgs.stdenv.hostPlatform.rust.rustcTarget}\" ]`."
+    );
     let
       # Compared by the manifest's own names, so `exclude = [ "clippy" ]`
       # also drops a "clippy-preview" that a profile listed.

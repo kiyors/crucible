@@ -21,6 +21,7 @@ let
     ;
 
   pep440 = import ./pep440.nix { inherit lib; };
+  assertNative = import ../common/cross.nix { inherit lib pkgs; };
   pythonFor = pkgs.callPackage ./python.nix { };
   uvPkgs = pkgs.callPackage ./uv.nix { };
 
@@ -151,12 +152,7 @@ let
       release,
       uv ? true,
     }:
-    # python runs on the build machine, so a cross package set (pkgsCross.*)
-    # would select a binary for the wrong one.
-    assert lib.assertMsg (pkgs.stdenv.buildPlatform.config == pkgs.stdenv.hostPlatform.config) ''
-      crucible: Python toolchains are built for the machine that runs them; take one from the
-      native package set.
-    '';
+    assert (assertNative "Python" "");
     let
       python = pythonFor release;
       uvPkg = if uv then uvPkgs.withPython python else null;

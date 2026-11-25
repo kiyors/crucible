@@ -21,6 +21,7 @@ let
     ;
 
   goFor = pkgs.callPackage ./go.nix { };
+  assertNative = import ../common/cross.nix { inherit lib pkgs; };
 
   # Pinned by `crucible update`: the newest release of every supported line.
   pinned = lib.importJSON ../../data/go/go.json;
@@ -117,13 +118,7 @@ let
 
   assemble =
     release:
-    # go runs on the build machine, so a cross package set (pkgsCross.*) would
-    # select a binary for the wrong one. Go cross-compiles by itself: set
-    # GOOS and GOARCH.
-    assert lib.assertMsg (pkgs.stdenv.buildPlatform.config == pkgs.stdenv.hostPlatform.config) ''
-      crucible: Go toolchains are built for the machine that runs them; take one from the
-      native package set and cross-compile with GOOS and GOARCH.
-    '';
+    assert (assertNative "Go" "Cross-compile with GOOS and GOARCH instead.");
     goFor release;
 
   toolchain =
