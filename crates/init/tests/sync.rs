@@ -16,6 +16,14 @@ fn repo() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
+/// The CLI package is built from a restricted source set that contains the
+/// crates but not the Nix/doc files these checks mirror. This is a maintainer
+/// check run from the repo root (AGENTS.md), so skip it rather than fail a
+/// package build that cannot see its inputs.
+fn repo_available() -> bool {
+    repo().join("flake.nix").is_file()
+}
+
 fn text(rel: &str) -> String {
     let path = repo().join(rel);
     fs::read_to_string(&path).unwrap_or_else(|e| {
@@ -182,6 +190,12 @@ fn version_after(source: &str, file: &str, label: &str) -> String {
 
 #[test]
 fn systems_nix_matches_hosts_systems_and_dev_flake() {
+    if !repo_available() {
+        eprintln!(
+            "crucible: skipping source sync check: repo-root sources are absent from this build"
+        );
+        return;
+    }
     let systems = strings(&text("lib/common/systems.nix"));
     assert!(
         !systems.is_empty(),
@@ -218,6 +232,12 @@ fn systems_nix_matches_hosts_systems_and_dev_flake() {
 
 #[test]
 fn rust_manifest_url_matches_nix_manifest_url() {
+    if !repo_available() {
+        eprintln!(
+            "crucible: skipping source sync check: repo-root sources are absent from this build"
+        );
+        return;
+    }
     let channel = text("crates/init/src/channel.rs");
     let dist = const_string(
         &channel,
@@ -248,6 +268,12 @@ fn rust_manifest_url_matches_nix_manifest_url() {
 
 #[test]
 fn node_platforms_and_shasums_url_match_nix() {
+    if !repo_available() {
+        eprintln!(
+            "crucible: skipping source sync check: repo-root sources are absent from this build"
+        );
+        return;
+    }
     let systems = strings(&text("lib/common/systems.nix"));
     let nix = text("lib/node/toolchain.nix");
     let rust = text("crates/pins/src/update/node.rs");
@@ -288,6 +314,12 @@ fn node_platforms_and_shasums_url_match_nix() {
 
 #[test]
 fn python_platforms_release_url_and_freethreaded_names_match_nix() {
+    if !repo_available() {
+        eprintln!(
+            "crucible: skipping source sync check: repo-root sources are absent from this build"
+        );
+        return;
+    }
     let systems = strings(&text("lib/common/systems.nix"));
     let nix = text("lib/python/toolchain.nix");
     let rust = text("crates/pins/src/update/python.rs");
@@ -370,6 +402,12 @@ fn python_platforms_release_url_and_freethreaded_names_match_nix() {
 
 #[test]
 fn go_platforms_and_download_url_match_nix() {
+    if !repo_available() {
+        eprintln!(
+            "crucible: skipping source sync check: repo-root sources are absent from this build"
+        );
+        return;
+    }
     let systems = strings(&text("lib/common/systems.nix"));
     let nix = text("lib/go/toolchain.nix");
     let rust = text("crates/pins/src/update/go.rs");
@@ -404,6 +442,12 @@ fn go_platforms_and_download_url_match_nix() {
 
 #[test]
 fn package_manager_layout_matches_nix() {
+    if !repo_available() {
+        eprintln!(
+            "crucible: skipping source sync check: repo-root sources are absent from this build"
+        );
+        return;
+    }
     let nix = text("lib/node/package-manager.nix");
     assert!(
         nix.contains("layout = pin.layout or \"tarball\";"),
@@ -454,6 +498,12 @@ fn package_manager_layout_matches_nix() {
 
 #[test]
 fn npm_keys_endpoint_matches_pinned_keys() {
+    if !repo_available() {
+        eprintln!(
+            "crucible: skipping source sync check: repo-root sources are absent from this build"
+        );
+        return;
+    }
     let npm = text("crates/upstream/src/npm.rs");
     let endpoint = "https://registry.npmjs.org/-/npm/v1/keys";
     assert!(
@@ -493,6 +543,12 @@ fn npm_keys_endpoint_matches_pinned_keys() {
 
 #[test]
 fn pnpm_attestation_matches_the_assets_nix_fetches() {
+    if !repo_available() {
+        eprintln!(
+            "crucible: skipping source sync check: repo-root sources are absent from this build"
+        );
+        return;
+    }
     let attestation = text("crates/upstream/src/attestation.rs");
     let file = "crates/upstream/src/attestation.rs";
     let api = const_string(&attestation, file, "const API: &str = ");
@@ -566,6 +622,12 @@ fn pnpm_attestation_matches_the_assets_nix_fetches() {
 
 #[test]
 fn all_platform_tables_match_systems_nix() {
+    if !repo_available() {
+        eprintln!(
+            "crucible: skipping source sync check: repo-root sources are absent from this build"
+        );
+        return;
+    }
     let systems = strings(&text("lib/common/systems.nix"));
     // These copies are not in AGENTS.md's original eight pairs, but a new
     // system has to be added to all of them for pins to be complete.
@@ -648,6 +710,12 @@ fn all_platform_tables_match_systems_nix() {
 
 #[test]
 fn template_name_lists_match() {
+    if !repo_available() {
+        eprintln!(
+            "crucible: skipping source sync check: repo-root sources are absent from this build"
+        );
+        return;
+    }
     let flake = text("flake.nix");
     assert!(
         flake.contains("templates = import ./templates.nix;"),
@@ -748,6 +816,12 @@ fn template_name_lists_match() {
 
 #[test]
 fn readme_versions_match_the_data_pins() {
+    if !repo_available() {
+        eprintln!(
+            "crucible: skipping source sync check: repo-root sources are absent from this build"
+        );
+        return;
+    }
     let readme = text("README.md");
     // Read the version out of the prose and look it up in the data. Never the
     // other way around: a scheduled pin update may move the version freely.

@@ -243,10 +243,9 @@ Concrete gaps:
 - `init` is overloaded: no args writes a flake; with a directory it shells out to `nix flake new`;
   `--force` applies only to the first path, and an existing directory is always refused.
 - Help text had said "Template name from the nix-templates repo" while the code used
-  `github:kiyors/templates`; Phase 2.9 changed it to the latter, but 4.6 made
-  `github:kiyors/crucible` canonical. The two `main.rs` help lines still name the old repo and
-  need a follow-up edit after merge; the README link to the local `nix-templates` directory is
-  already gone.
+  `github:kiyors/templates`; Phase 2.9 clarified it and 4.6 made `github:kiyors/crucible`
+  canonical, so the help text now names this flake's templates. The README link to the local
+  `nix-templates` directory is gone.
 - `pin` mixes prose and Nix snippets on stdout with inconsistent labels (`rustc:`/`node:`/`python:`
   vs `go:`); no machine-readable mode.
 

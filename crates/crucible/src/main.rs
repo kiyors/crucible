@@ -63,12 +63,12 @@ enum Command {
         /// Create a new project in this directory from a template; the
         /// directory must not already exist
         directory: Option<PathBuf>,
-        /// Template name from github:kiyors/templates (default: empty)
+        /// Template name from github:kiyors/crucible (default: empty)
         template: Option<String>,
     },
     /// Add a template to the project in the current directory
     Add {
-        /// Template name from github:kiyors/templates (default: empty)
+        /// Template name from github:kiyors/crucible (default: empty)
         template: Option<String>,
     },
     /// Print what a project needs to pin a toolchain version
