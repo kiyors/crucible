@@ -45,6 +45,7 @@ let
             python
             go
             zig
+            elm
             ;
         };
         rust-manifest = rustManifest;
@@ -93,6 +94,7 @@ in
         "go"
         "zig"
         "deno"
+        "elm"
         "mixed"
       ]
     }

@@ -652,6 +652,10 @@ fn all_platform_tables_match_systems_nix() {
             "crates/pins/src/update/tsrs.rs",
             "PLATFORMS: [(&str, &str); 3] = [",
         ),
+        (
+            "crates/pins/src/update/elm.rs",
+            "PLATFORMS: [(&str, &str); 3] = [",
+        ),
     ];
     for (file, marker) in tables {
         let source = text(file);
@@ -705,6 +709,71 @@ fn all_platform_tables_match_systems_nix() {
     );
     for table in listed.chunks(systems.len()) {
         assert_systems(table, &systems, file);
+    }
+}
+
+#[test]
+fn elm_pin_shape_matches_the_data() {
+    if !repo_available() {
+        eprintln!(
+            "crucible: skipping source sync check: repo-root sources are absent from this build"
+        );
+        return;
+    }
+    let file = "crates/pins/src/update/elm.rs";
+    let source = text(file);
+    let registry = const_string(&source, file, "const REGISTRY: &str = ");
+    let suffix = const_string(&source, file, "const NPM_SUFFIX: &str = ");
+    assert_eq!(
+        registry, "https://registry.npmjs.org",
+        "crucible: the npm registry base changed; edit {file} or lib/elm/toolchain.nix"
+    );
+    assert_eq!(
+        suffix, "-0",
+        "crucible: npm's Elm package suffix changed; edit {file}, lib/elm/toolchain.nix and data/elm/elm.json"
+    );
+
+    let systems = strings(&text("lib/common/systems.nix"));
+    let pairs = rust_pairs(&source, file, "PLATFORMS: [(&str, &str); 3] = [");
+    assert_systems(
+        &pairs.iter().map(|p| p.0.clone()).collect::<Vec<_>>(),
+        &systems,
+        file,
+    );
+
+    // Elm's compiler version is the data key; npm keeps a -0 suffix in the
+    // tarball URL. Nix must mirror both, so pin them here rather than in prose.
+    let pins = data("data/elm/elm.json");
+    for (version, release) in pins.as_object().into_iter().flatten() {
+        assert_eq!(
+            release["version"].as_str(),
+            Some(version.as_str()),
+            "crucible: data/elm/elm.json's inner version must be the compiler version; run `crucible update elm`"
+        );
+        for (system, platform) in release["platforms"].as_object().into_iter().flatten() {
+            assert!(
+                systems.contains(system),
+                "crucible: Elm pin {version} uses system {system}, which lib/common/systems.nix does not; run `crucible update elm`"
+            );
+            let package = pairs
+                .iter()
+                .find(|p| p.0 == *system)
+                .map(|p| p.1.as_str())
+                .unwrap_or_default();
+            let url = platform["url"].as_str().unwrap_or_default();
+            let expected = format!("{registry}/{package}/-/");
+            let npm_version = format!("{version}{suffix}");
+            assert!(
+                url.starts_with(&expected) && url.ends_with(&format!("-{npm_version}.tgz")),
+                "crucible: Elm pin {version} on {system} has URL {url}, which does not use {package} and the -0 suffix; edit {file} or run `crucible update elm`"
+            );
+            assert!(
+                platform["hash"]
+                    .as_str()
+                    .is_some_and(|h| h.starts_with("sha512-")),
+                "crucible: Elm pin {version} on {system} must carry an SRI hash; run `crucible update elm`"
+            );
+        }
     }
 }
 
@@ -906,5 +975,13 @@ fn readme_versions_match_the_data_pins() {
         versions(&zig).contains(&zig_version),
         "crucible: README.md documents Zig {zig_version}, which is not pinned in \\
          data/zig/zig.json; edit README.md or run `crucible update zig`"
+    );
+
+    let elm_version = version_after(&readme, "README.md", "today it is ");
+    let elm = data("data/elm/elm.json");
+    assert!(
+        versions(&elm).contains(&elm_version),
+        "crucible: README.md documents Elm {elm_version}, which is not pinned in \\
+         data/elm/elm.json; edit README.md or run `crucible update elm`"
     );
 }

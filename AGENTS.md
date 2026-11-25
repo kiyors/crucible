@@ -79,6 +79,13 @@ shellcheck scripts/linux-from-macos.sh
     by hand for now; Phase 4.6 reconciles the two sources)
   - `systems` in `dev/flake.nix` ↔ `lib/common/systems.nix` (same systems, same order;
     `x86_64-darwin` is excluded because pinned nixpkgs dropped it)
+  - `PLATFORMS` in `crates/pins/src/update/elm.rs` ↔ `lib/common/systems.nix` ↔ `platforms` in
+    `lib/elm/toolchain.nix`; `REGISTRY` in `update/elm.rs` ↔ the npm tarball URL template in Nix
+  - the `-0` suffix in `const NPM_SUFFIX` / `compiler_version` in `crates/pins/src/update/elm.rs`
+    ↔ the `-0` kept in the Nix tarball URL ↔ the bare compiler version in `data/elm/elm.json`,
+    `elm.json`'s `elm-version`, `elm --version`, and `crucible pin elm`
+  - the `elm-version` parser in `lib/elm/toolchain.nix` ↔ `elm_version()` in `crates/init/src/lib.rs`
+    ↔ the comparison in `crates/doctor/src/elm.rs` (both strip a possible `-0` from `elm --version`)
   - versions described as current in `README.md` ↔ the pins in `data/**/*.json`; the check
     reads the version from the prose and finds it in the data, never the reverse, so a
     scheduled pin update does not need a source edit
