@@ -37,19 +37,19 @@
       "layout": "tarball"
     },
     "12": {
-      "version": "12.23.0",
+      "version": "12.24.0",
       "platforms": {
         "x86_64-linux": {
-          "url": "https://github.com/pnpm/pnpm/releases/download/v12.23.0/pnpm-linux-x64.tar.gz",
-          "hash": "sha256-tRXinyrBrcD75jFzQUpmgoJ7r/JPF+etNHaCG97yNqw="
+          "url": "https://github.com/pnpm/pnpm/releases/download/v12.24.0/pnpm-linux-x64.tar.gz",
+          "hash": "sha256-HGcCHlID+0yc8R2aSt4iVBeymebvAxYgPhW4XL43RYU="
         },
         "aarch64-linux": {
-          "url": "https://github.com/pnpm/pnpm/releases/download/v12.23.0/pnpm-linux-arm64.tar.gz",
-          "hash": "sha256-3QP3YWYl/48T2VL2QfCGSiMA1z0KdRpoJzdhW9n5p6I="
+          "url": "https://github.com/pnpm/pnpm/releases/download/v12.24.0/pnpm-linux-arm64.tar.gz",
+          "hash": "sha256-Jdm4up8ZL6ZFJA9AcDgNuAzmmzKa69KxAVVoPbs+EP8="
         },
         "aarch64-darwin": {
-          "url": "https://github.com/pnpm/pnpm/releases/download/v12.23.0/pnpm-darwin-arm64.tar.gz",
-          "hash": "sha256-UrsxS/DUiSj8FRJszOQqoZknXikBi+8RKgSuis3KrxQ="
+          "url": "https://github.com/pnpm/pnpm/releases/download/v12.24.0/pnpm-darwin-arm64.tar.gz",
+          "hash": "sha256-6pEWADX5UxkJNQhNOS8K5D96NOsn3l1Ef6NIXFf5emQ="
         }
       },
       "layout": "tarball"
