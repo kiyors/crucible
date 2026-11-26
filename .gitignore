@@ -1,5 +1,7 @@
 result
 result-*
+# macOS Finder metadata; it appears in every directory after browsing.
+.DS_Store
 .direnv
 .pre-commit-config.yaml
 /fenix/
