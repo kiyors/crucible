@@ -5,3 +5,6 @@
 [default.extend-words]
 damon = "damon"
 hashi = "hashi"
+# `pn` is pnpm's short alias, not a typo for `on`; typos rewrites it in the
+# alias wrappers and their checks.
+pn = "pn"

@@ -107,6 +107,13 @@
             # where the Home Manager module's user-visible options are checked.
             home-manager-module =
               let
+                # Home Manager installs whatever toolchain `package` names.
+                # Give it a pinned pnpm so the check below also proves the
+                # short pnpm aliases reach a Home Manager session.
+                nodeWithPnpm = inputs.crucible.lib.${system}.node.toolchain {
+                  vitePlus = false;
+                  packageManager = "pnpm@12";
+                };
                 hm = inputs.home-manager.lib.homeManagerConfiguration {
                   inherit pkgs;
                   modules = [
@@ -127,6 +134,7 @@
                       };
                       programs.crucible.node = {
                         enable = true;
+                        package = nodeWithPnpm;
                         npmPrefix = ".npm-global";
                         pnpmHome = ".local/share/pnpm";
                       };
@@ -159,9 +167,7 @@
               assert lib.any (
                 package: package == inputs.crucible.packages.${system}.rust
               ) hm.config.home.packages;
-              assert lib.any (
-                package: package == inputs.crucible.packages.${system}.node
-              ) hm.config.home.packages;
+              assert lib.any (package: package == nodeWithPnpm) hm.config.home.packages;
               assert lib.any (
                 package: package == inputs.crucible.packages.${system}.python
               ) hm.config.home.packages;
@@ -181,7 +187,14 @@
               assert hm.config.home.file.".cargo/config.toml".source != null;
               assert lib.any (warning: builtins.match ".*VP_HOME.*" warning != null) hm.config.warnings;
               assert lib.any (warning: builtins.match ".*UV_PYTHON.*" warning != null) hm.config.warnings;
-              pkgs.runCommand "crucible-home-manager-check" { } "touch $out";
+              pkgs.runCommand "crucible-home-manager-check" { } ''
+                export PATH=${nodeWithPnpm}/bin:$PATH
+                export HOME=$TMPDIR
+                test "$(pn --version)" = "$(pnpm --version)"
+                pnx --help | grep -q 'Usage: pnpm dlx'
+                pnpx --help | grep -q 'Usage: pnpm dlx'
+                touch $out
+              '';
           };
 
           packages = {

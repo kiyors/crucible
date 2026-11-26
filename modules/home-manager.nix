@@ -118,7 +118,8 @@ in
       description = ''
         The toolchain to install: one from crucible's `packages` or `lib.<system>.node`
         (node, npm and vp, the pinned LTS by default), or any package with a `bin/node`.
-        Its vp uses this Node.js and never downloads one of its own.
+        Its vp uses this Node.js and never downloads one of its own. If it includes a pinned
+        pnpm, `pn` and `pnx`/`pnpx` are on PATH too, running on that Node.js.
       '';
     };
 

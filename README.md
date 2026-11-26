@@ -368,6 +368,10 @@ rather than a silent substitution: pass a package built from that release as `pa
 (or `fromPackageJson`'s `packageManager` argument), or use the major. npm ships with Node.js and
 needs no separate pin.
 
+A pinned pnpm also puts `pn` (the same as `pnpm`) and `pnx`/`pnpx` (`pnpm dlx`) on PATH. They
+are the aliases pnpm's npm package installs, run by this toolchain's Node.js; Node.js 25 and
+later ship no corepack to provide them.
+
 ### devShell
 
 ```nix

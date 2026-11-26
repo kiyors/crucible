@@ -131,8 +131,14 @@ in
       node --version | grep -q '^v24\.'
       pnpm --version | grep -q '^10\.'
       # pnpm runs on the toolchain's node: the pinned native pnpm's wrapper
-      # puts that node first on PATH for the scripts pnpm runs.
+      # puts that node first on PATH for the scripts pnpm runs. Its short
+      # aliases come from the same wrapper set, not from corepack (Node 26 has
+      # none) or an npm global install.
       grep -q '${fromApp.node}/bin' "$(readlink -f "$(command -v pnpm)")"
+      test "$(pn --version)" = "$(pnpm --version)"
+      pnx --help | grep -q 'Usage: pnpm dlx'
+      pnpx --help | grep -q 'Usage: pnpm dlx'
+      grep -q '${fromApp.node}/bin' "$(readlink -f "$(command -v pn)")"
       echo '{}' > package.json
       test "$(pnpm exec node --version)" = "$(node --version)"
     '';
@@ -163,6 +169,24 @@ in
     assert toolchain.packageManager.version == version;
     nodeRun "pnpm-exact" toolchain ''
       pnpm --version | grep -qx '${version}'
+    '';
+
+  # pnpm's GitHub release assets hold only the binary; the aliases its npm
+  # package installs must still resolve in a dev shell, for both the raw
+  # binary (pnpm 10) and the tarball (pnpm 12) layouts.
+  node-pnpm-aliases =
+    let
+      toolchain = node.toolchain {
+        vitePlus = false;
+        packageManager = "pnpm@${pmPins.pnpm."12".version}";
+      };
+    in
+    nodeRun "pnpm-aliases" toolchain ''
+      test "$(pnpm --version)" = '${pmPins.pnpm."12".version}'
+      test "$(pn --version)" = "$(pnpm --version)"
+      test "$(pnx --version)" = "$(pnpm --version)"
+      test "$(pnpx --version)" = "$(pnpm --version)"
+      grep -q '${toolchain.node}/bin' "$(readlink -f "$(command -v pnx)")"
     '';
 
   # The other pinned majors resolve on this node without being built, and the
@@ -219,7 +243,13 @@ in
       ''
         export HOME=$TMPDIR
         ${pnpm10}/bin/pnpm --version | grep -q '^${pmPins.pnpm."10".version}$'
+        ${pnpm10}/bin/pn --version | grep -q '^${pmPins.pnpm."10".version}$'
+        ${pnpm10}/bin/pnx --help | grep -q 'Usage: pnpm dlx'
+        ${pnpm10}/bin/pnpx --help | grep -q 'Usage: pnpm dlx'
         ${pnpm11}/bin/pnpm --version | grep -q '^${pmPins.pnpm."11".version}$'
+        ${pnpm11}/bin/pn --version | grep -q '^${pmPins.pnpm."11".version}$'
+        ${pnpm11}/bin/pnx --help | grep -q 'Usage: pnpm dlx'
+        ${pnpm11}/bin/pnpx --help | grep -q 'Usage: pnpm dlx'
         ${classic}/bin/yarn --version | grep -q '^${pmPins.yarn."1".version}$'
         ${berry}/bin/yarn --version | grep -q '^${pmPins.yarn."4".version}$'
         ${bun}/bin/bun --version | grep -q '^${pmPins.bun."1".version}$'

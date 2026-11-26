@@ -527,6 +527,34 @@ mod tests {
 
     #[test]
     #[cfg(unix)]
+    fn follows_pnpm_alias_wrappers_to_their_wrapped_binary() {
+        // makeWrapper's pn/pnx/pnpx wrappers are the same shape as pnpm's: a
+        // small shell script naming its .<name>-wrapped native binary. Doctor
+        // must classify all four alike, so an alias never gets a different
+        // "which Node.js runs this?" line than pnpm itself.
+        let root = scratch("pnpm-alias-wrappers");
+        let bin = root.join("bin");
+        let node_dir = "/nix/store/00000000000000000000000000000000-nodejs-22.14.0/bin";
+        for name in ["pnpm", "pn", "pnx", "pnpx"] {
+            let wrapped = bin.join(format!(".{name}-wrapped"));
+            write_executable(
+                &bin.join(name),
+                format!(
+                    "#!/bin/bash -e\nPATH={node_dir}\nexec -a \"$0\" \"{}\" \"$@\"\n",
+                    wrapped.display()
+                )
+                .as_bytes(),
+            );
+            write_executable(&wrapped, b"\x7fELF\x02\x01\x01");
+        }
+        for name in ["pnpm", "pn", "pnx", "pnpx"] {
+            assert_eq!(manager_node(&bin.join(name)), ManagerNode::Native, "{name}");
+        }
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    #[cfg(unix)]
     fn checks_the_node_and_its_copies() {
         let root = scratch("node-checks");
         let (first, second, project) = (root.join("first"), root.join("second"), root.join("p"));

@@ -88,6 +88,19 @@ stdenv.mkDerivation {
       + ''
         makeWrapper $out/libexec/pnpm/pnpm $out/bin/pnpm \
           --prefix PATH : ${lib.makeBinPath [ nodejs ]}
+        # The npm package installs pn (pnpm) and pnx/pnpx (pnpm dlx) beside
+        # pnpm, and nixpkgs does the same. GitHub's release assets hold only
+        # the binary, so make those aliases here too: Node.js 25 and later
+        # ship no corepack to create them, and a dev shell or Home Manager
+        # user has no npm global install to bring them in.
+        makeWrapper $out/libexec/pnpm/pnpm $out/bin/pn \
+          --prefix PATH : ${lib.makeBinPath [ nodejs ]}
+        makeWrapper $out/libexec/pnpm/pnpm $out/bin/pnx \
+          --add-flags dlx \
+          --prefix PATH : ${lib.makeBinPath [ nodejs ]}
+        makeWrapper $out/libexec/pnpm/pnpm $out/bin/pnpx \
+          --add-flags dlx \
+          --prefix PATH : ${lib.makeBinPath [ nodejs ]}
       ''
     else if name == "bun" then
       # bun is not an npm package: GitHub's release ships a zip per platform,
@@ -126,6 +139,12 @@ stdenv.mkDerivation {
     runHook preInstallCheck
     export HOME=$TMPDIR
     $out/bin/${exe} --version
+  ''
+  + lib.optionalString (name == "pnpm") ''
+    # pnx/pnpx add `dlx`, whose --version is not the pnpm version on 10.
+    test "$($out/bin/pn --version)" = "$($out/bin/pnpm --version)"
+    $out/bin/pnx --help | grep -q 'Usage: pnpm dlx'
+    $out/bin/pnpx --help | grep -q 'Usage: pnpm dlx'
   ''
   + lib.optionalString (name == "pnpm" && !pnpmBinary) ''
     test -x $out/libexec/pnpm/dist/node-gyp-bin/node-gyp
