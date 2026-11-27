@@ -23,8 +23,10 @@ use std::collections::{HashMap, HashSet};
 use std::env;
 use std::ffi::OsString;
 use std::fs;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode};
+use std::process::{Command, ExitCode, Output};
+use std::time::Duration;
 
 use anyhow::Result;
 
@@ -161,11 +163,7 @@ fn stdout_of(
     args: &[&str],
     envs: &[(&str, &str)],
 ) -> Option<String> {
-    match Command::new(exe)
-        .args(args)
-        .envs(envs.iter().copied())
-        .output()
-    {
+    match run_output(exe, args, envs) {
         Ok(output) if output.status.success() => {
             Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
         }
@@ -181,6 +179,29 @@ fn stdout_of(
         Err(err) => {
             checks.error(format!("cannot run {}: {err}", exe.display()));
             None
+        }
+    }
+}
+
+/// `exe args`, retrying a transient `ETXTBSY`. On Linux a process can
+/// exec a file another thread just finished writing or chmodding only to be
+/// told "text file busy"; a few short retries ride out the writer finishing,
+/// and a persistently busy executable still fails. The spawn is rebuilt each
+/// attempt, so nothing about the call changes.
+fn run_output(exe: &Path, args: &[&str], envs: &[(&str, &str)]) -> std::io::Result<Output> {
+    const RETRIES: u32 = 3;
+    let mut attempt = 0;
+    loop {
+        match Command::new(exe)
+            .args(args)
+            .envs(envs.iter().copied())
+            .output()
+        {
+            Err(err) if err.kind() == ErrorKind::ExecutableFileBusy && attempt < RETRIES => {
+                attempt += 1;
+                std::thread::sleep(Duration::from_millis(5 * u64::from(attempt)));
+            }
+            result => return result,
         }
     }
 }

@@ -1,0 +1,10 @@
+# `damon` is a real nixpkgs package (damon-0-unstable-2021-10-06); typos does
+# not know the word yet, so the hashi template's package is allowed.
+# `hashi` is that template's directory (the template itself is `hash`);
+# without it, typos rewrites the name in tests/init.nix and breaks the check.
+[default.extend-words]
+damon = "damon"
+hashi = "hashi"
+# `pn` is pnpm's short alias, not a typo for `on`; typos rewrites it in the
+# alias wrappers and their checks.
+pn = "pn"

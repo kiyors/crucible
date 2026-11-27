@@ -358,7 +358,7 @@ signature is not verified locally), bun from oven-sh/bun's `SHASUMS256.txt` (an 
 file trusted over HTTPS, unlike Node's GPG-signed one), and yarn from the npm registry's own
 integrity hashes. Every pnpm
 line upstream still releases (10, 11 and 12) is pinned, so `packageManager = "pnpm@12"` selects
-the pinned 12.x, and the exact release the pin holds (`pnpm@12.23.0` today) is that release. An
+the pinned 12.x, and the exact release the pin holds (`pnpm@12.24.0` today) is that release. An
 exact pin follows upstream: when `crucible update` moves the 12.x pin, a project that names the
 old release exactly has to move with it. `packageManager = "bun@1"` resolves
 to the pinned bun: every supported major has one, so it never depends on nixpkgs' one bun. A
